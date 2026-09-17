@@ -1,0 +1,30 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resource/image/block-checked.png</file>
+        <file>resource/image/tractor.png</file>
+        <file>resource/image/positive_1.png</file>
+        <file>resource/image/positive_4.png</file>
+        <file>resource/image/positive_2.png</file>
+        <file>resource/image/positive_5.png</file>
+        <file>resource/image/positive_3.png</file>
+        <file>resource/image/positive_6.png</file>
+        <file>resource/image/reverse_1.png</file>
+        <file>resource/image/reverse_4.png</file>
+        <file>resource/image/reverse_2.png</file>
+        <file>resource/image/reverse_5.png</file>
+        <file>resource/image/reverse_3.png</file>
+        <file>resource/image/reverse_6.png</file>
+        <file>resource/image/outset-failed.png</file>
+        <file>resource/image/outset-finished.png</file>
+        <file>resource/image/outset-running.png</file>
+        <file>resource/image/outset-unstarted.png</file>
+        <file>resource/image/task-block-failed.png</file>
+        <file>resource/image/task-block-finished.png</file>
+        <file>resource/image/task-block-running.png</file>
+        <file>resource/image/task-block-unstarted.png</file>
+        <file>resource/image/alarm.png</file>
+        <file>resource/image/disabled.png</file>
+        <file>resource/image/enabled.png</file>
+        <file alias="style/style.qss">../../common/style.qss</file>
+    </qresource>
+</RCC>

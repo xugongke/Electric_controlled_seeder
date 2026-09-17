@@ -1,0 +1,40 @@
+V1.8版本中增加了EEPROM改为内部FLASH方式选择，针对EEPROM损坏的情况
+ee_24cxx.h 文件中打开如下宏定义使能该功能，默认不使能
+//#define FLASH_SIMU_EEPROM  1 /*是否使用FLASH模拟EEPROM*/
+
+
+v1.2 20240307
+针对新修改电路板 步进电机驱动电路取消掉一级反转逻辑，修改步进电机默认电平状态为低电平
+
+
+1. 在零位时不  至少半圈
+2. 厂家参数  预充种比例70% 可调
+3. 过道中间打点可调
+
+
+
+
+
+普通版玉米
+连续播种 施肥不转或很慢
+
+20260422
+在250415版本上增加宏定义用于切换是否使能预充种比例可调
+
+20260424
+自动供种电机参数写死
+
+work_proc.c 
+ case SEED_WAIT_S_BZP:
+ 播种盘开始转动提前20cm
+  if ((CURR_OFF_LEN+3+20) >= (CELL_OFF + (s32)GlobalPara.A-(s32)GlobalPara.B)){
+                    //等待满足启动播种盘条件
+                    StateChange = TRUE;
+                }
+            }
+            else {//反向
+                if ((CURR_OFF_LEN-3-20) <= (CELL_OFF - ((s32)GlobalPara.A-(s32)GlobalPara.B))){
+                    //等待满足启动播种盘条件
+                    StateChange = TRUE;
+                }
+

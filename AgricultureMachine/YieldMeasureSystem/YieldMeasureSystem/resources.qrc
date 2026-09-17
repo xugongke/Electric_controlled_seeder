@@ -1,0 +1,28 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/images/block-checked.png</file>
+        <file>resources/images/outset-unstarted.png</file>
+        <file>resources/images/outset-finished.png</file>
+        <file>resources/images/outset-running.png</file>
+        <file>resources/images/positive_1.png</file>
+        <file>resources/images/positive_2.png</file>
+        <file>resources/images/positive_3.png</file>
+        <file>resources/images/positive_4.png</file>
+        <file>resources/images/positive_5.png</file>
+        <file>resources/images/positive_6.png</file>
+        <file>resources/images/reverse_1.png</file>
+        <file>resources/images/reverse_2.png</file>
+        <file>resources/images/reverse_3.png</file>
+        <file>resources/images/reverse_4.png</file>
+        <file>resources/images/reverse_5.png</file>
+        <file>resources/images/reverse_6.png</file>
+        <file>resources/images/outset-failed.png</file>
+        <file>resources/images/task-block-finished.png</file>
+        <file>resources/images/task-block-unstarted.png</file>
+        <file>resources/images/task-block-failed.png</file>
+        <file>resources/images/task-block-running.png</file>
+        <file>resources/images/disabled.png</file>
+        <file>resources/images/enabled.png</file>
+        <file alias="style/style.qss">../../common/style.qss</file>
+    </qresource>
+</RCC>

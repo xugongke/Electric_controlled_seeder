@@ -1,0 +1,220 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_adc.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_adc_ex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_cortex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_dma.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_dma_ex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_exti.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_flash.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_flash_ex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_flash_ramfunc.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_gpio.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_iwdg.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_nand.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_pwr.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_pwr_ex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_rcc.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_rcc_ex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_tim.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_tim_ex.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_uart.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_ll_adc.c" />
+    <ClCompile Include="Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_ll_fsmc.c" />
+    <ClCompile Include="Inc\motor.h" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS\cmsis_os.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\croutine.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\event_groups.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\list.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\portable\MemMang\heap_4.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F\port.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\queue.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\stream_buffer.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\tasks.c" />
+    <ClCompile Include="Middlewares\Third_Party\FreeRTOS\Source\timers.c" />
+    <ClCompile Include="Src\app_main.c" />
+    <ClCompile Include="Src\ee_24cxx.c" />
+    <ClCompile Include="Src\ff_time.c" />
+    <ClCompile Include="Src\freertos.c" />
+    <ClCompile Include="Src\i2c_simu.c" />
+    <ClCompile Include="Src\main.c" />
+    <ClCompile Include="Src\motor.c" />
+    <ClCompile Include="Src\operation.c" />
+    <ClCompile Include="Src\para.c" />
+    <ClCompile Include="Src\protocol.c" />
+    <ClCompile Include="Src\rx8025t.c" />
+    <ClCompile Include="Src\stm32f4xx_hal_msp.c" />
+    <ClCompile Include="Src\stm32f4xx_it.c" />
+    <ClCompile Include="Src\system_stm32f4xx.c" />
+    <ClCompile Include="Src\update.c" />
+    <ClCompile Include="Src\user_uart.c" />
+    <ClCompile Include="Src\work_proc.c" />
+    <ClCompile Include="tool_lib\src\buf.c" />
+    <ClCompile Include="tool_lib\src\tlib_bcd.c" />
+    <ClCompile Include="tool_lib\src\tlib_crc.c" />
+    <ClCompile Include="tool_lib\src\tlib_data.c" />
+    <ClCompile Include="tool_lib\src\tlib_time.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Drivers\CMSIS\Device\ST\STM32F4xx\Include\stm32f407xx.h" />
+    <ClInclude Include="Drivers\CMSIS\Device\ST\STM32F4xx\Include\stm32f4xx.h" />
+    <ClInclude Include="Drivers\CMSIS\Device\ST\STM32F4xx\Include\system_stm32f4xx.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\cmsis_armcc.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\cmsis_armclang.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\cmsis_compiler.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\cmsis_gcc.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\cmsis_iccarm.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\cmsis_version.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_armv8mbl.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_armv8mml.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm0.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm0plus.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm1.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm23.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm3.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm33.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm4.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_cm7.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_sc000.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\core_sc300.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\mpu_armv7.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\mpu_armv8.h" />
+    <ClInclude Include="Drivers\CMSIS\Include\tz_context.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\Legacy\stm32_hal_legacy.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_adc.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_adc_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_cortex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_def.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_dma.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_dma_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_exti.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_flash.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_flash_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_flash_ramfunc.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_gpio.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_gpio_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_iwdg.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_nand.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_pwr.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_pwr_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_rcc.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_rcc_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_tim_ex.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_uart.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_ll_adc.h" />
+    <ClInclude Include="Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_ll_fsmc.h" />
+    <ClInclude Include="Inc\dev_if_def.h" />
+    <ClInclude Include="Inc\ee_24cxx.h" />
+    <ClInclude Include="Inc\ff_time.h" />
+    <ClInclude Include="Inc\FreeRTOSConfig.h" />
+    <ClInclude Include="Inc\FSM.h" />
+    <ClInclude Include="Inc\i2c_simu.h" />
+    <ClInclude Include="Inc\main.h" />
+    <ClInclude Include="Inc\operation.h" />
+    <ClInclude Include="Inc\para.h" />
+    <ClInclude Include="Inc\protocol.h" />
+    <ClInclude Include="Inc\rx8025t.h" />
+    <ClInclude Include="Inc\stm32f4xx_hal_conf.h" />
+    <ClInclude Include="Inc\stm32f4xx_it.h" />
+    <ClInclude Include="Inc\type.h" />
+    <ClInclude Include="Inc\update.h" />
+    <ClInclude Include="Inc\user_uart.h" />
+    <ClInclude Include="Inc\work_proc.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\CMSIS_RTOS\cmsis_os.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\croutine.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\deprecated_definitions.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\event_groups.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\FreeRTOS.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\list.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\message_buffer.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\mpu_prototypes.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\mpu_wrappers.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\portable.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\projdefs.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\queue.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\semphr.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\StackMacros.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\stack_macros.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\stream_buffer.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\task.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\include\timers.h" />
+    <ClInclude Include="Middlewares\Third_Party\FreeRTOS\Source\portable\RVDS\ARM_CM4F\portmacro.h" />
+    <ClInclude Include="tool_lib\inc\buf.h" />
+    <ClInclude Include="tool_lib\inc\driver_lib.h" />
+    <ClInclude Include="tool_lib\inc\input_id.h" />
+    <ClInclude Include="tool_lib\inc\tlib_bcd.h" />
+    <ClInclude Include="tool_lib\inc\tlib_crc.h" />
+    <ClInclude Include="tool_lib\inc\tlib_data.h" />
+    <ClInclude Include="tool_lib\inc\tlib_time.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{7FEA638D-938F-49B2-8075-A3E4D2A35D51}</ProjectGuid>
+    <RootNamespace>example_proj</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v110</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v110</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <SDLCheck>true</SDLCheck>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

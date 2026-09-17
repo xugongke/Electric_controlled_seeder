@@ -1,0 +1,57 @@
+# ===== Keil MDK 构建产物 =====
+**/MDK-ARM/hd300x/
+**/MDK-ARM/hd300x_*/
+**/MDK-ARM/bin/
+**/MDK-ARM/Listings/
+**/MDK-ARM/Objects/
+**/MDK-ARM/DebugConfig/
+**/MDK-ARM/RTE/
+JLinkLog.txt
+JLinkSettings.ini
+*.uvguix.*
+*.uvoptx
+*.o
+*.d
+*.crf
+*.axf
+*.lnp
+*.iex
+*.htm
+*.lst
+*.dep
+*.sct.bak
+
+# ===== Visual Studio 用户文件 =====
+*.suo
+*.vcxproj.user
+
+# ===== QT 构建产物 =====
+build-*/
+*.pro.user
+*.pro.user.*
+.qmake.stash
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+Makefile
+
+# ===== Python / 模拟器 =====
+__pycache__/
+*.pyc
+seeder_sim_state.json
+seeder_frames_*.txt
+seeder_debug_*.txt
+_*.log
+
+# ===== HMI 屏工程构建产物 =====
+HIMproject/Project/build/
+
+# ===== 系统杂项 =====
+Thumbs.db
+Desktop.ini
+*.tmp
+~$*
+
+# ===== 本地工具状态 =====
+.zcode
+.zcode/

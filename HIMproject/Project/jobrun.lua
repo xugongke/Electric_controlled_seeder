@@ -1,0 +1,395 @@
+--[[
+jobrun.lua —— 作业调度状态机(B档核心): 逐排预置下发 + 排完成落库 + 断点续作
+================================================================================
+逐分支对齐 QT dialogrealtimetask.cpp:
+  start()      <- :269 signalStartSow(图外起播 :285-300 / AB参考无AB线时更新 :278-284)
+  on_status()  <- :330 signalGetSowStatus 200ms 状态机 (:399-473)
+  stop()       <- :305 signalStopSow(当前块完成则回退 nextPathIndex=tempIndex :306-307)
+  _complete()  <- QT语义: path走完不自动停机, 等操作员手动停止(主页停止按钮->stop收尾)
+  start_node() <- pathalgo.start_node + codec.bzcell.pack -> 0x20
+
+QT 瑕疵修正(有意为之, 与C++差异点):
+  排推进到新列组时同步 currentColumn = path[nextPathIndex].column
+  (QT :469 只更新 row, 列切换瞬间 startNode 仍用旧列密度, 属上游隐患;
+   B档统一 0 基坐标系时一并修正, 见 移植规格-B档冻结.md)
+
+依赖注入 jobrun.init{ APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW,
+                      w16, w32, wstr, now }
+  now() -> "yyyy-MM-dd hh:mm:ss" 字符串(屏端由装配层提供, 单测注入假时钟)
+--]]
+
+local jobrun = {}
+
+local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW
+local w16, w32, wstr, NOW
+
+-- 作业现场(单个活动任务)
+local J = nil
+-- J = { task=名, m=地图, path, ab, next_idx, cur_col, cur_read_row,
+--       enter_map, sow_state, temp_idx, result_t0, fine, disp_row }
+--       disp_row = 最近图内排的显示排号(rows-r), 图外帧主页排号保持该值
+
+local function now_s()
+    if NOW then
+        local ok, s = pcall(NOW)
+        if ok and type(s) == "string" then return s end
+    end
+    return "1970-01-01 00:00:00"
+end
+
+local function log(tag, msg)
+    if LOGGER then LOGGER.log(tag, msg) end
+end
+
+function jobrun.init(deps)
+    APP, PROTOCOL, CODEC = deps.APP, deps.PROTOCOL, deps.CODEC
+    STORE, PATHALGO, LOGGER, LW = deps.STORE, deps.PATHALGO, deps.LOGGER, deps.LW
+    w16, w32, wstr, NOW = deps.w16, deps.w32, deps.wstr, deps.now
+    -- 常驻订阅: 0x21 帧无论当前页都进状态机(作业中切页不丢)
+    APP.sub_always(PROTOCOL.FNC.GET_BZ_STATUS, function(f) jobrun._feed(f) end)
+    return jobrun
+end
+
+function jobrun.active() return J ~= nil end
+
+function jobrun.snapshot()
+    if not J then return nil end
+    local d, tot, pct = STORE.task_progress(J.task)
+    return {
+        task = J.task, map = J.m.name,
+        rows = J.m.rows,
+        cur_row = J.path[J.next_idx] and J.path[J.next_idx].row,
+        cur_col = J.cur_col,
+        done = d, total = tot, pct = pct,
+        sow_state = J.sow_state,
+        trip_wait = J.trip_wait and true or false,
+        completed = J.completed and true or false,
+    }
+end
+
+-------------------------------------------------------------------- 下发封装
+local function send_node(row, column)
+    local p = PATHALGO.start_node(STORE.tasks[J.task], J.m, J.path, row, column, J.ab, J.fine)
+    local ok, bin = pcall(CODEC.bzcell.pack, p)
+    if not ok then
+        log("ERR", "startNode组包失败 r=" .. row)
+        return false
+    end
+    PROTOCOL.send(PROTOCOL.FNC.SET_BZ_PARA, bin)
+    -- QT :318 signalSetSowParameters: 记录当前组起始时间(结果表 startTime)
+    J.result_t0 = now_s()
+    return true
+end
+
+-------------------------------------------------------------------- 推进(共用)
+-- 图内(:264 刚走完 next_idx 排)与图外(边界排落库后)两处殊途同归:
+--   同趟下一排 -> 自动预置(QT :469); 跨列组 -> trip_wait 挂起(对齐 QT 现场
+--   实操: 播完一趟手动按停止, 掉头后再按开始续播); path 走完 -> 完成态收口
+local function advance()
+    if J.next_idx < #J.path then
+        J.next_idx = J.next_idx + 1
+        local np = J.path[J.next_idx]
+        if np.column ~= J.cur_col then
+            -- 跨趟(列组切换): 断点推进到下一趟首节点后挂起, 不自动下发,
+            -- 0x21 只刷显示, 等待主页 停止->开始 (续播参数等价 QT :276/:299
+            -- 由 start(resume) 重新下发, 而非复用 QT :469 的旧列自动 startNode)
+            J.cur_col = np.column
+            J.enter_map = false
+            J.trip_wait = true
+            J.sow_state = false               -- 停推进(等手动), 保留 J
+            local _, _, pct = STORE.task_progress(J.task)
+            log("INF", ("本趟完成 下一趟列组=%d 进度%d%% 请停止后掉头再开始")
+                :format(np.column + 1, pct or 0))
+            jobrun._refresh_ui()
+        else
+            send_node(np.row, J.cur_col)      -- 同趟下一排: QT :469 自动
+            -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
+            -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
+            -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
+            -- mark_dispatched(state=1)打穿该保护, 乱序排帧也会推进落库
+            -- 一路到100%. 2026-09-11 对齐 QT 删预置(用户联调暴露)
+        end
+    else
+        jobrun._complete()                    -- path 走完: 完成态待手动停止
+    end
+end
+
+-------------------------------------------------------------------- 启动(QT :269)
+-- opts: { resume=bool } 续接时 path 进度由 store 断点推
+function jobrun.start(task_name, opts)
+    opts = opts or {}
+    if J then return nil, "已有作业进行中" end
+    local t = STORE.tasks[task_name]
+    if not t then return nil, "任务不存在" end
+    local m = STORE.maps[t.map]
+    if not m then return nil, "地图缺失" end
+
+    local path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
+    if not path then return nil, err end
+
+    -- 断点续作: 找到第一个未完成组的节点作为起点
+    local start_idx = 1
+    if opts.resume then
+        local bet = PATHALGO.block_each_trip(m)
+        for i, pn in ipairs(path) do
+            local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+            if not blk or (blk.sow == 1 and blk.state ~= 2) then
+                start_idx = i
+                break
+            end
+        end
+    end
+
+    -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
+    -- 真机化(2026-09-10): 方向改用 #AB.abdir(QT ABLineDirection bool);
+    -- 此前误用 sdir(StartDir 航向角)==1 恒false, 且 has 未置位,
+    -- 屏端一直按"无AB线"调度(TXFlag/start_pos/翻转全错), sim 不校验故未暴露
+    local ab
+    if m.ab and m.ab.has then
+        ab = { has = true, dir = (m.ab.abdir or 0) == 1,
+               a_row = m.ab.a_row or 0 }
+    else
+        local pn = path[start_idx]
+        ab = { has = false, dir = pn.positive, a_row = pn.row }
+    end
+
+    J = {
+        task = task_name, m = m, path = path, ab = ab,
+        next_idx = start_idx, cur_col = path[start_idx].column,
+        cur_read_row = -1, enter_map = false, sow_state = false,
+        temp_idx = start_idx, fine = STORE.cfg and STORE.cfg.fine_tune or nil,
+        disp_row = m.rows - path[start_idx].row,
+    }
+
+    -- 状态展示: 主页 taskinfo / TW 页
+    if APP then APP.set_always_poll(PROTOCOL.FNC.GET_BZ_STATUS) end
+    log("INF", ("作业启动 %s 地图=%s 路径=%d 起点组=%d"):format(
+        task_name, m.name, t.path_type, start_idx))
+
+    -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
+    local pn = path[J.next_idx]
+    if (t.sow_exceed == 1) then
+        J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
+        J.enter_map = false
+        send_node(J.cur_read_row, J.cur_col)
+    else
+        J.enter_map = true
+        send_node(pn.row, J.cur_col)
+    end
+    -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
+    -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
+    PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
+    J.sow_state = true
+    return true
+end
+
+-------------------------------------------------------------------- 停止(QT :305)
+-- 主页停止按钮唯一收尾入口; 0x0B 无条件急停(含无任务时裸发),
+-- 有作业时回退断点(QT :306-307)+归档+清现场(允许后续新任务/续作)
+-- QT :310-311: 地图无AB线时停止弹"是否保存AB线?" -> Yes 则 0x23 采集
+-- 存图; 组态屏无 Yes/No 弹窗 -> 简化为自动采集保存(应答由 page_home
+-- 收帧后调 save_ab 落盘, 见下)
+local pending_ab = nil            -- { map=地图名, a_row=启动A排, dir=AB方向 }
+
+function jobrun.stop()
+    PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)        -- 0x0B
+    if not J then return true end
+    -- AB线采集(QT signalStopSow :310-311 + 无AB线时启动即更新参考 :278-284:
+    -- a_row/dir 取 J.ab —— 无AB线任务启动时已按起点节点填好)
+    if not (J.m.ab and J.m.ab.has) then
+        pending_ab = { map = J.m.name, a_row = J.ab and J.ab.a_row or 0,
+                       dir = J.ab and J.ab.dir or false }
+        PROTOCOL.send(PROTOCOL.FNC.STORE_AB)       -- 0x23 采集请求
+        log("INF", "地图无AB线, 停止时采集(0x23): " .. J.m.name)
+    end
+    if not J.completed then
+        -- QT :306-307: 停止时当前块已完成则 next_idx 回退到 temp_idx(下次续作起点)
+        local pn = J.path[J.next_idx]
+        if pn then
+            local blk = STORE.tasks[J.task].blocks[pn.row]
+                and STORE.tasks[J.task].blocks[pn.row][J.cur_col]
+            if blk and blk.state == 2 then
+                J.next_idx = J.temp_idx
+            end
+        end
+    end
+    J.sow_state = false
+    log("INF", "作业停止 " .. J.task)
+    jobrun.detach()
+    J = nil
+    return true
+end
+
+-- 保留现场仅停轮询(掉电恢复/页面展示用)
+function jobrun.detach()
+    if APP then APP.set_always_poll(nil) end
+end
+
+-- 0x23 采集应答 -> 写地图 #AB 段并落盘(page_home 收帧后调用)
+-- 等价 QT: signalGetABLine :504 + m.saveABLine; 名称用地图名(QT 弹框输入,
+-- 组态屏无文本输入, 简化); A排/ABDir 用 stop 时快照(启动参考值)
+function jobrun.save_ab(data)
+    if not pending_ab then return nil end
+    local pa = pending_ab
+    pending_ab = nil
+    local ok, p = pcall(CODEC.bdpara.unpack, data)
+    if not ok then log("WRN", "AB线采集应答解析失败") return nil end
+    local m = STORE.maps[pa.map]
+    if not m then log("WRN", "AB线保存失败: 地图缺失 " .. pa.map) return nil end
+    m.ab = { name = m.name,
+             sn = p.StartN, se = p.StartE, en = p.EndBN, ee = p.EndBE,
+             sdir = p.StartDir, cdir = p.CalcDir,
+             a_row = pa.a_row or 0,
+             abdir = pa.dir and 1 or 0, has = true }
+    if STORE.map_save and not STORE.map_save(pa.map) then
+        log("WRN", "AB线落盘失败: " .. pa.map)
+        return nil
+    end
+    log("INF", ("AB线已保存至地图 %s (A排%d %s)"):format(
+        pa.map, pa.a_row or 0, pa.dir and "同向" or "反向"))
+    return true
+end
+
+-------------------------------------------------------------------- 200ms 状态机
+-- QT :330-473 signalGetSowStatus 核心分支(去除拖拉机图标/表格可视化)
+function jobrun._feed(f)
+    local ok, st = pcall(CODEC.bzstatus.unpack, f.data)
+    if not ok then return end
+
+    -- 全局状态区刷新(page_home 等价逻辑, 0x21 被常驻截获后由这里统一供数)
+    -- 2026-09-10 修: 补齐 voff/loufei/louzh(此前作业中漏写 -> 主页列行程恒0、
+    -- 漏种/漏株计数冻结); 排号改显示排号口径(=页面6/QT DisplayRowNum, rows-r),
+    -- 图外帧(RowNum=-1/rows, 出图掉头)保持最近图内值, 不再闪 65535
+    if w16 then
+        w16(LW.A.runstate, st.RunState)
+        w16(LW.A.bdstate,  st.BdState)
+        -- 真机语义(QT :345-356): 有AB线时 VerticalOff 显示前符号翻转
+        --   pathType 0/1/2 且 AB同向 -> 取反; pathType 3/4/5 且 AB反向 -> 取反
+        --   无AB线/无作业: 原值(连续播种页与QT formcontinuoussow同口径)
+        local voff = st.VerticalOff
+        if J and J.ab and J.ab.has and STORE and STORE.tasks[J.task] then
+            local pt = STORE.tasks[J.task].path_type
+            if pt <= 2 then
+                if J.ab.dir then voff = -voff end
+            else
+                if not J.ab.dir then voff = -voff end
+            end
+        end
+        if w32 then
+            w32(LW.A.speed,  st.Speed)
+            w32(LW.A.offlen, st.OffLen)
+            w32(LW.A.voff,   voff)
+        end
+        local rn = st.RowNum
+        if J and J.m and rn >= 0 and rn < J.m.rows then
+            J.disp_row = J.m.rows - rn            -- 图内: 显示排号(1基)
+        end
+        w16(LW.A.rownum, (J and J.disp_row) or rn)
+        for i = 1, CODEC.ROWS do w16(LW.A.loufei + i - 1, st.LoufeiCnt[i]) end
+        w16(LW.A.louzh, st.LouZHCnt[1])
+    end
+
+    if not J then return end
+    if st.RowNum <= -10000000 then return end        -- 未开播哨兵(QT :399)
+    if not J.sow_state then return end
+
+    local t = STORE.tasks[J.task]
+    local m = J.m
+    local rows = m.rows
+    local b = (t.sow_exceed == 1)
+    local bet = PATHALGO.block_each_trip(m)
+
+    if st.RowNum < 0 or st.RowNum >= rows then
+        ---- 图外: 边界排完成(QT :403-409, 仅 setBlockState=2, 不推进不下发)
+        if J.cur_read_row == 0 or J.cur_read_row == rows - 1 then
+            STORE.task_mark_row_done(J.task, J.cur_read_row, J.cur_col, {}, now_s())
+            -- 2026-09-11 二修(用户联调暴露: sim 重启行程归零后仍推到100%):
+            --  此前此处补 advance() 想让"趟末出图帧即挂起", 但 QT 没有 ——
+            --  sim 无 0x20 时按里程自走, RowNum 涨过边界 -> 图外 advance ->
+            --  send_node 重发 0x20 重新引导 sim, 行程不符推进链复活;
+            --  QT 仅置 state=2 挂住。删 advance 对齐(趟完成提示改由完成率
+            --  停滞表达, 与 QT 一致; 续作起点仍有 stop 回退+resume 扫描双保险)
+            local d, tot = STORE.task_progress(J.task)
+            if d >= tot then jobrun._complete() end
+        end
+        if b and st.RowNum ~= J.cur_read_row then
+            send_node(st.RowNum, J.cur_col)          -- 图外逐排推进
+        end
+    else
+        ---- 图内(QT :411-470)
+        local pn = J.path[J.next_idx]
+        if not pn then jobrun._complete(); return end
+
+        -- QT :413-415: 记录最新完成排, temp_idx=该节点在path中的下一个
+        local ti = jobrun._index_of(st.RowNum, J.cur_col)
+        if ti then
+            J.temp_idx = ti % #J.path + 1
+            t.last_r, t.last_c = st.RowNum, J.cur_col
+        end
+
+        local sow_flag = PATHALGO.is_sow(t, m, pn.row, J.cur_col, b)
+
+        -- QT :446-458: 正在播 next_idx 排
+        if st.RowNum == pn.row then
+            if not J.enter_map then
+                send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
+                J.enter_map = true
+            end
+            if sow_flag then STORE.task_mark_dispatched(J.task, pn.row, J.cur_col) end
+        -- QT :459-470: 刚走完 next_idx 排 → 记结果 + 推进
+        elseif (function()
+                    local blk = t.blocks[pn.row] and t.blocks[pn.row][J.cur_col]
+                    return (blk and (blk.state == 1 or blk.state == 2)) or not sow_flag
+                end)() then
+            if sow_flag then
+                -- QT :422-445: currentResult[i] 穴数/肥数取自 LouZHCnt/LoufeiCnt
+                local ents = {}
+                for i = 0, bet - 1 do
+                    local seed, fert = {}, {}
+                    local base = i * (m.block_col or 1)
+                    for k = 0, (m.block_col or 1) - 1 do
+                        seed[k + 1] = st.LouZHCnt[base + k + 1] or 0
+                        fert[k + 1] = st.LoufeiCnt[base + k + 1] or 0
+                    end
+                    ents[i + 1] = { state = 2, start_t = J.result_t0 or now_s(),
+                                    end_t = now_s(), seed = seed, fert = fert }
+                end
+                STORE.task_mark_row_done(J.task, pn.row, J.cur_col, ents, now_s())
+            end
+            -- 推进(QT :469 + B档修正: 同步 currentColumn; 跨趟挂起见 advance)
+            advance()
+        end
+    end
+    J.cur_read_row = st.RowNum
+    jobrun._refresh_ui()
+end
+
+-- QT :1106 getIndex: path 中找 {row,column} 节点序号
+function jobrun._index_of(row, column)
+    for i, pn in ipairs(J.path) do
+        if pn.row == row and pn.column == column then return i end
+    end
+    return nil
+end
+
+-- 路径全程走完(对齐 QT: 即使100%也不自动停机/不停轮询, 拖拉机仍在
+-- 行驶需持续刷新状态; 由操作员按主页"停止"按钮 -> jobrun.stop() 收尾归档)
+function jobrun._complete()
+    J.completed = true
+    J.sow_state = false                            -- 停推进, 不再下发新节点
+    if STORE then STORE.task_save(J.task) end
+    log("INF", "作业完成(待手动停止) " .. J.task)
+    jobrun._refresh_ui()
+end
+
+-- 主页进度文本 LW.A.taskinfo: "任务1 12/24 50%"
+function jobrun._refresh_ui()
+    if not (wstr and J) then return end
+    local d, tot, pct = STORE.task_progress(J.task)
+    local s = ("%s %d/%d %d%%"):format(J.task, d, tot, pct)
+    if J.completed then s = s .. " 已完成"
+    elseif J.trip_wait then s = s .. " 本趟完成" end
+    wstr(LW.A.taskinfo, s)
+end
+
+return jobrun

@@ -1,0 +1,10 @@
+root = true
+
+[*]
+charset = utf-8
+
+# 屏端 lua 真源统一 GB2312/GBK: 与大彩屏字符串/文件名/下位机协议编码一致
+# (VSCode 需安装 EditorConfig 插件; 内置 files.encoding 已按 [lua] 锁 gbk)
+[*.lua]
+charset = gbk
+end_of_line = lf

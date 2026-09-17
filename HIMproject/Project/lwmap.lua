@@ -1,0 +1,253 @@
+--[[
+lwmap.lua —— LW/RW 变量地址规划单一来源（所有页面模块引用此处，禁止散落定义）
+================================================================================
+约定:
+  1. LW 地址一律十六进制; 用户区 >= 0x1000, 系统区 (<0x1000) 禁写
+  2. VisualHMI 控件属性里的变量地址按十六进制解释(填"1019"=绑定0x1019),
+     故常量必须用 0x 字面量, 与控件绑定值严格一致
+  3. 【实测禁用地址】0x1000/0x1001(页面号系统寄存器)与 0x1016 写入无效/被系统覆盖
+  4. i32 变量占两个 LW(小端), 规划时预留连续两字
+  5. 本文件是绑定表生成器数据源: 改地址必须同步改 VisualHMI 控件绑定
+  6. 【LW 最小单元 16 位】一个 LW 地址 = 2 字节, 控件无 u8 类型, 最小 UINT16;
+     注释中的 "u8" 指下位机协议字段宽度(1 字节), LW 侧以 16 位承载取值 0/1,
+     控件数据类型一律配 UINT16, lua 读写一律 r16/w16
+
+分区规划(用户区 0x1000~):
+  0x1002~0x102F  全局状态区 A_*(跨页面可见: 状态/诊断/版本/提示)
+  0x1030~0x10FF  预留(全局扩展)
+  0x1100~0x11FF  全局按钮区 B_*(写1触发, 代码自动复位)
+  0x1200~0x12FF  页面0 主页扩展(状态显示走全局区, 暂未占用)
+  0x1300~0x13FF  页面1 小区参数 LW.CELL
+  0x1400~0x14FF  页面2 连续播种 LW.CONT
+  0x1500~0x15FF  页面3 AB线 LW.AB
+  0x1600~0x16FF  页面4 参数页 LW.PF / LW.PU
+  0x1700~0x17FF  页面5 测试诊断 LW.TD
+  0x1800~0x18FF  页面6 任务向导 LW.TW (B档新增: U盘CSV地图导入+4步向导)
+  0x1900~0x19FF  页面7 历史记录 LW.HIST (B档新增: 分页列表+明细+U盘导出)
+  0x1A00~0x1AFF  页面8 日志查看 LW.LOGV (B档新增: 日志留痕查看/导出)
+  0x1B00~0x1FFF  预留(页面扩展)
+--]]
+
+local LW = {}
+
+--==================== 画面号(与 VisualHMI 画面配置一致) ====================
+LW.SCREEN = {
+    HOME       = 0,   -- 主页(作业监视+启停)
+    CELLPARA   = 1,   -- 小区播种参数
+    CONTINUOUS = 2,   -- 连续播种
+    ABLINE     = 3,   -- AB线管理
+    PARAMS     = 4,   -- 厂家/用户参数
+    TESTDIAG   = 5,   -- 测试诊断
+    TASK       = 6,   -- 任务向导(B档新增: 选地图/AB线/路径/起点, 含U盘导入)
+    HISTORY    = 7,   -- 历史记录(B档新增)
+    LOGVIEW    = 8,   -- 日志查看(B档新增)
+}
+
+--==================== 全局状态区(0x1002~0x102F) ====================
+-- 与 POC 阶段 main.lua 实测可用地址保持一致(勿动已验证地址)
+LW.A = {
+    speed    = 0x1002, -- i32 速度 mm/s       (占 0x1002~0x1003) 画面配3位小数->m/s(QT同口径)
+    rownum   = 0x1004, -- u16 当前排号(显示排号rows-r,作业中图外保持最近图内值)
+    offlen   = 0x1005, -- i32 AB行程偏移cm    (占 0x1005~0x1006) 画面配2位小数->m(=QT排行程)
+    voff     = 0x1007, -- i32 垂直偏移cm      (占 0x1007~0x1008) 画面配2位小数->m(=QT列行程)
+    loufei   = 0x1009, -- u16 x4 漏种计数1~4行 (0x1009~0x100C)
+    louzh    = 0x100D, -- u16 漏株计数(第1行)
+    -- 0x100E~0x1013 预留(漏株2~4行扩展)
+    tx_cnt   = 0x1014, -- u16 发帧计数(lua心跳, on_run活着就会动)
+    rx_cnt   = 0x1015, -- u16 收帧计数
+    -- 0x1016 【实测禁用】写入无效
+    diag     = 0x1017, -- u16 诊断码(见 app.lua APP.diag)
+    txfn     = 0x1018, -- u16 发送函数探测 1=uart_send 2=uart_send_data 0=都没有
+    runstate = 0x1019, -- u16 作业状态 RunState
+    bdstate  = 0x101A, -- u16 北斗状态 BdState
+    ack      = 0x101B, -- u16 最近命令应答(1成功/0失败)
+    -- tip/ver 为字符串变量, set_string 按串长写入不清尾, 必须留足隔离区:
+    -- "√ 下发小区参数"=15B 需 8 个 LW 字(0x101C~0x1023); 旧规划 tip 只有
+    -- 4 字, 溢出踩 ver(0x1020) 造成两串互染(主页"√下发蠕OC-SIM"乱码实锤)
+    tip      = 0x101C, -- 字符串 操作提示(ack 弹窗文本, 占0x101C~0x1023 共8字)
+    ver      = 0x1024, -- 字符串 下位机版本号(0xA3, 占0x1024~0x102B 共8字;
+                       --   原0x1020已废, 画面0版本文本控件绑定须改0x1024)
+    log      = 0x1060, -- 字符串 调试信息(0x22)/模块加载错误详情
+    taskinfo = 0x1030, -- 字符串 主页任务进度文本(B档: "任务1 12/24 50%", 占0x1030~0x104F)
+}
+
+--==================== 全局按钮区(0x1100~, 写1触发自动复位) ====================
+LW.B = {
+    start    = 0x1100, -- 启动小区播种  -> 0x0A
+    stop     = 0x1101, -- 停止播种      -> 0x0B
+    ver      = 0x1102, -- 查询版本      -> 0xA3
+    debug    = 0x1103, -- 读调试信息    -> 0x22
+    -- 0x1104+ 预留给全局导航按钮(各页面跳转由画面配置直接实现, 不占LW)
+}
+
+--==================== 页面1 小区播种参数(0x1300~, BZCellParaType 表单) ====================
+-- i32 字段占2字(偶地址起); u8 标志用开关控件; 表单值由数值输入控件写入
+LW.CELL = {
+    txflag        = 0x1300, -- u8 开关  TXFlag 播种方向与AB线 0反向/1同向(TX=同向,非透传)
+    finalflag     = 0x1301, -- u8 开关  FinalFlag 1=当前小区是本排最后一小区(过道停投种)
+    nextfinalflag = 0x1302, -- u8 开关  NextFinalFlag 1=下一小区是下一排最后一小区
+    afternextzone = 0x1303, -- u8 开关  isAfterNextZoneSow 1=当前排+2的排仍播种(提前启机构)
+    rownum        = 0x1304, -- i32 当前排号 RowNum
+    ins           = 0x1306, -- i32 InS
+    density       = 0x1308, -- i32 x4 当前排密度[1..4] (0x1308~0x130F)
+    celllen       = 0x1310, -- i32 小区长度 CellLen
+    startpos      = 0x1312, -- i32 起始位置 StartPOS
+    disprownum    = 0x1314, -- i32 显示排号 DisplayRowNum
+    nextrownum    = 0x1316, -- i32 下一排号
+    nextins       = 0x1318, -- i32 NextInS
+    nextdensity   = 0x131A, -- i32 x4 下一排密度[1..4] (0x131A~0x1321)
+    nextcelllen   = 0x1322, -- i32 下一排小区长度
+    nextstartpos  = 0x1324, -- i32 NextCellStartPOS
+    nextdisprow   = 0x1326, -- i32 下一排显示排号
+    send          = 0x1330, -- 按钮 下发参数 -> 0x20 (读表单组包, 前端校验)
+}
+
+--==================== 页面2 连续播种(0x1400~, LXBZParaType 12B) ====================
+LW.CONT = {
+    density = 0x1400,     -- i32 密度 Density
+    celllen = 0x1402,     -- i32 行长 CellLen
+    hju     = 0x1404,     -- i32 行距 Hju(i16域, 下发截断)
+    zhushu  = 0x1406,     -- u32 株数 ZhuShu(u16域, 下发截断)
+    start   = 0x1410,     -- 按钮 启动连续播种 -> 0x11
+    stop    = 0x1411,     -- 按钮 停止连续播种 -> 0x12
+}
+
+--==================== 页面3 AB线(0x1500~, BDParaType 56B) ====================
+-- double/float 屏端无原生控件: lua 读值后 string.format 写字符串控件显示
+LW.AB = {
+    startn      = 0x1500, -- 字符串 StartN 起点纬度
+    starte      = 0x1502, -- 字符串 StartE 起点经度
+    endbn       = 0x1504, -- 字符串 EndBN 终点纬度
+    endbe       = 0x1506, -- 字符串 EndBE 终点经度
+    startdir    = 0x1508, -- 字符串 StartDir 起始方向角
+    calcdir     = 0x150A, -- 字符串 CalcDir 计算方向角
+    startstate  = 0x150C, -- u16 StartState
+    calcdirflag = 0x150D, -- u16 CalcDirFlag
+    offlen      = 0x150E, -- u16 OffLen 偏移量
+    bdofftime   = 0x150F, -- u16 BDOffTime
+    capture     = 0x1520, -- 按钮 触发采集 -> 0x23 (下位机回当前AB线)
+    send        = 0x1521, -- 按钮 下发AB线 -> 0x24 (组包56B)
+    save        = 0x1522, -- 按钮 保存到RW(掉电持久化)
+    load        = 0x1523, -- 按钮 从RW读回(验证持久化, 测试用)
+    rw_magic    = 0x0000, -- RW区 AB线有效标志 0x55AA(见 LW.RW)
+}
+
+--==================== 页面4 参数页(0x1600~, TerParaType 40B + UserParaType 16B) ====================
+-- 范围/默认值列由 params 任务从 hd3005a1/Src/para.c ParaLegalCheck 核对后固化
+LW.PF = {                  -- 厂家参数(只读展示+授权后可写)
+    a           = 0x1600,  -- i16 A
+    b           = 0x1601,  -- i16 B
+    encodenum   = 0x1602,  -- u16 EncodeNum 编码器脉冲
+    encoderdir  = 0x1603,  -- u8 开关 EncoderDir
+    holenum     = 0x1604,  -- u8 HoleNum 排种盘孔数
+    gearratio   = 0x1605,  -- u16 GearRatio 传动比
+    microstep   = 0x1606,  -- i16 MicroStepValue 细分
+    x1          = 0x1607,  -- i16 X1
+    bdiroff     = 0x1608,  -- i16 BDiroff 北斗偏移
+    tapptrigoff = 0x1609,  -- i16 TappTrigOff
+    tappertime  = 0x160A,  -- u16 TapperTime
+    zeroposen   = 0x160B,  -- u8 开关 ZeroPosEn
+    gzen        = 0x160C,  -- u8 开关 GZEn
+    prepercent  = 0x160D,  -- u8 PrePercent 预压比
+    read        = 0x1640,  -- 按钮 读厂家参数 -> 0x26
+    write       = 0x1641,  -- 按钮 写厂家参数 -> 0x25 (读表单+范围校验)
+    pass        = 0x1650,  -- u32 密码输入(数值输入, 占2字; Qt端密码同源)
+    unlock      = 0x1652,  -- 按钮 解锁厂家参数(校验密码, 通过后放行写)
+                           -- 【勿放0x1651】pass占0x1650~51, 0x1651是其高字, 写密码会误触发
+}
+LW.PU = {                  -- 用户参数
+    dztime       = 0x1620, -- u16 DZTime 点滞时间
+    hj           = 0x1621, -- i16 HJ
+    rmp          = 0x1622, -- u32 RMP (占2字)
+    antennatype  = 0x1624, -- u8 AntennaType 天线类型
+    antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
+    read         = 0x1642, -- 按钮 读用户参数 -> 0x28
+    write        = 0x1643, -- 按钮 写用户参数 -> 0x27
+}
+
+--==================== 页面5 测试诊断(0x1700~, TestModeStateType 4行52B) ====================
+LW.TD = {
+    encodercnt = 0x1700,   -- u32 编码器计数(占2字)
+    bdcnt      = 0x1702,   -- u32 北斗计数(占2字)
+    loufei     = 0x1704,   -- u32 x4 漏种计数[1..4] (0x1704~0x170B)
+    louzh      = 0x170C,   -- u32 x4 漏株计数[1..4] (0x170C~0x1713)
+    input      = 0x1714,   -- u32 IO输入位图(位指示灯 x32)
+    warning    = 0x1716,   -- u32 报警位图(位指示灯 x32)
+    ctrl       = 0x1718,   -- u32 输出位图(位指示灯 x32)
+    -- 调试信息字符串复用全局 LW.A.log(0x1060)
+    enter      = 0x1740,   -- 按钮 进入测试模式 -> 0x0E
+    exit       = 0x1741,   -- 按钮 退出测试模式 -> 0x0F
+    jogno      = 0x1742,   -- u16 点动通道号 CtrlNo(数值输入, 0~31 位)
+    jogon      = 0x1743,   -- u16 点动 State 原值透传(下位机主循环消费, 屏端不解释)
+    jogtrig    = 0x1744,   -- 按钮 触发点动 -> 0x09 (组包 TestCMDType)
+    debug      = 0x1745,   -- 按钮 读调试信息 -> 0x22
+}
+
+--==================== 页面6 任务向导(0x1800~0x18FF, B档新增) ====================
+-- 4步状态机: 1选地图 2选AB线 3选路径方式 4选起始小区
+-- 列表交互: 多行字符串控件(选中行前缀">")+上下移按钮, 不依赖触摸列表
+-- 字符串占用说明: 占用字数=控件"最大字符数"配置, GB2312下1汉字=2字节=1LW,
+--   表内注释跨度为规划上限, 控件配置不得超过
+LW.TW = {
+    step       = 0x1800, -- u16 向导步骤 1~4
+    tstate     = 0x1801, -- u16 任务状态 0=无 1=向导中 2=作业中 3=已完成
+    count      = 0x1802, -- u16 当前列表可选项数
+    selidx     = 0x1803, -- u16 列表选中项(0基)
+    listtop    = 0x1804, -- u16 列表窗口首项(0基, 滚动)
+    path_type  = 0x1805, -- u16 路径方式0~5(步骤3数值输入: 0梭形/1同向/2中间左/3右梭/4右同/5中间右)
+    positive   = 0x1806, -- u16 行进方向 0=正向 1=反向(步骤3开关)
+    start_row  = 0x1807, -- u16 起始小区排(1基显示号, 步骤4数值输入, 默认=算法起点)
+    start_col  = 0x1808, -- u16 起始小区列(1基, 步骤4数值输入)
+    cur_row    = 0x1809, -- u16 作业中: 当前排(显示号)
+    cur_col    = 0x180A, -- u16 作业中: 当前列(1基)
+    done_cnt   = 0x180B, -- u16 已完成小区数
+    total_cnt  = 0x180C, -- u16 总小区数
+    pct        = 0x180D, -- u16 完成率%
+    sow_exceed = 0x180E, -- u16 图外播种开关 0=关 1=开(对齐QT checkBoxSowExceedMap, startNode density()的b参数)
+    mapinfo    = 0x1810, -- 字符串 地图规格摘要(规划占0x1810~0x181F, 16字)
+    detail     = 0x1820, -- 字符串 选中项详情(规划占0x1820~0x183F, 32字)
+    list       = 0x1840, -- 字符串 列表多行文本(规划占0x1840~0x187F, 64字≈6行)
+    btn_up     = 0x1880, -- 按钮 选项上移
+    btn_down   = 0x1881, -- 按钮 选项下移
+    btn_sel    = 0x1882, -- 按钮 选中/进入下一步
+    btn_prev   = 0x1883, -- 按钮 上一步
+    btn_ok     = 0x1884, -- 按钮 创建任务(步骤4)
+    btn_cancel = 0x1885, -- 按钮 取消向导
+    btn_resume = 0x1886, -- 按钮 续接未完成任务
+    btn_import = 0x1887, -- 按钮 扫描U盘导入地图(步骤1)
+}
+
+--==================== 页面7 历史记录(0x1900~0x19FF, B档新增) ====================
+LW.HIST = {
+    count    = 0x1900, -- u16 任务总数
+    selidx   = 0x1901, -- u16 选中任务(0基)
+    listtop  = 0x1902, -- u16 列表窗口首项(0基)
+    list     = 0x1910, -- 字符串 任务列表(规划占0x1910~0x194F, 64字≈6行)
+    detail   = 0x1950, -- 字符串 任务明细多行(规划占0x1950~0x19BF, 112字≈8行: 各排穴数/肥数)
+    btn_up   = 0x19C0, -- 按钮 上移
+    btn_down = 0x19C1, -- 按钮 下移
+    btn_view = 0x19C2, -- 按钮 查看明细
+    btn_exp  = 0x19C3, -- 按钮 导出CSV到U盘
+    btn_del  = 0x19C4, -- 按钮 删除任务
+}
+
+--==================== 页面8 日志查看(0x1A00~0x1AFF, B档新增) ====================
+LW.LOGV = {
+    count     = 0x1A00, -- u16 日志总条数
+    view      = 0x1A10, -- 字符串 日志窗口多行(规划占0x1A10~0x1A9F, 144字≈8行)
+    btn_up    = 0x1AB0, -- 按钮 上翻页
+    btn_down  = 0x1AB1, -- 按钮 下翻页
+    btn_top   = 0x1AB2, -- 按钮 跳到最新
+    btn_clear = 0x1AB3, -- 按钮 清空日志
+    btn_exp   = 0x1AB4, -- 按钮 导出日志到U盘
+}
+
+--==================== RW 掉电保持区(0x0000~0x7FFF, 64KB 按扇区) ====================
+-- 注意: 标志位与数据须同 4KB 扇区; 上电读 0xFFFF 须恢复默认; 严禁高频写
+-- AB线 BDParaType 56B=28字: magic(0x55AA) + 完整 pack 镜像(CrcCheck置0)
+LW.RW = {
+    ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
+    ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
+}
+
+return LW
