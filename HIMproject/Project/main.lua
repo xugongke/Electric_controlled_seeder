@@ -377,7 +377,7 @@ protocol.lua —— 电控播种机 0x68 协议帧引擎（纯逻辑，无平台依赖）
   +------+-----+-------------+------+---------------+------+
   CRC: CRC-16/CCITT 反射式（KERMIT 变体，初值 0x0000，无异或输出）
        计算范围: 从帧头 0x68 到 Data 末尾（不含 CRC 与 0x0D）
-       标准校验值: CRC16("123456789") == 0x31C3
+       标准校验值: CRC16("123456789") == 0x2189   (0x31C3 是XMODEM的值, 勿混淆)
 
 用法（大彩 VisualHMI 屏端，副串口 ch1）:
     -- main.lua:
@@ -605,6 +605,14 @@ local codec = {}
 
 local ROWS = 4   -- 当前变体行数，init() 可改
 
+-- 平台兼容: string.rep 屏端不可用(文档LUA/000_Lua_Api), 手写等价实现
+-- (定义须在 codec.init 之前, init 的函数体词法引用本局部)
+local function reps(c, n)
+    local t = {}
+    for i = 1, n do t[i] = c end
+    return table.concat(t)
+end
+
 function codec.init(cfg)
     cfg = cfg or {}
     if cfg.rows ~= 4 and cfg.rows ~= 6 then
@@ -614,12 +622,17 @@ function codec.init(cfg)
     codec.ROWS = ROWS
     -- 重建依赖行数的格式串
     codec.bzcell.size  = 44 + 8 * ROWS
-    codec.bzcell.fmt   = "<BBBB" .. "ii" .. ("i"):rep(ROWS) .. "iii"
-                                  .. "ii" .. ("i"):rep(ROWS) .. "iii"
-    codec.bzstatus.size  = 52 + 8 * ROWS
-    codec.bzstatus.fmt   = "<BBBBiiii" .. ("I"):rep(2 * ROWS) .. "iiiiiiii"
+    codec.bzcell.fmt   = "<BBBB" .. "ii" .. reps("i", ROWS) .. "iii"
+                                  .. "ii" .. reps("i", ROWS) .. "iii"
+    -- BZStatus: 尾部 Resv2 长度随行数变化 (hd3005a2 para.h: Resv2[8-(LINE_NUM-4)*2])
+    --   4行: Resv2[8] -> 84B;  6行(a2真机): Resv2[4] -> 84B
+    --   (上位机 protocol.h 的 Resv2[8] 恒100B 只是 memcpy 超读口径, 固件从不发100B)
+    local resv2 = 8 - (ROWS - 4) * 2
+    codec.bzstatus.size  = 20 + 8 * ROWS + 4 * resv2
+    codec.bzstatus.resv2 = resv2
+    codec.bzstatus.fmt   = "<BBBBiiii" .. reps("I", 2 * ROWS) .. reps("i", resv2)
     codec.teststate.size = 20 + 8 * ROWS
-    codec.teststate.fmt  = "<II" .. ("I"):rep(2 * ROWS) .. "III"
+    codec.teststate.fmt  = "<II" .. reps("I", 2 * ROWS) .. "III"
 end
 codec.ROWS = ROWS
 
@@ -627,6 +640,17 @@ codec.ROWS = ROWS
 -- 通用: 按字段表 + 格式串生成 pack/unpack
 --   fields: 有序字段名; fmt: string.pack 格式串; size: 字节数
 --------------------------------------------------------------------
+-- 等价于 s:gsub("%d+$", ""): 去掉字符串尾部连续数字 (string.gsub 屏端不可用)
+local function strip_digits(s)
+    local e = #s
+    while e >= 1 do
+        local c = string.byte(s, e)
+        if c >= 48 and c <= 57 then e = e - 1 else break end
+    end
+    if e == 0 then return "" end
+    return string.sub(s, 1, e)
+end
+
 local function make_struct(fields, fmt, size)
     local S = { fields = fields, fmt = fmt, size = size }
     function S.pack(t)
@@ -742,7 +766,7 @@ codec.bzcell = {
         local t = {}
         for i = 1, #names do
             local n = names[i]
-            local base = n:gsub("%d+$", "")
+            local base = strip_digits(n)
             if base == "Density" or base == "NextDensity" then
                 local key = (base == "Density") and "Density" or "NextDensity"
                 t[key] = t[key] or {}
@@ -768,7 +792,7 @@ codec.bzstatus = {
             assert(type(a) == "table" and #a == ROWS, key .. " must be array of " .. ROWS)
             for i = 1, ROWS do flat[#flat+1] = a[i] end
         end
-        for i = 1, 8 do flat[#flat+1] = t.Resv2[i] or 0 end
+        for i = 1, codec.bzstatus.resv2 do flat[#flat+1] = t.Resv2[i] or 0 end
         return string.pack(codec.bzstatus.fmt, table.unpack(flat))
     end,
     unpack = function(s)
@@ -784,7 +808,7 @@ codec.bzstatus = {
         local k = 9
         for i = 1, ROWS do t.LoufeiCnt[i] = vals[k]; k = k + 1 end
         for i = 1, ROWS do t.LouZHCnt[i]  = vals[k]; k = k + 1 end
-        for i = 1, 8    do t.Resv2[i]     = vals[k]; k = k + 1 end
+        for i = 1, codec.bzstatus.resv2 do t.Resv2[i] = vals[k]; k = k + 1 end
         return t
     end,
 }
@@ -1914,21 +1938,69 @@ csv.lua —— CSV/行文本 解析与序列化（B档数据层, 纯函数无副作用）
 local csv = {}
 
 -------------------------------------------------------------------- 基础
-local function trim(s)
-    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+-- 平台兼容: string.gsub / string.gmatch / string.rep 屏端不可用(文档LUA/000_Lua_Api),
+-- 以下均手写等价实现, 行为与PC Lua原版逐一验证一致(hmi_port/tests/test_him_equivalence.py)
+
+local NL = string.char(10)
+local CR = string.char(13)
+local function is_space(c)
+    return c == 32 or c == 9 or c == 13 or c == 10 or c == 11 or c == 12
 end
 
--- 行迭代: 剥BOM/统一\r\n/跳空行; 返回迭代器
+local function trim(s)
+    local i, j = 1, #s
+    while i <= j and is_space(string.byte(s, i)) do i = i + 1 end
+    while j >= i and is_space(string.byte(s, j)) do j = j - 1 end
+    if i > j then return "" end
+    return string.sub(s, i, j)
+end
+
+-- 行迭代: 剥BOM/统一\r\n; 返回迭代器 (等价原 gmatch("([^\n]*)\n?") 语义)
 function csv.iter_lines(text)
     if text:sub(1, 3) == "\xEF\xBB\xBF" then text = text:sub(4) end
-    text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
-    return text:gmatch("([^\n]*)\n?")
+    if string.find(text, CR, 1, true) then        -- 含\r才做归一化(快路径跳过)
+        local out, i, n = {}, 1, #text
+        while i <= n do
+            if string.byte(text, i) == 13 then
+                out[#out + 1] = NL
+                if i < n and string.byte(text, i + 1) == 10 then i = i + 1 end
+            else
+                out[#out + 1] = string.sub(text, i, i)
+            end
+            i = i + 1
+        end
+        text = table.concat(out)
+    end
+    local pos, empty_yielded = 1, false
+    return function()
+        if not empty_yielded and #text == 0 then
+            empty_yielded = true
+            return ""                             -- 原语义: 空文本产一次空行
+        end
+        if pos > #text then return nil end
+        local nl = string.find(text, NL, pos, true)
+        if nl then
+            local seg = string.sub(text, pos, nl - 1)
+            pos = nl + 1
+            return seg
+        end
+        local seg = string.sub(text, pos)
+        pos = #text + 1
+        return seg
+    end
 end
 
 function csv.split(line)
     local t = {}
-    for f in line:gmatch("([^,]*)") do
-        t[#t + 1] = trim(f)
+    local pos = 1
+    while true do
+        local c = string.find(line, ",", pos, true)
+        if not c then
+            t[#t + 1] = trim(string.sub(line, pos))
+            break
+        end
+        t[#t + 1] = trim(string.sub(line, pos, c - 1))
+        pos = c + 1
         if #t > 32 then break end                 -- 字段数护栏
     end
     return t
@@ -1947,11 +2019,22 @@ function csv.check_name(s)
     return true
 end
 
+-- 等价于原 s:gsub("%.?0+$", ""): 去尾部连续'0', 再去残留的'.'
+local function trim_zeros(s)
+    if string.find(s, ".", 1, true) then
+        local e = #s
+        while e >= 1 and string.byte(s, e) == 48 do e = e - 1 end   -- '0'
+        if e >= 1 and string.byte(s, e) == 46 then e = e - 1 end    -- '.'
+        return string.sub(s, 1, e)
+    end
+    return s
+end
+
 local function fmt_num(v)
     if v == math.floor(v) and math.abs(v) < 1e15 then
         return string.format("%d", v)
     end
-    return (string.format("%.8f", v):gsub("%.?0+$", ""))  -- 8位小数=GPS毫米级, 去尾零
+    return trim_zeros(string.format("%.8f", v))  -- 8位小数=GPS毫米级, 去尾零
 end
 
 -------------------------------------------------------------------- 地图解析
@@ -2908,10 +2991,24 @@ function logger.init(cfg)
     CAP   = cfg.cap or 120
     NOW   = cfg.now
     buf, drop_cnt = {}, 0
-    -- 掉电恢复: 读回最近条目
+    -- 掉电恢复: 读回最近条目 (手写行切分: string.gmatch 屏端不可用)
     local txt = F and F.read_all(PATH) or ""
     local lines = {}
-    for line in txt:gmatch("[^\r\n]+") do lines[#lines + 1] = line end
+    local pos = 1
+    while pos <= #txt do
+        local n1 = string.find(txt, "\n", pos, true)
+        local n2 = string.find(txt, "\r", pos, true)
+        local eol = (n1 and n2) and math.min(n1, n2) or n1 or n2
+        local seg
+        if eol then
+            seg = string.sub(txt, pos, eol - 1)
+            pos = eol + 1
+        else
+            seg = string.sub(txt, pos)
+            pos = #txt + 1
+        end
+        if seg ~= "" then lines[#lines + 1] = seg end
+    end
     local from = math.max(1, #lines - CAP + 1)
     for i = from, #lines do buf[#buf + 1] = lines[i] end
     return true

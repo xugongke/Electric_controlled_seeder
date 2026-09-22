@@ -12,21 +12,69 @@ csv.lua —— CSV/行文本 解析与序列化（B档数据层, 纯函数无副作用）
 local csv = {}
 
 -------------------------------------------------------------------- 基础
-local function trim(s)
-    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+-- 平台兼容: string.gsub / string.gmatch / string.rep 屏端不可用(文档LUA/000_Lua_Api),
+-- 以下均手写等价实现, 行为与PC Lua原版逐一验证一致(hmi_port/tests/test_him_equivalence.py)
+
+local NL = string.char(10)
+local CR = string.char(13)
+local function is_space(c)
+    return c == 32 or c == 9 or c == 13 or c == 10 or c == 11 or c == 12
 end
 
--- 行迭代: 剥BOM/统一\r\n/跳空行; 返回迭代器
+local function trim(s)
+    local i, j = 1, #s
+    while i <= j and is_space(string.byte(s, i)) do i = i + 1 end
+    while j >= i and is_space(string.byte(s, j)) do j = j - 1 end
+    if i > j then return "" end
+    return string.sub(s, i, j)
+end
+
+-- 行迭代: 剥BOM/统一\r\n; 返回迭代器 (等价原 gmatch("([^\n]*)\n?") 语义)
 function csv.iter_lines(text)
     if text:sub(1, 3) == "\xEF\xBB\xBF" then text = text:sub(4) end
-    text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
-    return text:gmatch("([^\n]*)\n?")
+    if string.find(text, CR, 1, true) then        -- 含\r才做归一化(快路径跳过)
+        local out, i, n = {}, 1, #text
+        while i <= n do
+            if string.byte(text, i) == 13 then
+                out[#out + 1] = NL
+                if i < n and string.byte(text, i + 1) == 10 then i = i + 1 end
+            else
+                out[#out + 1] = string.sub(text, i, i)
+            end
+            i = i + 1
+        end
+        text = table.concat(out)
+    end
+    local pos, empty_yielded = 1, false
+    return function()
+        if not empty_yielded and #text == 0 then
+            empty_yielded = true
+            return ""                             -- 原语义: 空文本产一次空行
+        end
+        if pos > #text then return nil end
+        local nl = string.find(text, NL, pos, true)
+        if nl then
+            local seg = string.sub(text, pos, nl - 1)
+            pos = nl + 1
+            return seg
+        end
+        local seg = string.sub(text, pos)
+        pos = #text + 1
+        return seg
+    end
 end
 
 function csv.split(line)
     local t = {}
-    for f in line:gmatch("([^,]*)") do
-        t[#t + 1] = trim(f)
+    local pos = 1
+    while true do
+        local c = string.find(line, ",", pos, true)
+        if not c then
+            t[#t + 1] = trim(string.sub(line, pos))
+            break
+        end
+        t[#t + 1] = trim(string.sub(line, pos, c - 1))
+        pos = c + 1
         if #t > 32 then break end                 -- 字段数护栏
     end
     return t
@@ -45,11 +93,22 @@ function csv.check_name(s)
     return true
 end
 
+-- 等价于原 s:gsub("%.?0+$", ""): 去尾部连续'0', 再去残留的'.'
+local function trim_zeros(s)
+    if string.find(s, ".", 1, true) then
+        local e = #s
+        while e >= 1 and string.byte(s, e) == 48 do e = e - 1 end   -- '0'
+        if e >= 1 and string.byte(s, e) == 46 then e = e - 1 end    -- '.'
+        return string.sub(s, 1, e)
+    end
+    return s
+end
+
 local function fmt_num(v)
     if v == math.floor(v) and math.abs(v) < 1e15 then
         return string.format("%d", v)
     end
-    return (string.format("%.8f", v):gsub("%.?0+$", ""))  -- 8位小数=GPS毫米级, 去尾零
+    return trim_zeros(string.format("%.8f", v))  -- 8位小数=GPS毫米级, 去尾零
 end
 
 -------------------------------------------------------------------- 地图解析

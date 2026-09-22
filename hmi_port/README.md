@@ -51,16 +51,25 @@ python hmi_port/tests/test_lua_protocol.py     # 21项, 应全部通过
 
 ## 屏内 API 差异备忘 (写给后续 comm/glue 层)
 
+- **string.pack/unpack 真机可用**（2026-09 真屏+seeder_sim 实测 0xA3 握手通过）；
+  **string.rep / string.gsub / string.gmatch 不可用**（文档 LUA/000_Lua_Api）——
+  HIM工程源码已全部改写为手写等价实现并经 40 项行为对照测试（见
+  tests/test_him_platform_compat.py）。hmi_port/lua 那套不用 string.pack 的
+  实现保留作后备参考。
+- 源码模块修改后必须重内嵌 main.lua 的 _MODS 兜底区：
+  `python HIMproject/sync_mods.py <模块名...>`（工程缺失的 deploy_screen.py 的
+  替代，`--check` 只报告漂移）。
 - `uart_setup(0, 115200, 8, 0, 0)`; **`uart_send(ch, 字节表)`** — 发送前把帧字符串
   转字节表: `local t={} for i=1,#s do t[i]=string.byte(s,i) end uart_send(0,t)`。
 - `on_uart_recv(ch, packet)` 为系统轮询回调, 官方确认存在分包/粘包, 直接喂
-  `SOW.protocol.feed(parser, packet)` 即可（FSM 已处理）; 回调内禁止耗时操作。
+  增量解析 FSM 即可; 回调内禁止耗时操作。
 - 200ms 轮询用 `start_timer(id,200,0,1)` + `on_timer(id)`; 心跳 0xA3 可共用
   connectionTimer 模式 (500ms)。
 - 下位机调试串是 GB2312: 显示用 `draw_text(..., charcode=1)`(GBK) 直显,
   字库需含 GB2312 全集（工程字符+GB2312 模式）。
 - 结果/配置存储: `'2:'`=U盘 `'3:'`=Flash, file_* 单次读写≤2048B; RW 掉电区只放
   低频配置（10万次擦写寿命）。
+- 工程源码为 **GB2312/GB18030 + CRLF** 编码, 编辑时勿转 UTF-8。
 
 ## 里程碑状态
 

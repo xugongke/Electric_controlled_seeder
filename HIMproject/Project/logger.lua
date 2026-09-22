@@ -28,10 +28,24 @@ function logger.init(cfg)
     CAP   = cfg.cap or 120
     NOW   = cfg.now
     buf, drop_cnt = {}, 0
-    -- 掉电恢复: 读回最近条目
+    -- 掉电恢复: 读回最近条目 (手写行切分: string.gmatch 屏端不可用)
     local txt = F and F.read_all(PATH) or ""
     local lines = {}
-    for line in txt:gmatch("[^\r\n]+") do lines[#lines + 1] = line end
+    local pos = 1
+    while pos <= #txt do
+        local n1 = string.find(txt, "\n", pos, true)
+        local n2 = string.find(txt, "\r", pos, true)
+        local eol = (n1 and n2) and math.min(n1, n2) or n1 or n2
+        local seg
+        if eol then
+            seg = string.sub(txt, pos, eol - 1)
+            pos = eol + 1
+        else
+            seg = string.sub(txt, pos)
+            pos = #txt + 1
+        end
+        if seg ~= "" then lines[#lines + 1] = seg end
+    end
     local from = math.max(1, #lines - CAP + 1)
     for i = from, #lines do buf[#buf + 1] = lines[i] end
     return true

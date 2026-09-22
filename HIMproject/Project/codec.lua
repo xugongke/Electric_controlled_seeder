@@ -27,6 +27,14 @@ local codec = {}
 
 local ROWS = 4   -- 当前变体行数，init() 可改
 
+-- 平台兼容: string.rep 屏端不可用(文档LUA/000_Lua_Api), 手写等价实现
+-- (定义须在 codec.init 之前, init 的函数体词法引用本局部)
+local function reps(c, n)
+    local t = {}
+    for i = 1, n do t[i] = c end
+    return table.concat(t)
+end
+
 function codec.init(cfg)
     cfg = cfg or {}
     if cfg.rows ~= 4 and cfg.rows ~= 6 then
@@ -36,17 +44,17 @@ function codec.init(cfg)
     codec.ROWS = ROWS
     -- 重建依赖行数的格式串
     codec.bzcell.size  = 44 + 8 * ROWS
-    codec.bzcell.fmt   = "<BBBB" .. "ii" .. ("i"):rep(ROWS) .. "iii"
-                                  .. "ii" .. ("i"):rep(ROWS) .. "iii"
+    codec.bzcell.fmt   = "<BBBB" .. "ii" .. reps("i", ROWS) .. "iii"
+                                  .. "ii" .. reps("i", ROWS) .. "iii"
     -- BZStatus: 尾部 Resv2 长度随行数变化 (hd3005a2 para.h: Resv2[8-(LINE_NUM-4)*2])
     --   4行: Resv2[8] -> 84B;  6行(a2真机): Resv2[4] -> 84B
     --   (上位机 protocol.h 的 Resv2[8] 恒100B 只是 memcpy 超读口径, 固件从不发100B)
     local resv2 = 8 - (ROWS - 4) * 2
     codec.bzstatus.size  = 20 + 8 * ROWS + 4 * resv2
     codec.bzstatus.resv2 = resv2
-    codec.bzstatus.fmt   = "<BBBBiiii" .. ("I"):rep(2 * ROWS) .. ("i"):rep(resv2)
+    codec.bzstatus.fmt   = "<BBBBiiii" .. reps("I", 2 * ROWS) .. reps("i", resv2)
     codec.teststate.size = 20 + 8 * ROWS
-    codec.teststate.fmt  = "<II" .. ("I"):rep(2 * ROWS) .. "III"
+    codec.teststate.fmt  = "<II" .. reps("I", 2 * ROWS) .. "III"
 end
 codec.ROWS = ROWS
 
@@ -54,6 +62,17 @@ codec.ROWS = ROWS
 -- 通用: 按字段表 + 格式串生成 pack/unpack
 --   fields: 有序字段名; fmt: string.pack 格式串; size: 字节数
 --------------------------------------------------------------------
+-- 等价于 s:gsub("%d+$", ""): 去掉字符串尾部连续数字 (string.gsub 屏端不可用)
+local function strip_digits(s)
+    local e = #s
+    while e >= 1 do
+        local c = string.byte(s, e)
+        if c >= 48 and c <= 57 then e = e - 1 else break end
+    end
+    if e == 0 then return "" end
+    return string.sub(s, 1, e)
+end
+
 local function make_struct(fields, fmt, size)
     local S = { fields = fields, fmt = fmt, size = size }
     function S.pack(t)
@@ -169,7 +188,7 @@ codec.bzcell = {
         local t = {}
         for i = 1, #names do
             local n = names[i]
-            local base = n:gsub("%d+$", "")
+            local base = strip_digits(n)
             if base == "Density" or base == "NextDensity" then
                 local key = (base == "Density") and "Density" or "NextDensity"
                 t[key] = t[key] or {}
