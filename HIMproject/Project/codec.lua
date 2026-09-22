@@ -38,8 +38,13 @@ function codec.init(cfg)
     codec.bzcell.size  = 44 + 8 * ROWS
     codec.bzcell.fmt   = "<BBBB" .. "ii" .. ("i"):rep(ROWS) .. "iii"
                                   .. "ii" .. ("i"):rep(ROWS) .. "iii"
-    codec.bzstatus.size  = 52 + 8 * ROWS
-    codec.bzstatus.fmt   = "<BBBBiiii" .. ("I"):rep(2 * ROWS) .. "iiiiiiii"
+    -- BZStatus: 尾部 Resv2 长度随行数变化 (hd3005a2 para.h: Resv2[8-(LINE_NUM-4)*2])
+    --   4行: Resv2[8] -> 84B;  6行(a2真机): Resv2[4] -> 84B
+    --   (上位机 protocol.h 的 Resv2[8] 恒100B 只是 memcpy 超读口径, 固件从不发100B)
+    local resv2 = 8 - (ROWS - 4) * 2
+    codec.bzstatus.size  = 20 + 8 * ROWS + 4 * resv2
+    codec.bzstatus.resv2 = resv2
+    codec.bzstatus.fmt   = "<BBBBiiii" .. ("I"):rep(2 * ROWS) .. ("i"):rep(resv2)
     codec.teststate.size = 20 + 8 * ROWS
     codec.teststate.fmt  = "<II" .. ("I"):rep(2 * ROWS) .. "III"
 end
@@ -190,7 +195,7 @@ codec.bzstatus = {
             assert(type(a) == "table" and #a == ROWS, key .. " must be array of " .. ROWS)
             for i = 1, ROWS do flat[#flat+1] = a[i] end
         end
-        for i = 1, 8 do flat[#flat+1] = t.Resv2[i] or 0 end
+        for i = 1, codec.bzstatus.resv2 do flat[#flat+1] = t.Resv2[i] or 0 end
         return string.pack(codec.bzstatus.fmt, table.unpack(flat))
     end,
     unpack = function(s)
@@ -206,7 +211,7 @@ codec.bzstatus = {
         local k = 9
         for i = 1, ROWS do t.LoufeiCnt[i] = vals[k]; k = k + 1 end
         for i = 1, ROWS do t.LouZHCnt[i]  = vals[k]; k = k + 1 end
-        for i = 1, 8    do t.Resv2[i]     = vals[k]; k = k + 1 end
+        for i = 1, codec.bzstatus.resv2 do t.Resv2[i] = vals[k]; k = k + 1 end
         return t
     end,
 }
