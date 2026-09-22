@@ -223,11 +223,42 @@ class Simulator:
                 if resp is not None:
                     self.recorder.add_frame('TX', fnc, resp)
                     self._log_frame('TX', fnc, resp)
-                    try:
-                        self.ser.write(P.build_frame(fnc, resp))
-                    except (OSError, ValueError):
-                        self.log('[模拟器] 串口写入异常')
-                        return
+                    self._enqueue_tx(P.build_frame(fnc, resp))
+
+    def _enqueue_tx(self, frame):
+        """应答入发送队列(与接收线程解耦): 上位机接收阻塞导致串口写满时,
+        接收线程不会被冻死; 队列满时丢弃最旧应答并告警。"""
+        import queue as _q
+        try:
+            self._tx_queue.put_nowait(frame)
+        except _q.Full:
+            try:
+                self._tx_queue.get_nowait()            # 丢最旧
+            except _q.Empty:
+                pass
+            self._tx_dropped += 1
+            try:
+                self._tx_queue.put_nowait(frame)
+            except _q.Full:
+                pass
+
+    def _writer(self):
+        import serial
+        while self.running:
+            try:
+                frame = self._tx_queue.get(timeout=0.2)
+            except Exception:
+                continue
+            try:
+                self.ser.write(frame)
+            except serial.SerialTimeoutException:
+                # 上位机长时间不读串口 -> 虚拟串口缓冲满 -> 写超时(诊断信号!)
+                self._tx_timeouts += 1
+                self.log('[模拟器] 警告: 上位机接收阻塞, 应答写入超时(第%d次) '
+                         '——上位机侧卡顿的证据' % self._tx_timeouts)
+            except (OSError, ValueError):
+                self.log('[模拟器] 串口写入异常')
+                return
 
     def _ticker(self):
         last_debug = None
@@ -264,11 +295,17 @@ class Simulator:
 
     # ------------------------------------------------------------ 生命周期
     def start(self):
+        import queue as _q
         import serial
+        self._tx_queue = _q.Queue(maxsize=1000)
+        self._tx_dropped = 0
+        self._tx_timeouts = 0
         self.ser = serial.Serial(self.port, self.baud, bytesize=8,
-                                 parity=serial.PARITY_NONE, stopbits=1, timeout=0.05)
+                                 parity=serial.PARITY_NONE, stopbits=1,
+                                 timeout=0.05, write_timeout=1.0)
         self.running = True
         threading.Thread(target=self._reader, daemon=True).start()
+        threading.Thread(target=self._writer, daemon=True).start()
         threading.Thread(target=self._ticker, daemon=True).start()
         self.recorder.meta['串口'] = str(self.port)
         self.recorder.meta['波特率'] = '115200-8N1'
@@ -442,6 +479,7 @@ def selftest():
     wp3 = WorkProc(dev3)
     sim.wp = wp3
     sim.dev = dev3
+    wp3.bd_tx_flag = False      # 模拟上一趟反向小区任务的方向残留
     sim.process_frame(P.FNC_CMD_START_LXBZ,
                       LxbzPara(Density=8000, CellLen=500, Hju=60).pack())
     tick3 = 0
@@ -451,6 +489,8 @@ def selftest():
         wp3.step(t3)
     st = wp3.get_bz_status()
     check(st['run_state'] == 0x81, '连续播种 RunState=0x81')
+    check(st['speed'] == 1000 and st['off_len'] > 0,
+          '连续播种固定同向: 排行程正向递增(速度%d 行程%d)' % (st['speed'], st['off_len']))
     check(wp3.debug.startswith('连续播种模式'), '调试: %s' % wp3.debug)
     check(min(wp3.louzh[:6]) > 0, '6行机6路计数全部增长: %r' % wp3.louzh)
 
@@ -515,6 +555,66 @@ def selftest():
     upd = wp3._update_row_num_check()
     check(upd and wp3.bz_curr.Density == [3] * 6,
           '换排密度拷贝全6路更新 (固件已修复为sizeof): %r' % wp3.bz_curr.Density)
+
+    print('11) 反向趟(掉头)计数窗口回归')
+    # 紧凑地图: 行长200cm 过道50cm, 同向 row0->2 一趟, 反向 row2->0 一趟,
+    # 校验反向趟第一排计数不缩短(曾因反向换排阈值符号错误被截短)
+    RL, AI = 200, 50
+
+    def z4(row, d, nr):
+        z = BzCellPara()
+        z.TXFlag = 1 if d else 0
+        z.RowNum, z.NextRowNum = row, nr
+        z.CellLen = z.NextCellLen = RL
+        z.InS = z.NextInS = AI
+        z.Density = z.NextDensity = [5000] * 6
+        z.isAfterNextZoneSow = 1
+        near = lambda r: r * (RL + AI)
+        z.StartPOS = near(row) if d else near(row) + RL
+        z.NextStartPOS = near(nr) if d else near(nr) + RL
+        return z
+
+    def trip(order, d, t4, wp4):
+        nxt = {r: order[i + 1] for i, r in enumerate(order[:-1])}
+        wp4.set_bz_para(z4(order[0], d, nxt[order[0]]))
+        wp4.cmd_start_bz()
+        res, seen, last = {}, {}, None
+        n = 0
+        while n < 4000:
+            t4[0] += 10
+            wp4.step(t4[0])
+            n += 1
+            if n % 20:
+                continue
+            st = wp4.get_bz_status()
+            rn = st['row_num']
+            if rn <= -10000000:
+                continue
+            if rn != last:
+                if last is not None:
+                    res[last] = seen.get(last, 0)
+                last = rn
+                if rn in nxt:
+                    wp4.set_bz_para(z4(rn, d, nxt[rn]))
+            seen[rn] = sum(st['louzh'][:4])
+        res[last] = seen.get(last, 0)
+        wp4.cmd_stop_bz()
+        for _ in range(30):
+            t4[0] += 10
+            wp4.step(t4[0])
+        return res
+
+    dev4 = Device(state_file=None, rows=4)
+    dev4.ter.A, dev4.ter.B = 60, 90
+    dev4.bd.StartState = 1
+    wp4 = WorkProc(dev4)
+    t4 = [1000]
+    fwd = trip([0, 1, 2], True, t4, wp4)
+    rev = trip([2, 1, 0], False, t4, wp4)
+    vals = list(fwd.values()) + list(rev.values())
+    check(min(vals) >= max(vals) * 0.8,
+          '同向/反向各排计数一致 (同向%s 反向%s)' %
+          (sorted(fwd.values()), sorted(rev.values())))
 
     print()
     if ok[0]:

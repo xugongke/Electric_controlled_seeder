@@ -418,7 +418,12 @@ DialogRealtimeTask::DialogRealtimeTask(Task ta,Communication &c,QWidget *parent)
                 t.outsetRow=path[tempIndex].row;
                 t.outsetColumn=path[tempIndex].column;
                 bool b=ui->checkBoxSowExceedMap->checkState()==Qt::Checked,sowFlag=t.isSow(path[nextPathIndex].row,currentColumn,b);
-				if(sowFlag&&path[nextPathIndex].row<(int)m.blockVector.size()&&path[nextPathIndex].row>=0)
+                //写入前校验排号一致: 换排后的过渡拍(bzst.RowNum已是新排, currentResult仍指向
+                //刚完成的排, 而下位机计数已清零)跳过写入——既避免0值覆盖刚完成小区的落库记录,
+                //也让"最近完成"面板(showLastBlock读currentResult)显示保留的最终值;
+                //currentResult由startNode的0x20 ACK(signalSetSowParameters)重指到新排后恢复写入
+                if(sowFlag&&path[nextPathIndex].row<(int)m.blockVector.size()&&path[nextPathIndex].row>=0
+                        &&!currentResult.empty()&&(int)(t.routeBlockVector.size()-bzst.RowNum)==currentResult[0].row)
                     //记录播种数
                     for(int i=0;i<m.blockEachTrip();currentResult[i++].save())
                     {

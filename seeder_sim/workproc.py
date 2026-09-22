@@ -479,8 +479,11 @@ class WorkProc:
                 self.dj_bits = 0
                 self.seed_mode = SEED_ERR_WAIT
                 return
-            threshold = self.bz_curr.StartPOS + self._a_minus_b()
-            hit = self._reached(threshold, 23)        # +3+20 提前量
+            threshold = self.bz_curr.StartPOS + self._dir(self._a_minus_b())
+            if self.bd_tx_flag:                        # 固件: 同向+3+20, 反向-3-20 (无BDiroff)
+                hit = self._off_len() + 23 >= threshold
+            else:
+                hit = self._off_len() - 23 <= threshold
             if hit:
                 self.qz_tap_done = False
                 self.gd_tap_done = False
@@ -514,8 +517,8 @@ class WorkProc:
             self._tap_proc()
             if self._reached(self._qz_end_off(), 3):
                 self._qz_end_proc()
-            if self._reached(self.bz_curr.StartPOS + self.bz_curr.CellLen
-                             + self._a_minus_b(), 3):
+            if self._reached(self.bz_curr.StartPOS + self._dir(
+                self.bz_curr.CellLen + self._a_minus_b()), 3):
                 if t.GZEn:
                     self._set_valve(V_GZ, True)
                     self.debug = '开始刮种[%d]' % self.bz_curr.DisplayRowNum
@@ -525,8 +528,8 @@ class WorkProc:
             self._tap_proc()
             if self._reached(self._qz_end_off(), 3):
                 self._qz_end_proc()
-            if self._reached(self.bz_curr.StartPOS + self.bz_curr.CellLen
-                             + self.bz_curr.InS + self._a_minus_b(), 3):
+            if self._reached(self.bz_curr.StartPOS + self._dir(
+                self.bz_curr.CellLen + self.bz_curr.InS + self._a_minus_b()), 3):
                 self._set_valve(V_GZ, False)
                 self._set_valve(V_YLZ, False)
                 if not self._update_row_num_check():
@@ -546,10 +549,14 @@ class WorkProc:
             self.seed_mode = SEED_S_WAIT
 
     def _reached(self, off, lead):
-        """行程阈值判断: 同向 CURR+lead>=off, 反向 CURR-lead(+BDiroff)<=off。"""
+        """行程阈值判断: 同向 CURR+lead>=off, 反向 CURR-lead+BDiroff<=off。"""
         if self.bd_tx_flag:
             return self._off_len() + lead >= off
         return self._off_len() - lead + self.dev.ter.BDiroff <= off
+
+    def _dir(self, v):
+        """反向排(TXFlag=0)的阈值相对StartPOS取负, 对齐固件 CELL_OFF-(...) 系列公式。"""
+        return v if self.bd_tx_flag else -v
 
     def _get_qz_start_off(self):
         """对齐 GetQzStartOff(): CELL_OFF±(CELL_L+A-B-预充种提前量)。"""
@@ -661,6 +668,7 @@ class WorkProc:
             if not self.bd_ok:
                 self.debug = '无法获取定位信息'
                 return
+            self.bd_tx_flag = True                     # 固件LXBZ启动固定同向(work_proc.c:529)
             self.pos_cm = 0.0
             self.movement_armed = True
             self.state_start = self.now

@@ -253,6 +253,7 @@ class MainWindow(QMainWindow):
         self.txt_events = QPlainTextEdit()
         self.txt_events.setReadOnly(True)
         self.txt_events.setFont(mono)
+        self.txt_events.setMaximumBlockCount(5000)     # 封顶防止长会话UI变慢
         v2.addWidget(self.txt_events)
         self.tabs.addTab(w2, '调试信息')
 
@@ -262,6 +263,7 @@ class MainWindow(QMainWindow):
         self.txt_log = QPlainTextEdit()
         self.txt_log.setReadOnly(True)
         self.txt_log.setFont(mono)
+        self.txt_log.setMaximumBlockCount(5000)        # 封顶(hex打印时增长极快)
         v3.addWidget(self.txt_log)
         self.tabs.addTab(w3, '运行日志')
         return self.tabs
