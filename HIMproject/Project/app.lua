@@ -25,6 +25,9 @@ app.lua —— 屏端应用框架：页面注册/轮询节流/帧分发/ack提示/按钮路由/诊断码
 
 local APP = {}
 
+-- 装配依赖(wire/init 注入): 声明须在所有引用它的函数(含心跳)之前
+local ENV, PROTOCOL, CODEC, LW
+
 APP.pages    = {}   -- [screen_id] = page
 APP.by_addr  = {}   -- [按钮地址]  = page
 APP.cur      = nil  -- 当前页面
@@ -59,11 +62,46 @@ function APP.sub_always(fnc, handler) APP.always[fnc] = handler end
 function APP.set_always_poll(fnc) APP.always_poll = fnc end
 
 --------------------------------------------------------------------
+-- 链路心跳(B档, 2026-09-23): 全局0x22探测 + 掉线判定 + 恢复在线补读版本
+--   设计(对齐QT"任意页面都在轮询"的观测, 按联调结论裁剪):
+--   1) 每个探测周期(约1s)无论当前页面都发 0x22 —— 兼作心跳探针与调试串刷新
+--      (0x22 为纯查询, 固件无副作用; 调试串只在状态切换时变化, 1s足够)
+--   2) 连续 OFFLINE_AFTER 个周期未收到 0x22 应答 -> 判掉线:
+--      LW.A.link=0 + "× 通信中断"提示; 0x21等常驻轮询照发(链路恢复即自动续上)
+--   3) 掉线期间维持 0x22 探测; 收到 0x22 应答 -> 恢复在线(LW.A.link=1),
+--      并补发一次 0xA3 读版本(覆盖"下位机固件升级后立即取新版本号"场景);
+--      平时不轮询 0xA3(仅开机与重连各一次)
+--------------------------------------------------------------------
+APP.hb = {
+    online = false,   -- 上电视为离线, 首个0x22应答即转在线(并触发一次0xA3)
+    ticks = 0,        -- APP.tick 计数(时间基准)
+    last_rx = 0,      -- 最近一次0x22应答时的tick
+    n = 0,            -- 周期内计数
+    period = 5,       -- 探测周期(tick数), init按poll_ms折算为约1s
+    offline_after = 3 -- 连续无应答周期数 -> 判掉线(约3s, 容忍偶发丢帧)
+}
+
+local function hb_on_debug(f)
+    local hb = APP.hb
+    hb.last_rx = hb.ticks
+    if not hb.online then
+        hb.online = true
+        ENV.w16(LW.A.link, 1)
+        ENV.wstr(LW.A.tip, "√ 通信恢复")
+        PROTOCOL.send(PROTOCOL.FNC.GET_SOFT_VER)
+    end
+    if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end   -- 页面显示照旧
+end
+
+local function hb_on_ver(f)
+    ENV.wstr(LW.A.ver, f.data)              -- 任意页面都更新版本显示
+    if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
+end
+
+--------------------------------------------------------------------
 -- 装配: main.lua 在 on_init 中调用(依赖全注入后才可 register)
 --   env = { w16=, w32=, wstr=, r16=, tx=, poll_ms= }
 --------------------------------------------------------------------
-local ENV, PROTOCOL, CODEC, LW
-
 function APP.wire(deps)
     PROTOCOL, CODEC, LW = deps.PROTOCOL, deps.CODEC, deps.LW
 end
@@ -72,6 +110,11 @@ function APP.init(env)
     ENV = env
     PROTOCOL.io.tx  = env.tx            -- 注入发送层
     PROTOCOL.on_frame = APP.feed_frame  -- 注册收帧回调
+    -- 心跳装配: 周期按实际 poll_ms 折算约1s; 0x22/0xA3 走常驻路由
+    APP.hb.period = math.max(1, math.floor(1000 / (env.poll_ms or 200) + 0.5))
+    APP.sub_always(PROTOCOL.FNC.RD_DEBUG_INFO, hb_on_debug)
+    APP.sub_always(PROTOCOL.FNC.GET_SOFT_VER, hb_on_ver)
+    ENV.w16(LW.A.link, 0)               -- 上电离线, 首个0x22应答转在线
 end
 
 function APP.register(page)
@@ -104,6 +147,19 @@ end
 function APP.tick()
     APP.stat.tx = APP.stat.tx + 1
     ENV.w16(LW.A.tx_cnt, APP.stat.tx)
+    -- 心跳: 周期到 -> 先做掉线判定再发探测(掉线期间探测继续)
+    local hb = APP.hb
+    hb.ticks = hb.ticks + 1
+    hb.n = hb.n + 1
+    if hb.n >= hb.period then
+        hb.n = 0
+        if hb.online and (hb.ticks - hb.last_rx) >= hb.period * hb.offline_after then
+            hb.online = false
+            ENV.w16(LW.A.link, 0)
+            ENV.wstr(LW.A.tip, "× 通信中断")
+        end
+        PROTOCOL.send(PROTOCOL.FNC.RD_DEBUG_INFO)
+    end
     if APP.always_poll then PROTOCOL.send(APP.always_poll) end
     if APP.cur and APP.cur.poll_cmds then
         for _, fnc in ipairs(APP.cur.poll_cmds) do
