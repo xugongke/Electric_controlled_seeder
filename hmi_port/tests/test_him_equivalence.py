@@ -210,8 +210,9 @@ def main():
           % pl_.split(b'\x00')[0])
     fnc, pl_ = ask(0x26)
     ter2 = codec['terpara']['unpack'](pl_)
-    check(fnc == 0x26 and ter2['Resv1'] == 6,
-          '0x26 厂家参数: 行数字段(工程名Resv1)=%d' % ter2['Resv1'])
+    check(fnc == 0x26 and ter2['Resv1'] in (4, 6),
+          '0x26 厂家参数: 行数字段(工程名Resv1)=%d (用户按地图合法切换4/6)'
+          % ter2['Resv1'])
     fnc, pl_ = ask(0x21)
     if fnc == 0x21:
         try:
@@ -227,6 +228,27 @@ def main():
     lt['NextDensity'] = lua.table(*[4000] * 6)
     fnc, pl_ = ask(0x20, tb(H['pack_bytes'](codec['bzcell']['pack'], lt)))
     check(fnc == 0x20 and pl_ == b'\x01', '0x20 小区参数92B下发 ACK=1')
+
+    # 4行机模式也必须发92B(a2固件布局恒[6]数组; 真机曾发76B被ACK=0空跑)
+    codec['init']({'rows': 4})
+    z4 = lua.table(TXFlag=1, FinalFlag=0, NextFinalFlag=0, isAfterNextZoneSow=1,
+                   RowNum=3, InS=100, CellLen=500, StartPOS=0, DisplayRowNum=1,
+                   NextRowNum=2, NextInS=100, NextCellLen=500,
+                   NextCellStartPOS=600, NextDisplayRowNum=2)
+    z4['Density'] = lua.table(*[4000] * 4)        # 4元素 -> 补0到6路
+    z4['NextDensity'] = lua.table(*[4000] * 4)
+    p4 = tb(H['pack_bytes'](codec['bzcell']['pack'], z4))
+    fnc, pl_ = ask(0x20, p4)
+    back = codec['bzcell']['unpack'](p4)
+    check(len(p4) == 92 and fnc == 0x20 and pl_ == b'\x01'
+          and [back['Density'][i] for i in range(1, 7)] == [4000] * 4 + [0, 0],
+          'rows=4: bzcell仍打包92B, 模拟器ACK=1, Density补0到6路')
+    st4 = PL.pack_bz_status(1, 1, 100, 3, 0, 0, [1, 2, 3, 4], [5, 6, 7, 8])
+    t4 = codec['bzstatus']['unpack'](st4)
+    check(len(st4) == 84 and t4['RowNum'] == 3
+          and [t4['LouZHCnt'][i] for i in range(1, 7)] == [5, 6, 7, 8, 0, 0],
+          'rows=4: bzstatus 84B 解包6路计数(末2路0)')
+    codec['init']({'rows': 6})
 
     print()
     if FAIL:
