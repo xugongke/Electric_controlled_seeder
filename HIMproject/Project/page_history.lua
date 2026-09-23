@@ -79,10 +79,13 @@ return function(ctx)
         if not n then return end
         if not FILEIO then log("ERR", "fileio未注入"); return end
         local txt = STORE.export_task_text(n)
-        -- 文件名: map同名约束无, 任务名限中文+数字
-        local ok, err = FILEIO.write_all("2:result_" .. n .. ".csv", txt)
+        -- U盘文件名必须纯ASCII(屏端文件系统限制, 真机实测), 用 store.slug;
+        -- 导出的CSV内容里 #TASK 行仍是中文显示名
+        local fname = "result_" .. (STORE.slug and STORE.slug(n) or n) .. ".csv"
+        local ok, err = FILEIO.write_all("2:" .. fname, txt)
         log(ok and "INF" or "ERR",
-            ok and ("导出任务 " .. n) or ("导出失败 " .. tostring(err)))
+            ok and ("导出任务 " .. n .. " -> " .. fname)
+               or ("导出失败 " .. tostring(err)))
     end
 
     local page = {

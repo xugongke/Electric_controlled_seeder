@@ -2355,10 +2355,43 @@ store.cfg     = { fine_tune = {} }   -- {{origin,specified,enabled}}
 
 local F, C, PREFIX = nil, nil, "3:"
 
-local function p_map(n)    return PREFIX .. "map_" .. n .. ".csv" end
-local function p_task(n)   return PREFIX .. "task_" .. n .. ".csv" end
-local function p_result(n) return PREFIX .. "result_" .. n .. ".csv" end
+-------------------------------------------------------------------- 文件名ASCII化
+-- 真机实测(2026-09): 屏端文件系统对含中文(GB2312多字节)的文件名 open 直接失败,
+-- 纯ASCII长文件名正常。因此: 中文名仅作显示名/索引键(index.txt内容可中文),
+-- 落盘文件名一律用 slug = 名字中ASCII字母数字段(截前16) + "_" + FNV-1a哈希8位hex。
+-- 同名必得同slug(boot恢复依赖确定性), 不同名哈希不同(防ASCII段碰撞)。
+local function fnv1a(s)
+    local h = 0x811C9DC5
+    for i = 1, #s do
+        h = ((h ~ string.byte(s, i)) & 0xFFFFFFFF) * 0x01000193 & 0xFFFFFFFF
+    end
+    return h
+end
+
+function store.slug(name)
+    local ascii = {}
+    for i = 1, #name do
+        local c = string.byte(name, i)
+        if (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) then
+            if #ascii < 16 then ascii[#ascii + 1] = string.char(c) end
+        end
+    end
+    local head = (#ascii > 0) and table.concat(ascii) or "n"
+    return head .. "_" .. string.format("%08X", fnv1a(name))
+end
+
+local function p_map(n)    return PREFIX .. "map_" .. store.slug(n) .. ".csv" end
+local function p_task(n)   return PREFIX .. "task_" .. store.slug(n) .. ".csv" end
+local function p_result(n) return PREFIX .. "result_" .. store.slug(n) .. ".csv" end
 local function p_index()   return PREFIX .. "index.txt" end
+
+-- 旧命名兼容: 早期版本曾用原名直拼文件名(仅ASCII名能落盘成功)。
+-- boot 读取时 slug 路径不存在则回退旧路径, 避免升级后旧数据失联。
+local function read_legacy(p_slug, p_old)
+    local t = F.read_all(p_slug)
+    if not t and p_old ~= p_slug then t = F.read_all(p_old) end
+    return t
+end
 
 -------------------------------------------------------------------- 装配
 function store.init(fileio_mod, csv_mod, prefix)
@@ -2415,9 +2448,24 @@ function store.map_import_text(name, text)
 end
 
 -- 导入(U盘文件): 读全量→导入
+-- U盘文件名必须纯ASCII(固件文件系统限制, 真机实测); 地图显示名取自 #MAP 行,
+-- 可为中文(文件内容不受文件名限制)。
 function store.map_import_file(path, name)
     local text, err = F.read_all(path)
-    if not text then return nil, "读取失败: " .. tostring(err) end
+    if not text then
+        for i = 1, #name do
+            if string.byte(name, i) > 126 then
+                return nil, "文件名含中文,请改纯英文数字名后重试"
+            end
+        end
+        return nil, "读取失败: " .. tostring(err)
+    end
+    -- 显示名以内容 #MAP 为准(U盘文件名只作载体, 不必与显示名一致)
+    local m0 = C.parse_map(text)
+    if not m0 then return nil, "地图解析失败" end
+    if m0.name and select(1, C.check_name(m0.name)) then
+        name = m0.name
+    end
     return store.map_import_text(name, text)
 end
 
@@ -2636,7 +2684,7 @@ function store.boot()
     end
 
     for _, n in ipairs(mnames) do
-        local raw = F.read_all(p_map(n))
+        local raw = read_legacy(p_map(n), PREFIX .. "map_" .. n .. ".csv")
         local m
         if raw then m = C.parse_map(raw) end
         if m then
@@ -2647,7 +2695,7 @@ function store.boot()
     end
 
     for _, n in ipairs(tnames) do
-        local raw = F.read_all(p_task(n))
+        local raw = read_legacy(p_task(n), PREFIX .. "task_" .. n .. ".csv")
         local t
         if raw then t = C.parse_task(raw) end
         if t then
@@ -2659,7 +2707,7 @@ function store.boot()
             end
             store.tasks[n] = t
             store.results[n] = {}
-            local rraw = F.read_all(p_result(n))
+            local rraw = read_legacy(p_result(n), PREFIX .. "result_" .. n .. ".csv")
             if rraw then
                 for line in C.iter_lines(rraw) do
                     if line ~= "" and line:sub(1, 1) ~= "#" then
@@ -3838,10 +3886,13 @@ return function(ctx)
         if not n then return end
         if not FILEIO then log("ERR", "fileio未注入"); return end
         local txt = STORE.export_task_text(n)
-        -- 文件名: map同名约束无, 任务名限中文+数字
-        local ok, err = FILEIO.write_all("2:result_" .. n .. ".csv", txt)
+        -- U盘文件名必须纯ASCII(屏端文件系统限制, 真机实测), 用 store.slug;
+        -- 导出的CSV内容里 #TASK 行仍是中文显示名
+        local fname = "result_" .. (STORE.slug and STORE.slug(n) or n) .. ".csv"
+        local ok, err = FILEIO.write_all("2:" .. fname, txt)
         log(ok and "INF" or "ERR",
-            ok and ("导出任务 " .. n) or ("导出失败 " .. tostring(err)))
+            ok and ("导出任务 " .. n .. " -> " .. fname)
+               or ("导出失败 " .. tostring(err)))
     end
 
     local page = {
