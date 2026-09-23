@@ -243,7 +243,8 @@ def main():
     check(len(p4) == 92 and fnc == 0x20 and pl_ == b'\x01'
           and [back['Density'][i] for i in range(1, 7)] == [4000] * 4 + [0, 0],
           'rows=4: bzcell仍打包92B, 模拟器ACK=1, Density补0到6路')
-    st4 = PL.pack_bz_status(1, 1, 100, 3, 0, 0, [1, 2, 3, 4], [5, 6, 7, 8])
+    st4 = PL.pack_bz_status(1, 1, 100, 3, 0, 0, [1, 2, 3, 4, 0, 0],
+                            [5, 6, 7, 8, 0, 0])
     t4 = codec['bzstatus']['unpack'](st4)
     check(len(st4) == 84 and t4['RowNum'] == 3
           and [t4['LouZHCnt'][i] for i in range(1, 7)] == [5, 6, 7, 8, 0, 0],
