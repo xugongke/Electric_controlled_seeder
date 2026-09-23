@@ -1093,7 +1093,10 @@ return function(ctx)
 
     local page = {
         id        = LW.SCREEN.HOME,
-        poll_cmds = { FNC.GET_BZ_STATUS },           -- 0x21
+        -- 2026-09-23: 主页不再自轮询0x21 —— 作业期间由 jobrun 的常驻轮询驱动
+        -- (其 _feed 已写 LW.A.runstate/speed/offlen/voff, 主页显示不受影响),
+        -- 空闲期零轮询(用户决策); 链路活性由 app.lua 全局0x22心跳负责
+        poll_cmds = {},
         addrs     = { LW.B.start, LW.B.stop, LW.B.ver, LW.B.debug },
     }
 
