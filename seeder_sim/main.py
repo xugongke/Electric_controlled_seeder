@@ -187,7 +187,7 @@ class Simulator:
         """0x23: 有效定位且已有A点时, 用模拟的当前位置作为B点并计算AB方向。"""
         bd = self.dev.bd
         if self.wp.bd_ok and bd.StartState == 1:
-            dist_m = abs(self.wp._off_len()) / 100.0
+            dist_m = abs(self.wp.bd_dist_cm()) / 100.0
             ang = bd.CalcDir if bd.CalcDirFlag == 1 else bd.StartDir
             if dist_m > 0:
                 import math

@@ -47,10 +47,35 @@ def find_span(raw, name):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     check_only = '--check' in sys.argv
+    removing = '--remove' in sys.argv
     names = args or MODULES
 
     raw = open(MAIN, 'rb').read()
     changed = False
+    if removing:
+        # --remove <模块名...>: 从 main.lua 删除指定内嵌条目(源文件自行删除)
+        for n in names:
+            span = find_span(raw, n)
+            if not span:
+                print('%-14s 无内嵌条目' % n)
+                continue
+            i, _, _ = span
+            # 回退到条目起始行首, 向后吃到 ]==] 行尾(含换行)
+            ls = raw.rfind(b'\n', 0, i) + 1
+            e = raw.find(b']==]', i)
+            if e < 0:
+                print('%-14s 条目损坏(无]==])' % n)
+                continue
+            le = raw.find(b'\n', e)
+            le = le + 1 if le >= 0 else len(raw)
+            raw = raw[:ls] + raw[le:]
+            changed = True
+            print('%-14s 内嵌条目已删除' % n)
+        if changed:
+            open(MAIN, 'wb').write(raw)
+            print('main.lua 已更新 (%dB)' % len(raw))
+        return 0
+
     for n in names:
         src_path = os.path.join(PROJ, n + '.lua')
         if not os.path.exists(src_path):

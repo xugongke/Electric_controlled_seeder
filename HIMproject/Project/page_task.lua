@@ -50,9 +50,55 @@ return function(ctx)
 
     local function step2_items()
         local m = STORE.map_get(W.map)
-        W.items = { "无AB线(按起点直线作业)" }
+        W.items = { "无AB线(地头行程开关设A点后开播)" }
         if m and m.ab then
             W.items[#W.items + 1] = ("使用地图AB线 %s"):format(m.ab.name or "")
+        end
+    end
+
+    -- AB线操作目标地图: 作业中=当前任务地图, 向导中=已选地图
+    local function ab_target_map()
+        if JOBRUN and JOBRUN.active() then
+            local s = JOBRUN.snapshot()
+            if s then return s.map end
+        end
+        return W.map
+    end
+
+    local function on_ab_btn(addr)
+        local map_name = ab_target_map()
+        if not map_name then
+            wstr(LW.TW.detail, "请先选择地图")
+            return
+        end
+        if addr == LW.TW.ab_view then
+            JOBRUN.ab_collect()                      -- 0x23 采集回显(LW.AB区)
+            wstr(LW.TW.detail, "AB线采集中...")
+        elseif addr == LW.TW.ab_import then
+            if not JOBRUN.ab_cache then
+                JOBRUN.ab_cache = JOBRUN.ab_rw_load()   -- RW缓存 -> 绑定地图
+            end
+            local ok, err = JOBRUN.ab_bind_map(map_name)
+            wstr(LW.TW.detail, ok and ("AB线已绑定 " .. map_name)
+                                   or ("绑定失败 " .. tostring(err):sub(1, 12)))
+            if ok and r16(LW.TW.step) == 2 then
+                W.sel, W.top = 0, 0
+                step2_items()
+                render_list()
+            end
+        elseif addr == LW.TW.ab_clear then
+            local ok, err = JOBRUN.ab_clear_map(map_name)
+            wstr(LW.TW.detail, ok and ("AB线已清除 " .. map_name)
+                                   or ("清除失败 " .. tostring(err):sub(1, 12)))
+            if ok and r16(LW.TW.step) == 2 then
+                W.sel, W.top = 0, 0
+                step2_items()
+                render_list()
+            end
+        elseif addr == LW.TW.ab_save then
+            local ok, err = JOBRUN.ab_rw_save()
+            wstr(LW.TW.detail, ok and "AB线已保存RW(掉电保持)"
+                                   or ("保存失败 " .. tostring(err):sub(1, 12)))
         end
     end
 
@@ -250,6 +296,7 @@ return function(ctx)
         addrs = {                                -- 按钮地址声明(APP.by_addr 路由必需)
             LW.TW.btn_up, LW.TW.btn_down, LW.TW.btn_sel, LW.TW.btn_prev,
             LW.TW.btn_ok, LW.TW.btn_cancel, LW.TW.btn_resume, LW.TW.btn_import,
+            LW.TW.ab_view, LW.TW.ab_import, LW.TW.ab_clear, LW.TW.ab_save,
         },
         on_frame = function(f)
             if f.fnc == ctx.PROTOCOL.FNC.GET_BZ_STATUS then
@@ -260,6 +307,7 @@ return function(ctx)
 
     function page:on_update(addr, val)           -- 冒号定义(app.lua 冒号调用, 点定义会错位收 self)
         on_btn(addr, val)
+        on_ab_btn(addr)
     end
 
     -- 作业视图刷新(0x21 被 jobrun 常驻截获, 页面用 tick 级轻刷新)

@@ -33,12 +33,12 @@ local LW = {}
 --==================== 画面号(与 VisualHMI 画面配置一致) ====================
 LW.SCREEN = {
     HOME       = 0,   -- 主页(作业监视+启停)
-    CELLPARA   = 1,   -- 小区播种参数
+    -- 画面1(原小区参数)/画面3(原AB线管理)已删除(2026-09-23: 前者为早期手动
+    -- 下发参数测试页; 后者并入任务页AB操作, 见 LW.TW.ab_*), 画面号不复用
     CONTINUOUS = 2,   -- 连续播种
-    ABLINE     = 3,   -- AB线管理
     PARAMS     = 4,   -- 厂家/用户参数
     TESTDIAG   = 5,   -- 测试诊断
-    TASK       = 6,   -- 任务向导(B档新增: 选地图/AB线/路径/起点, 含U盘导入)
+    TASK       = 6,   -- 任务向导/作业页(B档: 选地图/AB线/路径/起点+作业视图)
     HISTORY    = 7,   -- 历史记录(B档新增)
     LOGVIEW    = 8,   -- 日志查看(B档新增)
 }
@@ -57,7 +57,7 @@ LW.A = {
     rx_cnt   = 0x1015, -- u16 收帧计数
     link     = 0x1013, -- u16 链路状态 0=通信中断 1=在线(app.lua心跳判定,
                        --   掉线=连续3个1s探测周期无0x22应答; 画面绑指示灯控件)
-    -- 0x1016 【实测禁用】写入无效
+    -- 注: LW>=0x1000 的存储器地址均可正常读写(早期"0x1016禁写"为误判, 2026-09-23更正)
     diag     = 0x1017, -- u16 诊断码(见 app.lua APP.diag)
     txfn     = 0x1018, -- u16 发送函数探测 1=uart_send 2=uart_send_data 0=都没有
     runstate = 0x1019, -- u16 作业状态 RunState
@@ -82,27 +82,7 @@ LW.B = {
     -- 0x1104+ 预留给全局导航按钮(各页面跳转由画面配置直接实现, 不占LW)
 }
 
---==================== 页面1 小区播种参数(0x1300~, BZCellParaType 表单) ====================
--- i32 字段占2字(偶地址起); u8 标志用开关控件; 表单值由数值输入控件写入
-LW.CELL = {
-    txflag        = 0x1300, -- u8 开关  TXFlag 播种方向与AB线 0反向/1同向(TX=同向,非透传)
-    finalflag     = 0x1301, -- u8 开关  FinalFlag 1=当前小区是本排最后一小区(过道停投种)
-    nextfinalflag = 0x1302, -- u8 开关  NextFinalFlag 1=下一小区是下一排最后一小区
-    afternextzone = 0x1303, -- u8 开关  isAfterNextZoneSow 1=当前排+2的排仍播种(提前启机构)
-    rownum        = 0x1304, -- i32 当前排号 RowNum
-    ins           = 0x1306, -- i32 InS
-    density       = 0x1308, -- i32 x4 当前排密度[1..4] (0x1308~0x130F)
-    celllen       = 0x1310, -- i32 小区长度 CellLen
-    startpos      = 0x1312, -- i32 起始位置 StartPOS
-    disprownum    = 0x1314, -- i32 显示排号 DisplayRowNum
-    nextrownum    = 0x1316, -- i32 下一排号
-    nextins       = 0x1318, -- i32 NextInS
-    nextdensity   = 0x131A, -- i32 x4 下一排密度[1..4] (0x131A~0x1321)
-    nextcelllen   = 0x1322, -- i32 下一排小区长度
-    nextstartpos  = 0x1324, -- i32 NextCellStartPOS
-    nextdisprow   = 0x1326, -- i32 下一排显示排号
-    send          = 0x1330, -- 按钮 下发参数 -> 0x20 (读表单组包, 前端校验)
-}
+-- 0x1300~0x13FF 原页面1(小区参数手动下发测试页)地址区随页面一并删除(2026-09-23)
 
 --==================== 页面2 连续播种(0x1400~, LXBZParaType 12B) ====================
 LW.CONT = {
@@ -114,7 +94,9 @@ LW.CONT = {
     stop    = 0x1411,     -- 按钮 停止连续播种 -> 0x12
 }
 
---==================== 页面3 AB线(0x1500~, BDParaType 56B) ====================
+--==================== AB线显示区(0x1500~, BDParaType 56B) ====================
+-- 原页面3(AB线管理)已删除(2026-09-23): 显示区保留, 由任务页承载;
+-- 操作按钮在 LW.TW.ab_*(查看/导入/清除/保存), 采集应答经 jobrun 全局0x23路由。
 -- double/float 屏端无原生控件: lua 读值后 string.format 写字符串控件显示
 LW.AB = {
     startn      = 0x1500, -- 字符串 StartN 起点纬度
@@ -127,10 +109,7 @@ LW.AB = {
     calcdirflag = 0x150D, -- u16 CalcDirFlag
     offlen      = 0x150E, -- u16 OffLen 偏移量
     bdofftime   = 0x150F, -- u16 BDOffTime
-    capture     = 0x1520, -- 按钮 触发采集 -> 0x23 (下位机回当前AB线)
-    send        = 0x1521, -- 按钮 下发AB线 -> 0x24 (组包56B)
-    save        = 0x1522, -- 按钮 保存到RW(掉电持久化)
-    load        = 0x1523, -- 按钮 从RW读回(验证持久化, 测试用)
+    -- 原 capture/send/save/load 按钮随页面3删除, 操作移至 LW.TW.ab_*
     rw_magic    = 0x0000, -- RW区 AB线有效标志 0x55AA(见 LW.RW)
 }
 
@@ -217,6 +196,12 @@ LW.TW = {
     btn_cancel = 0x1885, -- 按钮 取消向导
     btn_resume = 0x1886, -- 按钮 续接未完成任务
     btn_import = 0x1887, -- 按钮 扫描U盘导入地图(步骤1)
+    -- AB线操作(2026-09-23自page_abline迁移; 向导期作用于所选地图, 作业期作用于当前地图;
+    -- 绑定信息显示复用 LW.AB 地址区)
+    ab_view    = 0x1888, -- 按钮 AB线查看/采集(0x23)
+    ab_import  = 0x1889, -- 按钮 AB线导入: RW缓存绑定到地图(#AB段落盘)
+    ab_clear   = 0x188A, -- 按钮 AB线清除: 解除地图绑定
+    ab_save    = 0x188B, -- 按钮 AB线保存到RW(掉电保持)
 }
 
 --==================== 页面7 历史记录(0x1900~0x19FF, B档新增) ====================

@@ -129,6 +129,8 @@ class WorkProc:
         # (4行x60cm=240cm, 6行x60cm=360cm)。固件测试代码硬编码-481/+240, 无物理含义。
         self.vertical_off = -(self.dev.rows * self.dev.user.HJ)
         self.pos_cm = 0.0                # 行进方向行程 cm (BdCurrOffCoor.Y*100)
+        self.frozen_off = 0              # 停止瞬间冻结的行程(0x23取B点, 停车后位置仍有效)
+        self._run_prev = False
         self.movement_armed = False
         self.speed_now = 0               # BdCalcSpeed mm/s 带符号
         self.bd_trig_cnt = 0             # 北斗行程开关触发计数
@@ -225,6 +227,14 @@ class WorkProc:
     def _off_len(self):
         return int(self.pos_cm)                       # (s32)(Y*100), C 截断
 
+    def bd_dist_cm(self):
+        """0x23 取 B 点用的当前行程: 运行中=实时 OffLen, 停止=停止瞬间冻结值。
+
+        对齐固件 StoreAB(protocol.c:265): B 点取 CurrBDPos 原始 GNSS 坐标,
+        与运行状态无关; 模拟器的"位置"即行程, 停止后 OffLen 清零故用冻结值。
+        """
+        return self._off_len() if self.run_state == RUN_S_START else self.frozen_off
+
     def get_bz_status(self):
         vert = self.vertical_off if self.run_state == RUN_S_START else 0
         return dict(run_state=self.run_state_byte,
@@ -291,7 +301,13 @@ class WorkProc:
         else:
             self.speed_now = 0
         if not run:
+            if self._run_prev:
+                # 停止瞬间冻结行程: 真机 GNSS 位置停车后仍有效, 0x23 取 B 点用
+                # (固件 StoreAB 用 CurrBDPos 原始坐标, 不随停止清零);
+                # OffLen 上报仍按固件 BDTrigCoor 停止分支清零
+                self.frozen_off = int(self.pos_cm)
             self.pos_cm = 0.0                         # BDTrigCoor 停止分支: Y=X=0
+        self._run_prev = run
 
     def _sync_curr(self):
         """memcpy(&BZCellParaCurr, &BZCellPara) + 重算各行株距。"""

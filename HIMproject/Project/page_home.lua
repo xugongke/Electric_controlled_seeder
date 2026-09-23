@@ -56,13 +56,8 @@ return function(ctx)
                 if b < 0x80 then t[#t + 1] = string.char(b) end
             end
             wstr(LW.A.log, table.concat(t))
-        elseif f.fnc == FNC.STORE_AB then            -- 0x23 停止时AB线采集应答
-            if JOBRUN and JOBRUN.save_ab then
-                if JOBRUN.save_ab(d) then
-                    wstr(LW.A.tip, "√ AB线已保存")
-                end
-            end
         end
+        -- 0x23 已改为 jobrun 全局常驻路由(2026-09-23), 页面不再处理
     end
 
     function page:on_update(addr)
