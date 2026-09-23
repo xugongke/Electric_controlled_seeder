@@ -1157,6 +1157,11 @@ return function(ctx)
     local PASSWORD = 515516
     local unlocked = false
 
+    -- 最近一次 0x26 快照: 写回时保留固件侧维护的字段。
+    -- Resv1 即行数字段U8Resv2(4/6), 曾被硬编码0下发, 真机实测会把行数冲掉
+    -- (模拟器状态文件被写成 U8Resv2=0 复现), 必须从快照原样带回。
+    local last_ter = nil
+
     -- 范围表: { 字段, 下限, 上限, 中文名 }  nil 下限/上限 = 不检
     local RANGE_T = {
         { "GearRatio",      2,     65535, "传动比" },
@@ -1191,6 +1196,8 @@ return function(ctx)
     -- 读表单(LW) -> terpara 表(i16 字段符号扩展, Crc 占位0)
     local function read_ter_form()
         local P = LW.PF
+        local rows = last_ter and last_ter.Resv1
+        if rows ~= 4 and rows ~= 6 then rows = 6 end   -- 无快照时兜底6行
         return {
             A = s16(r16(P.a)), B = s16(r16(P.b)),
             EncodeNum = r16(P.encodenum), EncoderDir = r16(P.encoderdir),
@@ -1200,7 +1207,7 @@ return function(ctx)
             TappTrigOff = s16(r16(P.tapptrigoff)), TapperTime = r16(P.tappertime),
             ZeroPosEn = r16(P.zeroposen), GZEn = r16(P.gzen),
             PrePercent = r16(P.prepercent),
-            Resv1 = 0, Resv0 = 0, Resv1_ = 0, Resv2 = 0, CrcCheck = 0,
+            Resv1 = rows, Resv0 = 0, Resv1_ = 0, Resv2 = 0, CrcCheck = 0,
         }
     end
 
@@ -1251,7 +1258,7 @@ return function(ctx)
     function page:on_frame(f)
         local ok, p = pcall(CODEC.terpara.unpack, f.data)
         if f.fnc == FNC.GET_TER_PARA then
-            if ok then show_ter(p)
+            if ok then show_ter(p); last_ter = p
             else wstr(LW.A.log, "terpara unpack err: len=" .. #f.data) end
         elseif f.fnc == FNC.GET_USER_PARA then
             local ok2, u = pcall(CODEC.userpara.unpack, f.data)
