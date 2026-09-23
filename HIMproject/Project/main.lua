@@ -578,32 +578,27 @@ return PROTOCOL
 _MODS["codec.lua"] = [==[
 --[[
 codec.lua —— 协议结构体 <-> Lua table 编解码（string.pack 实现）
-=================================================================
-字节布局已与两侧源码逐一核对（2026-08-27）：
-  上位机: AgricultureMachine/common/protocol.h        （6行机版本）
-  下位机: hd3005a1/Inc/protocol.h + Inc/para.h         （4行机版本）
-
-!! 重要发现 !! 两侧源码结构体存在行数差异（其余字段完全一致）：
-  结构体              4行机(下位机源码)  6行机(平板源码)
-  BZCellParaType            76 B            92 B     Density[4|6]
-  BZStatusType              84 B           100 B     LoufeiCnt/LouZHCnt[4|6]
-  TestModeStateType         52 B            68 B     LoufeiCnt/LouZHCnt[4|6]
-  其余 5 个结构体两侧完全一致（12/16/40/56/4 B）
-  => 实机 POC 必须先确认现场固件行数（codec.init{rows=?}），
-     判别方法: 发 0x20 分别用 76/92 字节试，看回 ack 是否为 1。
-  => C 结构体均为自然对齐无填充，string.pack 紧凑排列与其内存镜像一致。
+================================================================================
+字节布局以 hd3005a2 固件(Inc/protocol.h, LINE_NUM=6 编译)为准, 2026-09-23 真机
+联调修正: 三个行数相关结构体恒为 [6] 数组版本, **与4行机/6行机运行模式无关**:
+  BZCellParaType 92B / BZStatusType 84B(Resv2[4]) / TestModeStateType 68B
+  4行机只是 U8Resv2=4 的运行参数(上位机 protocol.h 同口径), 数组第5/6路恒0。
+  (旧版按 hd3005a1 固件[4]布局在4行模式发76B包, hd3005a2/模拟器按92B校验
+   直接 ACK=0, 播种空跑"播种结束[0]" —— 真机实测复现)
+其余结构体: LXBZ 12 / TestCmd 4 / TerPara 40 / UserPara 16 / BDPara 56 B。
+C 结构体自然对齐无填充, string.pack 紧凑排列与其内存镜像一致。
 
 用法:
     local codec = require("codec")
-    codec.init{ rows = 4 }                  -- 默认 4（对手头下位机源码）
-    local s  = codec.bzcell.pack{ RowNum = 1, ... }
-    local t  = codec.bzcell.unpack(s)
+    codec.init{ rows = 4 }                  -- rows 只作业务语义(有效路数), 默认4
+    local s  = codec.bzcell.pack{ RowNum = 1, Density = {4000,4000,4000,4000} }
+    local t  = codec.bzcell.unpack(s)       -- Density 恒为6元素(4行机末2路为0)
 --]]
 
 local string = string
 local codec = {}
 
-local ROWS = 4   -- 当前变体行数，init() 可改
+local ROWS = 4   -- 业务有效行数(4/6), 不影响结构体布局
 
 -- 平台兼容: string.rep 屏端不可用(文档LUA/000_Lua_Api), 手写等价实现
 -- (定义须在 codec.init 之前, init 的函数体词法引用本局部)
@@ -615,24 +610,21 @@ end
 
 function codec.init(cfg)
     cfg = cfg or {}
-    if cfg.rows ~= 4 and cfg.rows ~= 6 then
+    if cfg.rows ~= nil and cfg.rows ~= 4 and cfg.rows ~= 6 then
         error("rows must be 4 or 6")
     end
-    ROWS = cfg.rows
+    ROWS = cfg.rows or ROWS
     codec.ROWS = ROWS
-    -- 重建依赖行数的格式串
-    codec.bzcell.size  = 44 + 8 * ROWS
-    codec.bzcell.fmt   = "<BBBB" .. "ii" .. reps("i", ROWS) .. "iii"
-                                  .. "ii" .. reps("i", ROWS) .. "iii"
-    -- BZStatus: 尾部 Resv2 长度随行数变化 (hd3005a2 para.h: Resv2[8-(LINE_NUM-4)*2])
-    --   4行: Resv2[8] -> 84B;  6行(a2真机): Resv2[4] -> 84B
-    --   (上位机 protocol.h 的 Resv2[8] 恒100B 只是 memcpy 超读口径, 固件从不发100B)
-    local resv2 = 8 - (ROWS - 4) * 2
-    codec.bzstatus.size  = 20 + 8 * ROWS + 4 * resv2
-    codec.bzstatus.resv2 = resv2
-    codec.bzstatus.fmt   = "<BBBBiiii" .. reps("I", 2 * ROWS) .. reps("i", resv2)
-    codec.teststate.size = 20 + 8 * ROWS
-    codec.teststate.fmt  = "<II" .. reps("I", 2 * ROWS) .. "III"
+    -- 布局恒为[6]数组版本(hd3005a2 编译期 LINE_NUM=6), rows 只影响业务语义
+    codec.bzcell.size  = 92
+    codec.bzcell.fmt   = "<BBBB" .. "ii" .. reps("i", 6) .. "iii"
+                               .. "ii" .. reps("i", 6) .. "iii"
+    -- BZStatus: Resv2[4] 恒 84B (hd3005a2 para.h: Resv2[8-(LINE_NUM-4)*2], LINE_NUM=6)
+    codec.bzstatus.size  = 84
+    codec.bzstatus.resv2 = 4
+    codec.bzstatus.fmt   = "<BBBBiiii" .. reps("I", 12) .. reps("i", 4)
+    codec.teststate.size = 68
+    codec.teststate.fmt  = "<II" .. reps("I", 12) .. "III"
 end
 codec.ROWS = ROWS
 
@@ -739,8 +731,7 @@ end
 codec.bzcell = {
     fields_of = bzcell_fields,
     pack = function(t)
-        -- 把 Density/NextDensity 数组摊平进有序参数
-        local rows = ROWS
+        -- 把 Density/NextDensity 数组摊平进有序参数(恒6元素, 不足补0)
         local flat = {}
         local function push(v) flat[#flat+1] = v end
         push(t.TXFlag); push(t.FinalFlag); push(t.NextFinalFlag); push(t.isAfterNextZoneSow)
@@ -748,9 +739,9 @@ codec.bzcell = {
             push(t[p .. "RowNum"]); push(t[p .. "InS"])
             local key = (p == "") and "Density" or "NextDensity"
             local d = t[key]
-            assert(type(d) == "table" and #d == rows,
-                   key .. " must be array of " .. rows)
-            for i = 1, rows do push(d[i]) end
+            assert(type(d) == "table" and #d >= 1 and #d <= 6,
+                   key .. " must be array of 1..6")
+            for i = 1, 6 do push(d[i] or 0) end
             push(t[p .. "CellLen"])
             push(p == "" and t.StartPOS or t.NextCellStartPOS)
             push(t[p .. "DisplayRowNum"])
@@ -762,7 +753,7 @@ codec.bzcell = {
         if #s < size then error(("short %dB, expect %dB"):format(#s, size)) end
         local vals = { string.unpack(codec.bzcell.fmt, s) }
         vals[#vals] = nil
-        local names = bzcell_fields(ROWS)
+        local names = bzcell_fields(6)
         local t = {}
         for i = 1, #names do
             local n = names[i]
@@ -789,8 +780,9 @@ codec.bzstatus = {
                        t.Speed, t.RowNum, t.OffLen, t.VerticalOff }
         for _, key in ipairs({ "LoufeiCnt", "LouZHCnt" }) do
             local a = t[key]
-            assert(type(a) == "table" and #a == ROWS, key .. " must be array of " .. ROWS)
-            for i = 1, ROWS do flat[#flat+1] = a[i] end
+            assert(type(a) == "table" and #a >= 1 and #a <= 6,
+                   key .. " must be array of 1..6")
+            for i = 1, 6 do flat[#flat+1] = a[i] or 0 end   -- 恒6路, 不足补0
         end
         for i = 1, codec.bzstatus.resv2 do flat[#flat+1] = t.Resv2[i] or 0 end
         return string.pack(codec.bzstatus.fmt, table.unpack(flat))
@@ -806,8 +798,8 @@ codec.bzstatus = {
             LoufeiCnt = {}, LouZHCnt = {}, Resv2 = {},
         }
         local k = 9
-        for i = 1, ROWS do t.LoufeiCnt[i] = vals[k]; k = k + 1 end
-        for i = 1, ROWS do t.LouZHCnt[i]  = vals[k]; k = k + 1 end
+        for i = 1, 6 do t.LoufeiCnt[i] = vals[k]; k = k + 1 end
+        for i = 1, 6 do t.LouZHCnt[i]  = vals[k]; k = k + 1 end
         for i = 1, codec.bzstatus.resv2 do t.Resv2[i] = vals[k]; k = k + 1 end
         return t
     end,
@@ -822,8 +814,9 @@ codec.teststate = {
         local flat = { t.EncoderCnt, t.BdCnt }
         for _, key in ipairs({ "LoufeiCnt", "LouZHCnt" }) do
             local a = t[key]
-            assert(type(a) == "table" and #a == ROWS, key .. " must be array of " .. ROWS)
-            for i = 1, ROWS do flat[#flat+1] = a[i] end
+            assert(type(a) == "table" and #a >= 1 and #a <= 6,
+                   key .. " must be array of 1..6")
+            for i = 1, 6 do flat[#flat+1] = a[i] or 0 end   -- 恒6路, 不足补0
         end
         flat[#flat+1] = t.InputState
         flat[#flat+1] = t.WarningState
@@ -838,8 +831,8 @@ codec.teststate = {
         local t = { EncoderCnt = vals[1], BdCnt = vals[2],
                     LoufeiCnt = {}, LouZHCnt = {} }
         local k = 3
-        for i = 1, ROWS do t.LoufeiCnt[i] = vals[k]; k = k + 1 end
-        for i = 1, ROWS do t.LouZHCnt[i]  = vals[k]; k = k + 1 end
+        for i = 1, 6 do t.LoufeiCnt[i] = vals[k]; k = k + 1 end
+        for i = 1, 6 do t.LouZHCnt[i]  = vals[k]; k = k + 1 end
         t.InputState   = vals[k]; k = k + 1
         t.WarningState = vals[k]; k = k + 1
         t.CtrlState    = vals[k]
