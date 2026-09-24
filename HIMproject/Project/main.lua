@@ -3974,14 +3974,14 @@ end
 
 _MODS["page_map.lua"] = [==[
 --[[
-page_map.lua â€”â€” åœ°å›¾å¯¼å…¥é¡µ(ç”»é¢9, 2026-09-24æ–°å¢)
+page_map.lua -- µØÍ¼µ¼ÈëÒ³(»­Ãæ9, 2026-09-24ĞÂÔö)
 ================================================================================
-ä»¿QTåœ°å›¾ç®¡ç†é¡µçš„å±ç«¯å­é›†(åœ°å›¾åˆ›å»º/ç¼–è¾‘ç”±PCå¯¼å‡ºå·¥å…·è´Ÿè´£):
-  åœ°å›¾åˆ—è¡¨(é€‰ä¸­) + è¯¦æƒ…æ‘˜è¦ + Uç›˜æ‰«æå¯¼å…¥(map_*.csv, æ–‡ä»¶åé¡»ASCII, æ˜¾ç¤ºåå–#MAP)
-  + åˆ é™¤åœ°å›¾ + ABçº¿æ“ä½œ(æŸ¥çœ‹=å¯¹è¯æ¡†0x23å›æ˜¾ / å¯¼å…¥=RWç¼“å­˜ç»‘å®šæœ¬å›¾ / æ¸…é™¤=è§£ç»‘)
-Uç›˜å¯¼å…¥é€»è¾‘è‡ªåŸä»»åŠ¡å‘å¯¼é¡µè¿ç§»(2026-09-24å‘å¯¼åˆ é™¤)ã€‚
-LW: LW.MAP (0x1C00åŒº); ABæŸ¥çœ‹æŒ‰é’®=åŠŸèƒ½æŒ‰é’®(æ‰“å¼€å¯¹è¯æ¡†ç”»é¢22+é€šçŸ¥LW.ABP.req=2)ã€‚
-ä¾èµ–æ³¨å…¥: creator(ctx) åŒç°æœ‰é¡µé¢æ¨¡å¼ã€‚
+·ÂQTµØÍ¼¹ÜÀíÒ³µÄÆÁ¶Ë×Ó¼¯(µØÍ¼´´½¨/±à¼­ÓÉPCµ¼³ö¹¤¾ß¸ºÔğ):
+  µØÍ¼ÁĞ±í(Ñ¡ÖĞ) + ÏêÇéÕªÒª + UÅÌÉ¨Ãèµ¼Èë(map_*.csv, ÎÄ¼şÃûĞëASCII, ÏÔÊ¾ÃûÈ¡#MAP)
+  + É¾³ıµØÍ¼ + ABÏß²Ù×÷(²é¿´=¶Ô»°¿ò0x23»ØÏÔ / µ¼Èë=RW»º´æ°ó¶¨±¾Í¼ / Çå³ı=½â°ó)
+UÅÌµ¼ÈëÂß¼­×ÔÔ­ÈÎÎñÏòµ¼Ò³Ç¨ÒÆ(2026-09-24Ïòµ¼É¾³ı)¡£
+LW: LW.MAP (0x1C00Çø); AB²é¿´°´Å¥=¹¦ÄÜ°´Å¥(´ò¿ª¶Ô»°¿ò»­Ãæ22+Í¨ÖªLW.ABP.req=2)¡£
+ÒÀÀµ×¢Èë: creator(ctx) Í¬ÏÖÓĞÒ³ÃæÄ£Ê½¡£
 --]]
 
 return function(ctx)
@@ -4021,7 +4021,7 @@ return function(ctx)
                 W.items[#W.items + 1] = n .. " " .. STORE.map_spec(n)
             end
         end
-        if #W.items == 0 then W.items[1] = "(æ— åœ°å›¾, è¯·æ‰«æUç›˜å¯¼å…¥)" end
+        if #W.items == 0 then W.items[1] = "(ÎŞµØÍ¼, ÇëÉ¨ÃèUÅÌµ¼Èë)" end
         W.sel, W.top = 0, 0
         render_list()
         wstr(LW.MAP.detail, "")
@@ -4032,32 +4032,32 @@ return function(ctx)
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
         if not m then return end
-        JOBRUN.ab_hint_map = n                  -- ABå¯¹è¯æ¡†çš„é»˜è®¤ç›®æ ‡åœ°å›¾
-        local ab = m.ab and ("å·²ç»‘AB " .. (m.ab.name or "?"))
-                       or "æ— ABçº¿"
-        wstr(LW.MAP.detail, ("%s %dæ’x%dåˆ— %s"):format(n, m.rows, m.cols, ab))
+        JOBRUN.ab_hint_map = n                  -- AB¶Ô»°¿òµÄÄ¬ÈÏÄ¿±êµØÍ¼
+        local ab = m.ab and ("ÒÑ°óAB " .. (m.ab.name or "?"))
+                       or "ÎŞABÏß"
+        wstr(LW.MAP.detail, ("%s %dÅÅx%dÁĞ %s"):format(n, m.rows, m.cols, ab))
     end
 
-    ------------------------------------------------------------------ Uç›˜å¯¼å…¥
-    -- list_dir å›ºä»¶åŒæ—¶åº: å¼‚æ­¥ç» on_list_dir è·¯ç”± / åŒæ­¥è¿”å› table(è§ fileio.lua)
+    ------------------------------------------------------------------ UÅÌµ¼Èë
+    -- list_dir ¹Ì¼şË«Ê±Ğò: Òì²½¾­ on_list_dir Â·ÓÉ / Í¬²½·µ»Ø table(¼û fileio.lua)
     local tick_n = 0
     local scan_deadline = nil
     local SCAN_TICKS = math.max(5, math.ceil(3000 / (ctx.poll_ms or 200)))
 
     local function usb_import()
         if not FILEIO then return end
-        if not STORE then wstr(LW.MAP.detail, "æ•°æ®å±‚ä¸å¯ç”¨"); return end
-        if scan_deadline then wstr(LW.MAP.detail, "æ‰«æä¸­,è¯·ç¨å€™"); return end
-        wstr(LW.MAP.detail, "æ‰«æUç›˜ä¸­...")
+        if not STORE then wstr(LW.MAP.detail, "Êı¾İ²ã²»¿ÉÓÃ"); return end
+        if scan_deadline then wstr(LW.MAP.detail, "É¨ÃèÖĞ,ÇëÉÔºò"); return end
+        wstr(LW.MAP.detail, "É¨ÃèUÅÌÖĞ...")
         scan_deadline = tick_n + SCAN_TICKS
         local ok, err = FILEIO.list("2:", function(list, dir)
             scan_deadline = nil
             if not list then
-                log("ERR", "åˆ—ç›®å½•å¤±è´¥ " .. tostring(dir))
-                wstr(LW.MAP.detail, "æ‰«æå¤±è´¥(æœªæ’Uç›˜?)")
+                log("ERR", "ÁĞÄ¿Â¼Ê§°Ü " .. tostring(dir))
+                wstr(LW.MAP.detail, "É¨ÃèÊ§°Ü(Î´²åUÅÌ?)")
                 return
             end
-            if #list == 0 then                   -- è™šæ‹Ÿå±å›é€€: çº¦å®šæ¸…å• 2:maps.txt
+            if #list == 0 then                   -- ĞéÄâÆÁ»ØÍË: Ô¼¶¨Çåµ¥ 2:maps.txt
                 local lines = FILEIO.read_lines("2:maps.txt")
                 if lines then
                     for i = 1, #lines do
@@ -4074,21 +4074,21 @@ return function(ctx)
                 end
             end
             log(imported > 0 and "INF" or "WRN",
-                ("Uç›˜å¯¼å…¥ %d å¼ åœ°å›¾"):format(imported))
+                ("UÅÌµ¼Èë %d ÕÅµØÍ¼"):format(imported))
             if #msgs > 0 then log("ERR", msgs[1]) end
             wstr(LW.MAP.detail,
-                imported > 0 and ("å¯¼å…¥%då¼ åœ°å›¾"):format(imported)
-                or "æ— åœ°å›¾æ–‡ä»¶(æˆ–æœªæ’Uç›˜)")
+                imported > 0 and ("µ¼Èë%dÕÅµØÍ¼"):format(imported)
+                or "ÎŞµØÍ¼ÎÄ¼ş(»òÎ´²åUÅÌ)")
             refresh()
         end)
         if not ok then
             scan_deadline = nil
-            wstr(LW.MAP.detail, "Uç›˜ä¸å¯ç”¨")
-            log("ERR", "Uç›˜æœªæ’å…¥æˆ–ä¸å¯è¯»")
+            wstr(LW.MAP.detail, "UÅÌ²»¿ÉÓÃ")
+            log("ERR", "UÅÌÎ´²åÈë»ò²»¿É¶Á")
         end
     end
 
-    ------------------------------------------------------------------ æŒ‰é’®
+    ------------------------------------------------------------------ °´Å¥
     local function on_btn(addr, val)
         if val ~= 1 then return end
         if addr == LW.MAP.btn_up and W.sel > 0 then
@@ -4107,8 +4107,8 @@ return function(ctx)
             local n = selected_name()
             if n and STORE then
                 STORE.map_delete(n)
-                log("CMD", "åˆ é™¤åœ°å›¾ " .. n)
-                wstr(LW.MAP.detail, "å·²åˆ é™¤ " .. n)
+                log("CMD", "É¾³ıµØÍ¼ " .. n)
+                wstr(LW.MAP.detail, "ÒÑÉ¾³ı " .. n)
                 refresh()
             end
         elseif addr == LW.MAP.ab_import then
@@ -4119,16 +4119,16 @@ return function(ctx)
                     JOBRUN.ab_cache = JOBRUN.ab_rw_load()
                 end
                 local ok, err = JOBRUN.ab_bind_map(n)
-                wstr(LW.MAP.detail, ok and ("ABçº¿å·²ç»‘å®š " .. n)
-                                       or ("ç»‘å®šå¤±è´¥ " .. tostring(err):sub(1, 16)))
+                wstr(LW.MAP.detail, ok and ("ABÏßÒÑ°ó¶¨ " .. n)
+                                       or ("°ó¶¨Ê§°Ü " .. tostring(err):sub(1, 16)))
                 show_detail()
             end
         elseif addr == LW.MAP.ab_clear then
             local n = selected_name()
             if n and JOBRUN then
                 local ok, err = JOBRUN.ab_clear_map(n)
-                wstr(LW.MAP.detail, ok and ("ABçº¿å·²æ¸…é™¤ " .. n)
-                                       or ("æ¸…é™¤å¤±è´¥ " .. tostring(err):sub(1, 16)))
+                wstr(LW.MAP.detail, ok and ("ABÏßÒÑÇå³ı " .. n)
+                                       or ("Çå³ıÊ§°Ü " .. tostring(err):sub(1, 16)))
                 show_detail()
             end
         end
@@ -4151,7 +4151,7 @@ return function(ctx)
 
     function page:on_frame() end
 
-    function page:on_update(addr, val)           -- å†’å·å®šä¹‰(app.lua å†’å·è°ƒç”¨)
+    function page:on_update(addr, val)           -- Ã°ºÅ¶¨Òå(app.lua Ã°ºÅµ÷ÓÃ)
         on_btn(addr, val)
     end
 
@@ -4159,8 +4159,8 @@ return function(ctx)
         tick_n = tick_n + 1
         if scan_deadline and tick_n > scan_deadline then
             scan_deadline = nil
-            wstr(LW.MAP.detail, "æ‰«ææ— å“åº”(æœªæ’Uç›˜?)")
-            log("WRN", "list_dir å›è°ƒè¶…æ—¶(å¼‚æ­¥æ— æœ)")
+            wstr(LW.MAP.detail, "É¨ÃèÎŞÏìÓ¦(Î´²åUÅÌ?)")
+            log("WRN", "list_dir »Øµ÷³¬Ê±(Òì²½ÎŞ¹û)")
         end
     end
 
