@@ -75,7 +75,13 @@ return function(ctx)
         if n == 1 then
             cfg_items()
             wstr(LW.TW.detail, "选地图 设参数 后创建任务")
-            if W.map then pick_map(W.map) end
+            if W.map and STORE and STORE.map_get(W.map) then
+                pick_map(W.map)
+            elseif STORE then
+                local names = STORE.map_list()      -- 自动选中首张(单图零按键)
+                W.sel = 0
+                if names[1] then pick_map(names[1]) end
+            end
         elseif n == 4 then
             wstr(LW.TW.detail, "任务已创建 按[开始作业]执行")
         elseif n == 2 then
@@ -123,20 +129,17 @@ return function(ctx)
         if val ~= 1 then return end
         local ts = r16(LW.TW.tstate) or 1
 
-        -- 列表翻选(配置态)
-        if addr == LW.TW.btn_up and W.sel > 0 then
-            W.sel = W.sel - 1
-            if W.sel < W.top then W.top = W.sel end
-            render_list()
-        elseif addr == LW.TW.btn_down and W.sel < #W.items - 1 then
-            W.sel = W.sel + 1
-            if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
-            render_list()
-
-        elseif addr == LW.TW.btn_sel then
-            -- 配置态: 选中列表项为当前地图
+        if addr == LW.TW.btn_sel then
+            -- 配置态: 循环选择地图(2026-09-24按画面清单移除上/下移按钮,
+            -- 单键循环: 第1次选第2张...回到第1张; 进配置态时已自动选首张)
             if ts == 1 and STORE then
                 local names = STORE.map_list()
+                if #names > 1 then
+                    W.sel = (W.sel + 1) % #names
+                    if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1
+                    elseif W.sel < W.top then W.top = W.sel end
+                    render_list()
+                end
                 local name = names[W.sel + 1]
                 if name then pick_map(name) end
             end
@@ -221,7 +224,7 @@ return function(ctx)
         id = LW.SCREEN.TASK,
         poll_cmds = {},
         addrs = {
-            LW.TW.btn_up, LW.TW.btn_down, LW.TW.btn_sel, LW.TW.btn_ok,
+            LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
         },

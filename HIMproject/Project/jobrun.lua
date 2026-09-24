@@ -31,8 +31,6 @@ local pending_ab = nil
 local ab_dlg_mode = 0
 local ab_dlg_map = nil
 -- J = { task=名, m=地图, path, ab, next_idx, cur_col, cur_read_row,
---       enter_map, sow_state, temp_idx, result_t0, fine, disp_row }
---       disp_row = 最近图内排的显示排号(rows-r), 图外帧主页排号保持该值
 
 local function now_s()
     if NOW then
@@ -288,7 +286,6 @@ function jobrun.start(task_name, opts)
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx, fine = STORE.cfg and STORE.cfg.fine_tune or nil,
-        disp_row = m.rows - path[start_idx].row,
     }
 
     -- 状态展示: 主页 taskinfo / TW 页
@@ -448,37 +445,11 @@ function jobrun._feed(f)
     local ok, st = pcall(CODEC.bzstatus.unpack, f.data)
     if not ok then return end
 
-    -- 全局状态区刷新(page_home 等价逻辑, 0x21 被常驻截获后由这里统一供数)
-    -- 2026-09-10 修: 补齐 voff/loufei/louzh(此前作业中漏写 -> 主页列行程恒0、
-    -- 漏种/漏株计数冻结); 排号改显示排号口径(=页面6/QT DisplayRowNum, rows-r),
-    -- 图外帧(RowNum=-1/rows, 出图掉头)保持最近图内值, 不再闪 65535
+    -- 全局状态区刷新(2026-09-24按画面配置清单收敛): 仅保留画面实际绑定的
+    -- a_runstate(状态栏运行灯); speed/offlen/voff/rownum/bdstate 无控件绑定,
+    -- 对应A区地址与写入已删(清单未列即删, 行程/速度显示待地图画布需求再议)
     if w16 then
         w16(LW.A.runstate, st.RunState)
-        w16(LW.A.bdstate,  st.BdState)
-        -- 真机语义(QT :345-356): 有AB线时 VerticalOff 显示前符号翻转
-        --   pathType 0/1/2 且 AB同向 -> 取反; pathType 3/4/5 且 AB反向 -> 取反
-        --   无AB线/无作业: 原值(连续播种页与QT formcontinuoussow同口径)
-        local voff = st.VerticalOff
-        if J and J.ab and J.ab.has and STORE and STORE.tasks[J.task] then
-            local pt = STORE.tasks[J.task].path_type
-            if pt <= 2 then
-                if J.ab.dir then voff = -voff end
-            else
-                if not J.ab.dir then voff = -voff end
-            end
-        end
-        if w32 then
-            w32(LW.A.speed,  st.Speed)
-            w32(LW.A.offlen, st.OffLen)
-            w32(LW.A.voff,   voff)
-        end
-        local rn = st.RowNum
-        if J and J.m and rn >= 0 and rn < J.m.rows then
-            J.disp_row = J.m.rows - rn            -- 图内: 显示排号(1基)
-        end
-        w16(LW.A.rownum, (J and J.disp_row) or rn)
-        -- 漏肥/漏株计数不再写A区(2026-09-24): 显示统一走测试诊断页
-        -- td_loufei1-6/td_louzh1-6, A区原地址(0x1009~0x100F)释放
     end
 
     if not J then return end

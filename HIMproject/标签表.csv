@@ -1,11 +1,6 @@
 标签名称,变量地址,描述说明
-a_speed,LW1002,i32 速度 mm/s       (占 0x1002~0x1003) 画面配3位小数->m/s(QT同口径)
-a_rownum,LW1004,u16 当前排号(显示排号rows-r，作业中图外保持最近图内值)
-a_offlen,LW1005,i32 AB行程偏移cm    (占 0x1005~0x1006) 画面配2位小数->m(=QT排行程)
-a_voff,LW1007,i32 垂直偏移cm      (占 0x1007~0x1008) 画面配2位小数->m(=QT列行程)
 a_link,LW1013,u16 链路状态 0=通信中断 1=在线(app.lua心跳判定，
 a_runstate,LW1019,u16 作业状态 RunState
-a_bdstate,LW101A,u16 北斗状态 BdState
 a_tip,LW101C,字符串 操作提示(ack 弹窗文本， 占0x101C~0x1023 共8字)
 a_ver,LW1024,字符串 下位机版本号(0xA3， 占0x1024~0x102B 共8字;
 a_log,LW1060,字符串 调试信息(0x22)/模块加载错误详情
@@ -73,7 +68,6 @@ td_exit,LW1741,按钮 退出测试模式 -> 0x0F
 td_jogno,LW1742,u16 点动通道号 CtrlNo(数值输入， 0~31 位)
 td_jogon,LW1743,u16 点动 State 原值透传(下位机主循环消费， 屏端不解释)
 td_jogtrig,LW1744,按钮 触发点动 -> 0x09 (组包 TestCMDType)
-td_debug,LW1745,按钮 读调试信息 -> 0x22
 tw_tstate,LW1801,u16 任务状态 0=无 1=向导中 2=作业中 3=已完成
 tw_count,LW1802,u16 当前列表可选项数
 tw_selidx,LW1803,u16 列表选中项(0基)
@@ -90,8 +84,6 @@ tw_sow_exceed,LW180E,u16 图外播种开关 0=关 1=开(对齐QT checkBoxSowExceedMap， st
 tw_mapinfo,LW1810,字符串 地图规格摘要(规划占0x1810~0x181F， 16字)
 tw_detail,LW1820,字符串 选中项详情(规划占0x1820~0x183F， 32字)
 tw_list,LW1840,字符串 列表多行文本(规划占0x1840~0x187F， 64字≈6行)
-tw_btn_up,LW1880,按钮 选项上移
-tw_btn_down,LW1881,按钮 选项下移
 tw_btn_sel,LW1882,按钮 选中/进入下一步
 tw_btn_ok,LW1884,按钮 创建任务(步骤4)
 tw_btn_cancel,LW1885,按钮 取消向导

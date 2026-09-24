@@ -169,10 +169,6 @@ LW.SCREEN = {
 --==================== 全局状态区(0x1002~0x102F) ====================
 -- 与 POC 阶段 main.lua 实测可用地址保持一致(勿动已验证地址)
 LW.A = {
-    speed    = 0x1002, -- i32 速度 mm/s       (占 0x1002~0x1003) 画面配3位小数->m/s(QT同口径)
-    rownum   = 0x1004, -- u16 当前排号(显示排号rows-r,作业中图外保持最近图内值)
-    offlen   = 0x1005, -- i32 AB行程偏移cm    (占 0x1005~0x1006) 画面配2位小数->m(=QT排行程)
-    voff     = 0x1007, -- i32 垂直偏移cm      (占 0x1007~0x1008) 画面配2位小数->m(=QT列行程)
     -- 0x1009~0x100F 原主页漏肥/漏株显示区已删除(2026-09-24: 主页纯导航,
     -- 计数显示统一走测试诊断页 td_loufei1-6/td_louzh1-6), 地址释放可复用
     tx_cnt   = 0x1014, -- u16 发帧计数(lua心跳, on_run活着就会动)
@@ -183,7 +179,6 @@ LW.A = {
     diag     = 0x1017, -- u16 诊断码(见 app.lua APP.diag)
     txfn     = 0x1018, -- u16 发送函数探测 1=uart_send 2=uart_send_data 0=都没有
     runstate = 0x1019, -- u16 作业状态 RunState
-    bdstate  = 0x101A, -- u16 北斗状态 BdState
     ack      = 0x101B, -- u16 最近命令应答(1成功/0失败)
     -- tip/ver 为字符串变量, set_string 按串长写入不清尾, 必须留足隔离区:
     -- "√ 下发小区参数"=15B 需 8 个 LW 字(0x101C~0x1023); 旧规划 tip 只有
@@ -291,7 +286,6 @@ LW.TD = {
     jogno      = 0x1742,   -- u16 点动通道号 CtrlNo(数值输入, 0~31 位)
     jogon      = 0x1743,   -- u16 点动 State 原值透传(下位机主循环消费, 屏端不解释)
     jogtrig    = 0x1744,   -- 按钮 触发点动 -> 0x09 (组包 TestCMDType)
-    debug      = 0x1745,   -- 按钮 读调试信息 -> 0x22
 }
 
 --==================== 页面6 任务向导(0x1800~0x18FF, B档新增) ====================
@@ -316,8 +310,6 @@ LW.TW = {
     mapinfo    = 0x1810, -- 字符串 地图规格摘要(规划占0x1810~0x181F, 16字)
     detail     = 0x1820, -- 字符串 选中项详情(规划占0x1820~0x183F, 32字)
     list       = 0x1840, -- 字符串 列表多行文本(规划占0x1840~0x187F, 64字≈6行)
-    btn_up     = 0x1880, -- 按钮 选项上移
-    btn_down   = 0x1881, -- 按钮 选项下移
     btn_sel    = 0x1882, -- 按钮 选中/进入下一步
     btn_ok     = 0x1884, -- 按钮 创建任务(步骤4)
     btn_cancel = 0x1885, -- 按钮 取消向导
@@ -2923,8 +2915,6 @@ local pending_ab = nil
 local ab_dlg_mode = 0
 local ab_dlg_map = nil
 -- J = { task=名, m=地图, path, ab, next_idx, cur_col, cur_read_row,
---       enter_map, sow_state, temp_idx, result_t0, fine, disp_row }
---       disp_row = 最近图内排的显示排号(rows-r), 图外帧主页排号保持该值
 
 local function now_s()
     if NOW then
@@ -3180,7 +3170,6 @@ function jobrun.start(task_name, opts)
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx, fine = STORE.cfg and STORE.cfg.fine_tune or nil,
-        disp_row = m.rows - path[start_idx].row,
     }
 
     -- 状态展示: 主页 taskinfo / TW 页
@@ -3340,37 +3329,11 @@ function jobrun._feed(f)
     local ok, st = pcall(CODEC.bzstatus.unpack, f.data)
     if not ok then return end
 
-    -- 全局状态区刷新(page_home 等价逻辑, 0x21 被常驻截获后由这里统一供数)
-    -- 2026-09-10 修: 补齐 voff/loufei/louzh(此前作业中漏写 -> 主页列行程恒0、
-    -- 漏种/漏株计数冻结); 排号改显示排号口径(=页面6/QT DisplayRowNum, rows-r),
-    -- 图外帧(RowNum=-1/rows, 出图掉头)保持最近图内值, 不再闪 65535
+    -- 全局状态区刷新(2026-09-24按画面配置清单收敛): 仅保留画面实际绑定的
+    -- a_runstate(状态栏运行灯); speed/offlen/voff/rownum/bdstate 无控件绑定,
+    -- 对应A区地址与写入已删(清单未列即删, 行程/速度显示待地图画布需求再议)
     if w16 then
         w16(LW.A.runstate, st.RunState)
-        w16(LW.A.bdstate,  st.BdState)
-        -- 真机语义(QT :345-356): 有AB线时 VerticalOff 显示前符号翻转
-        --   pathType 0/1/2 且 AB同向 -> 取反; pathType 3/4/5 且 AB反向 -> 取反
-        --   无AB线/无作业: 原值(连续播种页与QT formcontinuoussow同口径)
-        local voff = st.VerticalOff
-        if J and J.ab and J.ab.has and STORE and STORE.tasks[J.task] then
-            local pt = STORE.tasks[J.task].path_type
-            if pt <= 2 then
-                if J.ab.dir then voff = -voff end
-            else
-                if not J.ab.dir then voff = -voff end
-            end
-        end
-        if w32 then
-            w32(LW.A.speed,  st.Speed)
-            w32(LW.A.offlen, st.OffLen)
-            w32(LW.A.voff,   voff)
-        end
-        local rn = st.RowNum
-        if J and J.m and rn >= 0 and rn < J.m.rows then
-            J.disp_row = J.m.rows - rn            -- 图内: 显示排号(1基)
-        end
-        w16(LW.A.rownum, (J and J.disp_row) or rn)
-        -- 漏肥/漏株计数不再写A区(2026-09-24): 显示统一走测试诊断页
-        -- td_loufei1-6/td_louzh1-6, A区原地址(0x1009~0x100F)释放
     end
 
     if not J then return end
@@ -3558,7 +3521,13 @@ return function(ctx)
         if n == 1 then
             cfg_items()
             wstr(LW.TW.detail, "选地图 设参数 后创建任务")
-            if W.map then pick_map(W.map) end
+            if W.map and STORE and STORE.map_get(W.map) then
+                pick_map(W.map)
+            elseif STORE then
+                local names = STORE.map_list()      -- 自动选中首张(单图零按键)
+                W.sel = 0
+                if names[1] then pick_map(names[1]) end
+            end
         elseif n == 4 then
             wstr(LW.TW.detail, "任务已创建 按[开始作业]执行")
         elseif n == 2 then
@@ -3606,20 +3575,17 @@ return function(ctx)
         if val ~= 1 then return end
         local ts = r16(LW.TW.tstate) or 1
 
-        -- 列表翻选(配置态)
-        if addr == LW.TW.btn_up and W.sel > 0 then
-            W.sel = W.sel - 1
-            if W.sel < W.top then W.top = W.sel end
-            render_list()
-        elseif addr == LW.TW.btn_down and W.sel < #W.items - 1 then
-            W.sel = W.sel + 1
-            if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
-            render_list()
-
-        elseif addr == LW.TW.btn_sel then
-            -- 配置态: 选中列表项为当前地图
+        if addr == LW.TW.btn_sel then
+            -- 配置态: 循环选择地图(2026-09-24按画面清单移除上/下移按钮,
+            -- 单键循环: 第1次选第2张...回到第1张; 进配置态时已自动选首张)
             if ts == 1 and STORE then
                 local names = STORE.map_list()
+                if #names > 1 then
+                    W.sel = (W.sel + 1) % #names
+                    if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1
+                    elseif W.sel < W.top then W.top = W.sel end
+                    render_list()
+                end
                 local name = names[W.sel + 1]
                 if name then pick_map(name) end
             end
@@ -3704,7 +3670,7 @@ return function(ctx)
         id = LW.SCREEN.TASK,
         poll_cmds = {},
         addrs = {
-            LW.TW.btn_up, LW.TW.btn_down, LW.TW.btn_sel, LW.TW.btn_ok,
+            LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
         },
