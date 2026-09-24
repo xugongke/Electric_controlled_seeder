@@ -83,7 +83,24 @@ def main():
             continue
         span = find_span(raw, n)
         if not span:
-            print('%-14s main.lua 中无内嵌条目, 跳过' % n)
+            # 新模块: 在最后一个 _MODS 条目之后插入新条目
+            src = crlf(open(src_path, 'rb').read()).rstrip(b'\r\n')
+            if b']==]' in src:
+                print('%-14s 源码含 ]==], 不能内嵌!' % n)
+                continue
+            last = raw.rfind(b']==]')
+            if last < 0:
+                print('%-14s main.lua 无_MODS区, 跳过' % n)
+                continue
+            eol = raw.find(b'\n', last)
+            eol = eol + 1 if eol >= 0 else len(raw)
+            entry = ('\r\n_MODS["%s.lua"] = [==[\r\n' % n).encode('ascii') \
+                + src + b'\r\n]==]\r\n'
+            if not check_only:
+                raw = raw[:eol] + entry + raw[eol:]
+                changed = True
+            print('%-14s 新增内嵌条目 (%dB)%s'
+                  % (n, len(src), ' [仅检查]' if check_only else ' [已插入]'))
             continue
         _, start, end = span
         # 内嵌正文按原约定不带尾换行(后面紧跟 \r\n]==] )

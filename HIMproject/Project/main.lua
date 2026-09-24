@@ -37,6 +37,7 @@ local MODULES = {
     -- BµµĞÂÔö: ÎÄ¼şIO/CSV/Êı¾İ²ã/Â·¾¶Ëã·¨/×÷Òµµ÷¶È/ÈÕÖ¾/3ĞÂÒ³Ãæ
     "fileio.lua", "csv.lua", "store.lua", "pathalgo.lua", "logger.lua", "jobrun.lua",
     "page_task.lua", "page_history.lua", "page_logview.lua",
+    "page_map.lua",                            -- µØÍ¼µ¼ÈëÒ³(2026-09-24ĞÂÔö, »­Ãæ9)
 }
 
 --================ Æ½Ì¨ÊÊÅä²ã =================
@@ -51,6 +52,13 @@ local function wstr(addr, s)
 end
 local function r16(addr)
     if get_uint16 then return get_uint16(VT_LW, addr) end
+end
+local function rstr(addr)                        -- ¶Á×Ö·û´®±äÁ¿(AB¶Ô»°¿òÃû³ÆµÈ)
+    if get_string then
+        local ok, s = pcall(get_string, VT_LW, addr)
+        if ok and type(s) == "string" then return s end
+    end
+    return ""
 end
 local function r32(addr)
     if get_uint32 then return get_uint32(VT_LW, addr) end
@@ -147,9 +155,12 @@ LW.SCREEN = {
     CONTINUOUS = 2,   -- Á¬Ğø²¥ÖÖ
     PARAMS     = 4,   -- ³§¼Ò/ÓÃ»§²ÎÊı
     TESTDIAG   = 5,   -- ²âÊÔÕï¶Ï
-    TASK       = 6,   -- ÈÎÎñÏòµ¼/×÷ÒµÒ³(Bµµ: Ñ¡µØÍ¼/ABÏß/Â·¾¶/Æğµã+×÷ÒµÊÓÍ¼)
+    TASK       = 6,   -- ÈÎÎñ×÷ÒµÒ³(2026-09-24ÖØ¹¹: Ñ¡µØÍ¼+²ÎÊı+´´½¨(²»×Ô¶¯¿ªÊ¼)
+                      --   +¿ªÊ¼/Í£Ö¹+×÷ÒµÊÓÍ¼; Ô­4²½Ïòµ¼ÒÑÉ¾³ı)
     HISTORY    = 7,   -- ÀúÊ·¼ÇÂ¼(BµµĞÂÔö)
     LOGVIEW    = 8,   -- ÈÕÖ¾²é¿´(BµµĞÂÔö)
+    MAP        = 9,   -- µØÍ¼µ¼ÈëÒ³(2026-09-24ĞÂÔö: UÅÌµ¼Èë/ÁĞ±í/É¾³ı/AB°ó¶¨)
+    ABDLG      = 22,  -- ABÏß¶Ô»°¿ò»­Ãæ(½ö×÷¹¦ÄÜ°´Å¥"´ò¿ª¶Ô»°¿ò"µÄµ¯³öÄÚÈİ)
 }
 
 --==================== È«¾Ö×´Ì¬Çø(0x1002~0x102F) ====================
@@ -305,12 +316,43 @@ LW.TW = {
     btn_cancel = 0x1885, -- °´Å¥ È¡ÏûÏòµ¼
     btn_resume = 0x1886, -- °´Å¥ Ğø½ÓÎ´Íê³ÉÈÎÎñ
     btn_import = 0x1887, -- °´Å¥ É¨ÃèUÅÌµ¼ÈëµØÍ¼(²½Öè1)
-    -- ABÏß²Ù×÷(2026-09-23×Ôpage_ablineÇ¨ÒÆ; Ïòµ¼ÆÚ×÷ÓÃÓÚËùÑ¡µØÍ¼, ×÷ÒµÆÚ×÷ÓÃÓÚµ±Ç°µØÍ¼;
-    -- °ó¶¨ĞÅÏ¢ÏÔÊ¾¸´ÓÃ LW.AB µØÖ·Çø)
-    ab_view    = 0x1888, -- °´Å¥ ABÏß²é¿´/²É¼¯(0x23)
+    -- ABÏß²Ù×÷(2026-09-23×Ôpage_ablineÇ¨ÒÆ; ÅäÖÃÆÚ×÷ÓÃÓÚËùÑ¡µØÍ¼, ×÷ÒµÆÚ×÷ÓÃÓÚµ±Ç°µØÍ¼;
+    -- °ó¶¨ĞÅÏ¢ÏÔÊ¾¸´ÓÃ LW.AB µØÖ·Çø, ²é¿´/±£´æ×ßAB¶Ô»°¿ò»­Ãæ22)
+    ab_view    = 0x1888, -- °´Å¥ ABÏß²é¿´(´ò¿ª¶Ô»°¿ò+0x23»ØÏÔ)
     ab_import  = 0x1889, -- °´Å¥ ABÏßµ¼Èë: RW»º´æ°ó¶¨µ½µØÍ¼(#AB¶ÎÂäÅÌ)
     ab_clear   = 0x188A, -- °´Å¥ ABÏßÇå³ı: ½â³ıµØÍ¼°ó¶¨
-    ab_save    = 0x188B, -- °´Å¥ ABÏß±£´æµ½RW(µôµç±£³Ö)
+    ab_save    = 0x188B, -- °´Å¥ ABÏß±£´æ(´ò¿ª¶Ô»°¿òÃüÃû, ²É¼¯ºó´æRW+°óµØÍ¼)
+    btn_start  = 0x188C, -- °´Å¥ ¿ªÊ¼×÷Òµ(ÈÎÎñ¾ÍĞ÷ºóÆô¶¯; ×÷ÒµÖĞ=ĞøÌËÂã·¢0x0A)
+    btn_stop   = 0x188D, -- °´Å¥ Í£Ö¹×÷Òµ(ÊÕÎ²¶Ïµã+ÎŞABÏßÊ±µ¯±£´æ¶Ô»°¿ò)
+}
+
+--==================== Ò³Ãæ9 µØÍ¼µ¼Èë(0x1C00~, 2026-09-24ĞÂÔö) ====================
+LW.MAP = {
+    count      = 0x1C00, -- u16 µØÍ¼Êı
+    selidx     = 0x1C01, -- u16 ÁĞ±íÑ¡ÖĞÏî(0»ù)
+    listtop    = 0x1C02, -- u16 ÁĞ±í´°¿ÚÊ×Ïî(0»ù)
+    list       = 0x1C04, -- ×Ö·û´® ÁĞ±í¶àĞĞÎÄ±¾(Õ¼0x1C04~0x1C43, 64×Ö)
+    detail     = 0x1C44, -- ×Ö·û´® Ñ¡ÖĞµØÍ¼ÏêÇé(Õ¼0x1C44~0x1C63, 32×Ö)
+    btn_up     = 0x1C70, -- °´Å¥ Ñ¡ÏîÉÏÒÆ
+    btn_down   = 0x1C71, -- °´Å¥ Ñ¡ÏîÏÂÒÆ
+    btn_sel    = 0x1C72, -- °´Å¥ ²é¿´ÏêÇé
+    btn_del    = 0x1C73, -- °´Å¥ É¾³ıµØÍ¼
+    btn_usb    = 0x1C74, -- °´Å¥ É¨ÃèUÅÌµ¼Èë
+    ab_view    = 0x1C75, -- °´Å¥ ABÏß²é¿´(¶Ô»°¿ò)
+    ab_import  = 0x1C76, -- °´Å¥ ABÏßµ¼Èë(RW»º´æ°ó¶¨±¾Í¼)
+    ab_clear   = 0x1C77, -- °´Å¥ ABÏßÇå³ı(½â°ó±¾Í¼)
+}
+
+--==================== ABÏß¶Ô»°¿ò½»»¥Çø(0x1D00~, »­Ãæ22³ĞÔØ) ====================
+-- µ¯´°ÓÉ»­Ãæ²à¹¦ÄÜ°´Å¥("´ò¿ª¶Ô»°¿ò"Ä¿±ê=»­Ãæ22)´ò¿ª; ¶Ô»°¿òÄÚÈ·ÈÏ°´Å¥Îª
+-- "¹Ø±Õ¶Ô»°¿ò"+Ö´ĞĞÍ¨Öª(Ğ´LW=1), ¾­ on_update Â·ÓÉµ½ jobrun ×¢²áµÄAB¶Ô»°¿òÒ³
+LW.ABP = {
+    mode     = 0x1D00, -- u16 ¶Ô»°¿òÄ£Ê½ 0=±£´æÃüÃû(ĞèÊäÈëÃû³Æ) 1=²é¿´(Ö»¶Á)
+    auto_req = 0x1D01, -- u16 Í£Ö¹ºó×Ô¶¯µ¯´°ÇëÇó(Ìõ¼ş´¥·¢¹¦ÄÜ°´Å¥µÄÌõ¼şµØÖ·)
+    name     = 0x1D02, -- ×Ö·û´® ABÏßÃû³Æ(±£´æ=ÊäÈë¿ò, ²é¿´=°ó¶¨µÄABÃû; Õ¼8×Ö)
+    req      = 0x1D10, -- Í¨Öª ´ò¿ªÇëÇó(»­Ãæ°´Å¥Ö´ĞĞÍ¨Öª: 1=±£´æ 2=²é¿´)
+    confirm  = 0x1D11, -- Í¨Öª È·ÈÏ(¹Ø±Õ¶Ô»°¿ò°´Å¥Ö´ĞĞÍ¨ÖªĞ´1)
+    cancel   = 0x1D12, -- Í¨Öª È¡Ïû(¹Ø±Õ¶Ô»°¿ò°´Å¥Ö´ĞĞÍ¨ÖªĞ´1)
 }
 
 --==================== Ò³Ãæ7 ÀúÊ·¼ÇÂ¼(0x1900~0x19FF, BµµĞÂÔö) ====================
@@ -2973,12 +3015,15 @@ QT è¦´ÃĞŞÕı(ÓĞÒâÎªÖ®, ÓëC++²îÒìµã):
 local jobrun = {}
 
 local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW
-local w16, w32, wstr, NOW, rw16, rw16w
+local w16, w32, wstr, NOW, rw16, rw16w, RSTR, r16
 
 -- ×÷ÒµÏÖ³¡(µ¥¸ö»î¶¯ÈÎÎñ)
 local J = nil
 -- Í£Ö¹Á÷³Ì¹ÒÆğµÄAB²É¼¯ÇëÇó { map, a_row, dir } (ÉùÃ÷ÔÚÇ°¹© init ±Õ°üÒıÓÃ)
 local pending_ab = nil
+-- AB¶Ô»°¿ò×´Ì¬(»­Ãæ22): mode 0=ÎŞ 1=±£´æÃüÃû 2=²é¿´; map=±£´æÄ¿±êµØÍ¼
+local ab_dlg_mode = 0
+local ab_dlg_map = nil
 -- J = { task=Ãû, m=µØÍ¼, path, ab, next_idx, cur_col, cur_read_row,
 --       enter_map, sow_state, temp_idx, result_t0, fine, disp_row }
 --       disp_row = ×î½üÍ¼ÄÚÅÅµÄÏÔÊ¾ÅÅºÅ(rows-r), Í¼ÍâÖ¡Ö÷Ò³ÅÅºÅ±£³Ö¸ÃÖµ
@@ -3000,10 +3045,11 @@ function jobrun.init(deps)
     STORE, PATHALGO, LOGGER, LW = deps.STORE, deps.PATHALGO, deps.LOGGER, deps.LW
     w16, w32, wstr, NOW = deps.w16, deps.w32, deps.wstr, deps.now
     rw16, rw16w = deps.rw16, deps.rw16w
+    RSTR, r16 = deps.rstr, deps.r16
     -- ³£×¤¶©ÔÄ: 0x21 Ö¡ÎŞÂÛµ±Ç°Ò³¶¼½ø×´Ì¬»ú(×÷ÒµÖĞÇĞÒ³²»¶ª)
     APP.sub_always(PROTOCOL.FNC.GET_BZ_STATUS, function(f) jobrun._feed(f) end)
-    -- 0x23 ²É¼¯Ó¦´ğÈ«¾Ö´¦Àí(Ô­ page_abline/page_home ¾Ö²¿´¦Àí, 2026-09-23 Ç¨ÒÆ):
-    -- ¸üĞÂ ab_cache/ÏÔÊ¾; ÈôÍ£Ö¹Á÷³Ì¹ÒÆğÁË pending_ab ÔòÂäµØÍ¼
+    -- 0x23 ²É¼¯Ó¦´ğÈ«¾Ö´¦Àí: Ìî ab_cache Óë LW.AB ÏÔÊ¾Çø(¶Ô»°¿ò»­Ãæ22µÄÏÔÊ¾¿Ø¼ş
+    -- °óÍ¬Ò»µØÖ·Çø)¡£2026-09-24 ÆğÍ£Ö¹²»ÔÙ×Ô¶¯ÂäÍ¼, ¸ÄÓÉ¶Ô»°¿òÈ·ÈÏ±£´æ
     APP.sub_always(PROTOCOL.FNC.STORE_AB, function(f)
         local ok, p = pcall(CODEC.bdpara.unpack, f.data)
         if not ok then
@@ -3012,9 +3058,14 @@ function jobrun.init(deps)
         end
         jobrun.ab_cache = p
         jobrun.ab_show(p)
-        if jobrun.save_ab then jobrun.save_ab(f.data) end
-        if not pending_ab then wstr(LW.A.tip, "¡Ì ABÏßÒÑ²É¼¯") end
+        wstr(LW.A.tip, "¡Ì ABÏßÒÑ²É¼¯")
     end)
+    -- AB¶Ô»°¿òÍ¨ÖªµØÖ·(»­Ãæ22µÄ¹¦ÄÜ°´Å¥Ö´ĞĞÍ¨ÖªĞ´LW=1) -> Ó°×ÓÒ³È«¾ÖÂ·ÓÉ
+    APP.register({
+        id = -900,                              -- ·ÇÕæÊµ»­ÃæºÅ, ÓÀ²»³ÉÎªµ±Ç°Ò³
+        addrs = { LW.ABP.req, LW.ABP.confirm, LW.ABP.cancel },
+        on_update = function(_, addr) jobrun._ab_dlg_on_update(addr) end,
+    })
     -- creator Ê±»ú»Ö¸´ RW »º´æ(µôµç±£³Ö)
     jobrun.ab_cache = jobrun.ab_rw_load()
     return jobrun
@@ -3143,16 +3194,20 @@ function jobrun.ab_collect()
 end
 
 -- °Ñ cache °ó¶¨µ½µØÍ¼(QT FormMap µ¼ÈëÓïÒå: Ğ´ #AB ¶Î²¢ÂäÅÌ)
-function jobrun.ab_bind_map(map_name)
+-- name: ABÏßÏÔÊ¾Ãû(¶Ô»°¿òÊäÈë); pa: Í£Ö¹¿ìÕÕ{a_row,dir}(ÓÅÏÈÓÚ×÷Òµ²Î¿¼)
+function jobrun.ab_bind_map(map_name, name, pa)
     local p = jobrun.ab_cache
     if not p then return nil, "ÎŞABÏß, ÇëÏÈ²É¼¯»ò´ÓRW¶Á»Ø" end
     local m = STORE.maps[map_name]
     if not m then return nil, "µØÍ¼²»´æÔÚ" end
     local a_row, abdir = 0, 1
-    if J and J.m and J.m.name == map_name and J.ab then
-        a_row, abdir = J.ab.a_row or 0, (J.ab.dir and 1 or 0)  -- ×÷Òµ²Î¿¼ÓÅÏÈ
+    if pa then
+        a_row, abdir = pa.a_row or 0, (pa.dir and 1 or 0)
+    elseif J and J.m and J.m.name == map_name and J.ab then
+        a_row, abdir = J.ab.a_row or 0, (J.ab.dir and 1 or 0)
     end
-    m.ab = { name = map_name, sn = p.StartN, se = p.StartE,
+    m.ab = { name = (name and name ~= "") and name or map_name,
+             sn = p.StartN, se = p.StartE,
              en = p.EndBN, ee = p.EndBE, sdir = p.StartDir, cdir = p.CalcDir,
              a_row = a_row, abdir = abdir, has = true }
     if STORE.map_save and not STORE.map_save(map_name) then
@@ -3267,21 +3322,24 @@ end
 -------------------------------------------------------------------- Í£Ö¹(QT :305)
 -- Ö÷Ò³Í£Ö¹°´Å¥Î¨Ò»ÊÕÎ²Èë¿Ú; 0x0B ÎŞÌõ¼ş¼±Í£(º¬ÎŞÈÎÎñÊ±Âã·¢),
 -- ÓĞ×÷ÒµÊ±»ØÍË¶Ïµã(QT :306-307)+¹éµµ+ÇåÏÖ³¡(ÔÊĞíºóĞøĞÂÈÎÎñ/Ğø×÷)
--- QT :310-311: µØÍ¼ÎŞABÏßÊ±Í£Ö¹µ¯"ÊÇ·ñ±£´æABÏß?" -> Yes Ôò 0x23 ²É¼¯
--- ´æÍ¼; ×éÌ¬ÆÁÎŞ Yes/No µ¯´° -> ¼ò»¯Îª×Ô¶¯²É¼¯±£´æ(Ó¦´ğ¾­ jobrun.init ×¢²áµÄ
--- È«¾Ö0x23Â·ÓÉ -> save_ab ÂäÅÌ)
--- (pending_ab ÉùÃ÷ÒÑÒÆÖÁÎÄ¼ş¶¥²¿¹© init ±Õ°üÒıÓÃ)
+-- QT :310-311: µØÍ¼ÎŞABÏßÊ±Í£Ö¹µ¯"ÊÇ·ñ±£´æABÏß?" -> 2026-09-24 ¶ÔÆë:
+-- Í£Ö¹Ê±Ğ´ LW.ABP.auto_req=1, »­Ãæ²à"´ò¿ªAB¶Ô»°¿ò"¹¦ÄÜ°´Å¥ÒÔÌõ¼ş´¥·¢Áª¶¯µ¯³ö
+-- (ÃÉ°æ°ëÍ¸Ã÷Ä£Ì¬), ÓÃ»§ÃüÃûºóÈ·ÈÏ²Å±£´æ(µÈ¼ÛQTµÄYes+Ãû³ÆÊäÈë), È¡ÏûÔò²»´æ¡£
 
 function jobrun.stop()
     PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)        -- 0x0B
     if not J then return true end
-    -- ABÏß²É¼¯(QT signalStopSow :310-311 + ÎŞABÏßÊ±Æô¶¯¼´¸üĞÂ²Î¿¼ :278-284:
-    -- a_row/dir È¡ J.ab ¡ª¡ª ÎŞABÏßÈÎÎñÆô¶¯Ê±ÒÑ°´Æğµã½ÚµãÌîºÃ)
+    -- ABÏß±£´æ½¨Òé(QT signalStopSow :310-311): ÎŞ°ó¶¨µØÍ¼ -> ²É¼¯ÌîÏÔÊ¾ + ÇëÇóµ¯´°
     if not (J.m.ab and J.m.ab.has) then
         pending_ab = { map = J.m.name, a_row = J.ab and J.ab.a_row or 0,
                        dir = J.ab and J.ab.dir or false }
-        PROTOCOL.send(PROTOCOL.FNC.STORE_AB)       -- 0x23 ²É¼¯ÇëÇó
-        log("INF", "µØÍ¼ÎŞABÏß, Í£Ö¹Ê±²É¼¯(0x23): " .. J.m.name)
+        ab_dlg_mode = 1                            -- Ô¤ÖÃ±£´æÄ£Ê½(µ¯´°ÒÑ´øÄ¿µÄ)
+        ab_dlg_map = J.m.name
+        w16(LW.ABP.mode, 0)
+        wstr(LW.ABP.name, "")
+        PROTOCOL.send(PROTOCOL.FNC.STORE_AB)       -- 0x23 ²É¼¯ÌîÏÔÊ¾
+        w16(LW.ABP.auto_req, 1)                    -- »­Ãæ¹¦ÄÜ°´Å¥Ìõ¼ş´¥·¢µ¯´°
+        log("INF", "µØÍ¼ÎŞABÏß, Í£Ö¹ºó½¨Òé±£´æ: " .. J.m.name)
     end
     if not J.completed then
         -- QT :306-307: Í£Ö¹Ê±µ±Ç°¿éÒÑÍê³ÉÔò next_idx »ØÍËµ½ temp_idx(ÏÂ´ÎĞø×÷Æğµã)
@@ -3306,29 +3364,82 @@ function jobrun.detach()
     if APP then APP.set_always_poll(nil) end
 end
 
--- 0x23 ²É¼¯Ó¦´ğ -> Ğ´µØÍ¼ #AB ¶Î²¢ÂäÅÌ(ÓÉ init ×¢²áµÄÈ«¾Ö0x23Â·ÓÉµ÷ÓÃ)
--- µÈ¼Û QT: signalGetABLine :504 + m.saveABLine; Ãû³ÆÓÃµØÍ¼Ãû(QT µ¯¿òÊäÈë,
--- ×éÌ¬ÆÁÎŞÎÄ±¾ÊäÈë, ¼ò»¯); AÅÅ/ABDir ÓÃ stop Ê±¿ìÕÕ(Æô¶¯²Î¿¼Öµ)
-function jobrun.save_ab(data)
-    if not pending_ab then return nil end
-    local pa = pending_ab
-    pending_ab = nil
-    local ok, p = pcall(CODEC.bdpara.unpack, data)
-    if not ok then log("WRN", "ABÏß²É¼¯Ó¦´ğ½âÎöÊ§°Ü") return nil end
-    local m = STORE.maps[pa.map]
-    if not m then log("WRN", "ABÏß±£´æÊ§°Ü: µØÍ¼È±Ê§ " .. pa.map) return nil end
-    m.ab = { name = m.name,
-             sn = p.StartN, se = p.StartE, en = p.EndBN, ee = p.EndBE,
-             sdir = p.StartDir, cdir = p.CalcDir,
-             a_row = pa.a_row or 0,
-             abdir = pa.dir and 1 or 0, has = true }
-    if STORE.map_save and not STORE.map_save(pa.map) then
-        log("WRN", "ABÏßÂäÅÌÊ§°Ü: " .. pa.map)
-        return nil
+-------------------------------------------------------------------- ABÏß¶Ô»°¿ò(LW.ABP)
+-- »­Ãæ22³ĞÔØ(¹¦ÄÜ°´Å¥"´ò¿ª¶Ô»°¿ò"µ¯³ö, ÃÉ°æ°ëÍ¸Ã÷Ä£Ì¬); ×Ö¶ÎÏÔÊ¾¿Ø¼ş°ó LW.AB Çø,
+-- 0x23 Ó¦´ğ¾­È«¾ÖÂ·ÓÉ×Ô¶¯Ìî³ä¡£Ãû³ÆÊäÈëÎªÎÄ±¾¿Ø¼ş(ĞéÄâ¼üÅÌ)¶ÁĞ´ LW.ABP.name¡£
+-- ½»»¥: »­Ãæ°´Å¥Ö´ĞĞÍ¨ÖªĞ´ LW.ABP.req(1±£´æ/2²é¿´) -> ²É¼¯+¿ª´°;
+--       È·ÈÏ(¹Ø±Õ¶Ô»°¿ò+Í¨Öªconfirm) -> ÃüÃû±£´æµ½µØÍ¼+RW; È¡Ïû -> ¶ªÆú¡£
+local function rstr_safe(addr)
+    if RSTR then
+        local ok, s = pcall(RSTR, addr)
+        if ok and type(s) == "string" then return s end
     end
-    log("INF", ("ABÏßÒÑ±£´æÖÁµØÍ¼ %s (AÅÅ%d %s)"):format(
-        pa.map, pa.a_row or 0, pa.dir and "Í¬Ïò" or "·´Ïò"))
-    return true
+    return ""
+end
+
+function jobrun._ab_dlg_on_update(addr)
+    if addr == LW.ABP.req then
+        local v = (r16 and r16(LW.ABP.req)) or 1
+        jobrun.ab_dlg_open(v == 2 and 2 or 1)
+    elseif addr == LW.ABP.confirm then
+        jobrun.ab_dlg_confirm()
+    elseif addr == LW.ABP.cancel then
+        ab_dlg_mode = 0
+        pending_ab = nil
+        w16(LW.ABP.auto_req, 0)
+        wstr(LW.A.tip, "ABÏßÎ´±£´æ")
+    end
+end
+
+-- ´ò¿ªÇëÇó(mode 1=±£´æÃüÃû 2=²é¿´): ÌîÄ£Ê½/Ãû³Æ, ·¢0x23²É¼¯
+-- Ä¿±êµØÍ¼ÓÅÏÈ¼¶: ×÷ÒµÖĞ=µ±Ç°ÈÎÎñµØÍ¼ > Í£Ö¹¿ìÕÕ > Ò³ÃæÌáÊ¾(jobrun.ab_hint_map,
+-- µØÍ¼µ¼ÈëÒ³Ñ¡ÖĞĞĞÉèÖÃ) > ±£³ÖÉÏ´Î
+function jobrun.ab_dlg_open(mode)
+    ab_dlg_mode = mode
+    if J and J.m then ab_dlg_map = J.m.name
+    elseif pending_ab then ab_dlg_map = pending_ab.map
+    elseif jobrun.ab_hint_map then ab_dlg_map = jobrun.ab_hint_map end
+    w16(LW.ABP.mode, mode == 2 and 1 or 0)      -- LW¿Ú¾¶: 0±£´æ 1²é¿´
+    if mode == 2 then
+        local m = ab_dlg_map and STORE.maps[ab_dlg_map]
+        wstr(LW.ABP.name, (m and m.ab and m.ab.name) or "")
+    else
+        wstr(LW.ABP.name, "")
+    end
+    PROTOCOL.send(PROTOCOL.FNC.STORE_AB)
+end
+
+-- È·ÈÏ±£´æ: ÒÔ¶Ô»°¿òÊäÈëÃû³Æ°ó¶¨µØÍ¼(#AB¶ÎÂäÅÌ) + ´æRW; AÅÅ/·½ÏòÓÃÍ£Ö¹¿ìÕÕ
+-- (ÑÏ¸ñÒªÇó±¾´Î¿ª´°ºóÒÑÓĞ0x23Ó¦´ğ, ²»»ØÍËRW¾É»º´æ¡ª¡ª±ÜÃâ±£´æ¹ıÆÚÊı¾İ)
+function jobrun.ab_dlg_confirm()
+    if ab_dlg_mode ~= 1 then
+        ab_dlg_mode = 0
+        w16(LW.ABP.auto_req, 0)
+        return
+    end
+    ab_dlg_mode = 0
+    w16(LW.ABP.auto_req, 0)
+    if not (ab_dlg_map and STORE.maps[ab_dlg_map]) then
+        wstr(LW.A.tip, "¡Á ÎŞÄ¿±êµØÍ¼")
+        return
+    end
+    jobrun.ab_cache = jobrun.ab_cache
+    if not jobrun.ab_cache then
+        wstr(LW.A.tip, "¡Á ABÏß²É¼¯ÎŞÓ¦´ğ, Î´±£´æ")
+        return
+    end
+    local name = rstr_safe(LW.ABP.name)
+    if name == "" then name = ab_dlg_map end
+    local pa = pending_ab
+    local ok, err = jobrun.ab_bind_map(ab_dlg_map, name, pa)
+    if ok then
+        jobrun.ab_rw_save()
+        wstr(LW.A.tip, "¡Ì ABÏßÒÑ±£´æ " .. name)
+        log("INF", ("ABÏß±£´æ %s -> µØÍ¼%s"):format(name, ab_dlg_map))
+    else
+        wstr(LW.A.tip, "¡Á " .. tostring(err))
+    end
+    pending_ab = nil
 end
 
 -------------------------------------------------------------------- 200ms ×´Ì¬»ú
@@ -3479,25 +3590,31 @@ return jobrun
 
 _MODS["page_task.lua"] = [==[
 --[[
-page_task.lua ¡ª¡ª ÈÎÎñÏòµ¼Ò³(0x1800~, »­Ãæ6, Bµµ)
+page_task.lua ¡ª¡ª ÈÎÎñ×÷ÒµÒ³(»­Ãæ6, 2026-09-24ÖØ¹¹)
 ================================================================================
-4²½×´Ì¬»ú(LW.TW.step):
-  1 Ñ¡µØÍ¼(ÁĞ±í+UÅÌµ¼Èë) ¡ú 2 Ñ¡ABÏß ¡ú 3 Â·¾¶·½Ê½/·½Ïò/Í¼Íâ²¥ÖÖ ¡ú 4 ÆğÊ¼Ğ¡Çø+´´½¨
-×÷ÒµÊÓÍ¼(tstate=2): jobrun.snapshot Ğ´ LW ½ø¶ÈÇø¡£
-ÁĞ±í½»»¥: ¶àĞĞ×Ö·û´®(Ñ¡ÖĞĞĞ">"Ç°×º) + ÉÏ/ÏÂÒÆ°´Å¥; btn_sel Ñ¡ÖĞ½øÈëÏÂÒ»²½¡£
-ÒÀÀµ×¢Èë: creator(ctx) Í¬ÏÖÓĞÒ³ÃæÄ£Ê½; ctx Ôö STORE/JOBRUN/LOGGER/FILEIO¡£
+Ô­4²½Ïòµ¼ÒÑÉ¾³ı, ·ÂQTÊµÊ±ÈÎÎñÒ³½á¹¹:
+  ÅäÖÃ(tstate=1): µØÍ¼ÁĞ±íÑ¡Ôñ + ÈÎÎñ²ÎÊıÇø(Â·¾¶·½Ê½/·½Ïò/ÆğÊ¼ÅÅ/ÆğÊ¼ÁĞ/Í¼Íâ²¥ÖÖ)
+        -> [´´½¨ÈÎÎñ] Ö»´´½¨²»Æô¶¯(QT´´½¨ºóÓÉ¿ªÊ¼¼üÖ´ĞĞ)
+  ¾ÍĞ÷(tstate=4): ÈÎÎñÒÑ´´½¨´ı¿ªÊ¼ -> [¿ªÊ¼×÷Òµ] JOBRUN.start
+  ×÷Òµ(tstate=2): jobrun.snapshot ÇáË¢ĞÂ; [¿ªÊ¼]=ĞøÌËÂã·¢0x0A; [Í£Ö¹]=ÊÕÎ²
+        (ÎŞABÏßµØÍ¼Í£Ö¹ºóµ¯AB±£´æ¶Ô»°¿ò, ¼û jobrun stop/LW.ABP)
+  Íê³É(tstate=3): ´ıĞø½Ó/·µ»ØÅäÖÃ
+AB²Ù×÷: ²é¿´/±£´æ=»­Ãæ¹¦ÄÜ°´Å¥(´ò¿ª¶Ô»°¿ò»­Ãæ22+Ö´ĞĞÍ¨ÖªLW.ABP.req, jobrun´¦Àí);
+        µ¼Èë/Çå³ı=×ÖÉèÖÃ°´Å¥(±¾Ò³´¦Àí, ×÷ÓÃÓÚËùÑ¡/µ±Ç°µØÍ¼)¡£
+UÅÌµ¼ÈëÒÑÒÆÖÁµØÍ¼µ¼ÈëÒ³(page_map.lua, »­Ãæ9)¡£
+ÒÀÀµ×¢Èë: creator(ctx) Í¬ÏÖÓĞÒ³ÃæÄ£Ê½¡£
 --]]
 
 return function(ctx)
     local APP, LW = ctx.APP, ctx.LW
-    local STORE, JOBRUN, LOGGER, FILEIO, PATHALGO = ctx.STORE, ctx.JOBRUN, ctx.LOGGER, ctx.FILEIO, ctx.PATHALGO
+    local STORE, JOBRUN, LOGGER, PATHALGO = ctx.STORE, ctx.JOBRUN, ctx.LOGGER, ctx.PATHALGO
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
-    local LIST_ROWS = 6                  -- ÁĞ±í´°¿ÚĞĞÊı(Óë LW.TW.list ¿Ø¼ş¹æ»®Ò»ÖÂ)
+    local LIST_ROWS = 6                  -- ÁĞ±í´°¿ÚĞĞÊı
 
-    -- Ïòµ¼ÏÖ³¡(·Ç³Ö¾Ã, Àë¿ªÒ³Ãæ¶ªÆú; ÒÑ´´½¨ÈÎÎñÂä store)
-    local W = { map = nil, use_ab = false, sel = 0, top = 0, items = {} }
+    -- Ò³ÃæÏÖ³¡(·Ç³Ö¾Ã): ÅäÖÃÌ¬µÄÑ¡ÔñÓëÒÑ´´½¨ÈÎÎñÃû
+    local W = { map = nil, task = nil, sel = 0, top = 0, items = {} }
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -3512,31 +3629,58 @@ return function(ctx)
         while #lines < 1 do lines[1] = " " end
         wstr(LW.TW.list, table.concat(lines, "\r\n"))
         w16(LW.TW.count, #W.items)
-        -- 2026-09-10 ĞŞ: »ØĞ´Ñ¡ÖĞÏî/ÁĞ±íÊ×Ïî(´ËÇ°Ö»Ğ´ÁĞ±íÎÄ±¾, »­ÃæÊıÖµ¿Ø¼şºã0)
         w16(LW.TW.selidx, W.sel)
         w16(LW.TW.listtop, W.top)
     end
 
-    local function step1_items()
-        W.items = { "É¨ÃèUÅÌµ¼ÈëµØÍ¼" }
-        if not STORE then                       -- BµµÊı¾İ²ã½µ¼¶(ÈçĞéÄâÆÁÎŞÎÄ¼şAPI)
-            W.items[#W.items + 1] = "(Êı¾İ²ã²»¿ÉÓÃ)"
-            return
+    -- ÅäÖÃÌ¬ÁĞ±í: µØÍ¼Çåµ¥
+    local function cfg_items()
+        W.items = {}
+        if STORE then
+            for _, n in ipairs(STORE.map_list()) do
+                W.items[#W.items + 1] = n .. " " .. STORE.map_spec(n)
+            end
         end
-        for _, n in ipairs(STORE.map_list()) do
-            W.items[#W.items + 1] = n .. " " .. STORE.map_spec(n)
-        end
+        if #W.items == 0 then W.items[1] = "(ÎŞµØÍ¼, Çëµ½µØÍ¼µ¼ÈëÒ³)" end
     end
 
-    local function step2_items()
-        local m = STORE.map_get(W.map)
-        W.items = { "ÎŞABÏß(µØÍ·ĞĞ³Ì¿ª¹ØÉèAµãºó¿ª²¥)" }
-        if m and m.ab then
-            W.items[#W.items + 1] = ("Ê¹ÓÃµØÍ¼ABÏß %s"):format(m.ab.name or "")
+    -- Ñ¡¶¨µØÍ¼: ÕªÒª + Ä¬ÈÏÆğÊ¼Ğ¡Çø(Â·¾¶Ëã·¨Ê×½Úµã)
+    local function pick_map(name)
+        local m = STORE and STORE.map_get(name)
+        if not m then return end
+        W.map = name
+        wstr(LW.TW.mapinfo, name .. " " .. STORE.map_spec(name))
+        if PATHALGO then
+            local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0,
+                                              r16(LW.TW.positive) == 1)
+            if path and path[1] then
+                w16(LW.TW.start_row, m.rows - path[1].row)
+                w16(LW.TW.start_col, path[1].column + 1)
+            end
         end
+        -- Â·¾¶·½Ê½/·½Ïò±ä»¯Ê±ÖØËãÄ¬ÈÏÆğµã
     end
 
-    -- ABÏß²Ù×÷Ä¿±êµØÍ¼: ×÷ÒµÖĞ=µ±Ç°ÈÎÎñµØÍ¼, Ïòµ¼ÖĞ=ÒÑÑ¡µØÍ¼
+    local function goto_state(n)
+        w16(LW.TW.tstate, n)
+        W.sel, W.top = 0, 0
+        if n == 1 then
+            cfg_items()
+            wstr(LW.TW.detail, "Ñ¡µØÍ¼ Éè²ÎÊı ºó´´½¨ÈÎÎñ")
+            if W.map then pick_map(W.map) end
+        elseif n == 4 then
+            wstr(LW.TW.detail, "ÈÎÎñÒÑ´´½¨ °´[¿ªÊ¼×÷Òµ]Ö´ĞĞ")
+        elseif n == 2 then
+            wstr(LW.TW.detail, "×÷ÒµÖĞ " .. tostring(W.task or ""))
+        elseif n == 3 then
+            wstr(LW.TW.detail, "ÒÑÍ£Ö¹ ¿ÉĞø½Ó»ò·µ»ØÅäÖÃ")
+        end
+        render_list()
+    end
+
+    ------------------------------------------------------------------ AB²Ù×÷
+    -- ²é¿´/±£´æ: »­Ãæ¹¦ÄÜ°´Å¥´ò¿ª¶Ô»°¿ò(Ğ´LW.ABP.req), jobrunÓ°×ÓÒ³È«¾Ö´¦Àí;
+    -- ±¾Ò³Ö»´¦Àí µ¼Èë/Çå³ı(×ÖÉèÖÃ°´Å¥), Ä¿±ê=ÅäÖÃÌ¬ËùÑ¡µØÍ¼ »ò ×÷ÒµÌ¬µ±Ç°µØÍ¼
     local function ab_target_map()
         if JOBRUN and JOBRUN.active() then
             local s = JOBRUN.snapshot()
@@ -3546,137 +3690,32 @@ return function(ctx)
     end
 
     local function on_ab_btn(addr)
+        if addr ~= LW.TW.ab_import and addr ~= LW.TW.ab_clear then return end
         local map_name = ab_target_map()
         if not map_name then
             wstr(LW.TW.detail, "ÇëÏÈÑ¡ÔñµØÍ¼")
             return
         end
-        if addr == LW.TW.ab_view then
-            JOBRUN.ab_collect()                      -- 0x23 ²É¼¯»ØÏÔ(LW.ABÇø)
-            wstr(LW.TW.detail, "ABÏß²É¼¯ÖĞ...")
-        elseif addr == LW.TW.ab_import then
+        if addr == LW.TW.ab_import then
             if not JOBRUN.ab_cache then
                 JOBRUN.ab_cache = JOBRUN.ab_rw_load()   -- RW»º´æ -> °ó¶¨µØÍ¼
             end
             local ok, err = JOBRUN.ab_bind_map(map_name)
             wstr(LW.TW.detail, ok and ("ABÏßÒÑ°ó¶¨ " .. map_name)
-                                   or ("°ó¶¨Ê§°Ü " .. tostring(err):sub(1, 12)))
-            if ok and r16(LW.TW.step) == 2 then
-                W.sel, W.top = 0, 0
-                step2_items()
-                render_list()
-            end
-        elseif addr == LW.TW.ab_clear then
+                                   or ("°ó¶¨Ê§°Ü " .. tostring(err):sub(1, 20)))
+        else
             local ok, err = JOBRUN.ab_clear_map(map_name)
             wstr(LW.TW.detail, ok and ("ABÏßÒÑÇå³ı " .. map_name)
-                                   or ("Çå³ıÊ§°Ü " .. tostring(err):sub(1, 12)))
-            if ok and r16(LW.TW.step) == 2 then
-                W.sel, W.top = 0, 0
-                step2_items()
-                render_list()
-            end
-        elseif addr == LW.TW.ab_save then
-            local ok, err = JOBRUN.ab_rw_save()
-            wstr(LW.TW.detail, ok and "ABÏßÒÑ±£´æRW(µôµç±£³Ö)"
-                                   or ("±£´æÊ§°Ü " .. tostring(err):sub(1, 12)))
+                                   or ("Çå³ıÊ§°Ü " .. tostring(err):sub(1, 20)))
         end
     end
 
-    local function step4_default_start()
-        -- Ä¬ÈÏÆğÊ¼Ğ¡Çø = Â·¾¶Ëã·¨Ê×½Úµã(ÏÔÊ¾ÅÅ=rows-row, ÏÔÊ¾ÁĞ=column+1)
-        local m = STORE.map_get(W.map)
-        if not (m and PATHALGO) then return end
-        local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0,
-                                          r16(LW.TW.positive) == 1)
-        if path and path[1] then
-            w16(LW.TW.start_row, m.rows - path[1].row)
-            w16(LW.TW.start_col, path[1].column + 1)
-        end
-    end
-
-    local function goto_step(n)
-        w16(LW.TW.step, n)
-        W.sel, W.top = 0, 0
-        if n == 1 then
-            w16(LW.TW.tstate, 1)
-            wstr(LW.TW.mapinfo, "Ñ¡ÔñµØÍ¼")
-            step1_items()
-        elseif n == 2 then
-            step2_items()
-            local m = STORE.map_get(W.map)
-            wstr(LW.TW.mapinfo, m and STORE.map_spec(W.map) or "")
-        elseif n == 3 then
-            wstr(LW.TW.detail, "0ËóĞÎ 1Í¬Ïò 2ÖĞ×ó 3ÓÒËó 4ÓÒÍ¬ 5ÖĞÓÒ")
-        elseif n == 4 then
-            step4_default_start()
-        end
-        render_list()
-    end
-
-    ------------------------------------------------------------------ UÅÌµ¼Èë
-    -- list_dir ¹Ì¼şË«Ê±Ğò: Òì²½¾­ on_list_dir Â·ÓÉ / Í¬²½·µ»Ø table(¼û fileio.lua);
-    -- »­Ãæ¼´Ê±·´À¡: É¨ÃèÖĞ... -> »Øµ÷Ë¢ĞÂ / »Øµ÷³¬Ê±(Ô¼3s, on_tick ÅĞ¶¨)ÌáÊ¾
-    local tick_n = 0
-    local scan_deadline = nil                 -- ·Ç nil = É¨Ãè¹ÒÆğÖĞ
-    local SCAN_TICKS = math.max(5, math.ceil(3000 / (ctx.poll_ms or 200)))
-
-    local function usb_import()
-        if not FILEIO then return end
-        if not STORE then wstr(LW.TW.detail, "Êı¾İ²ã²»¿ÉÓÃ"); return end
-        if scan_deadline then wstr(LW.TW.detail, "É¨ÃèÖĞ,ÇëÉÔºò"); return end
-        wstr(LW.TW.detail, "É¨ÃèUÅÌÖĞ...")
-        local names = {}
-        scan_deadline = tick_n + SCAN_TICKS
-        -- list_dir Òì²½: ·¢ÆğÁĞ¾Ù, »Øµ÷ÔÚ on_list_dir Â·ÓÉ(¼û fileio.lua)
-        local ok, err = FILEIO.list("2:", function(list, dir)
-            scan_deadline = nil
-            if not list then
-                log("ERR", "ÁĞÄ¿Â¼Ê§°Ü " .. tostring(dir))
-                wstr(LW.TW.detail, "É¨ÃèÊ§°Ü(Î´²åUÅÌ?)")
-                return
-            end
-            -- ĞéÄâÆÁÆ½Ì¨ list_dir ²»»Øµ÷, pump ÊÕ¸î¿Õ±í:
-            -- »ØÍËÔ¼¶¨Çåµ¥ 2:maps.txt(Ã¿ĞĞÒ»¸ö map ÎÄ¼şÃû, Óë csv Í¬ GB2312)
-            -- ÊµÎïÆÁ list_dir Õı³£Ã¶¾Ù, Çåµ¥·Ç±ØĞè, ¶şÕßÎŞº¦¹²´æ
-            if #list == 0 then
-                local lines = FILEIO.read_lines("2:maps.txt")
-                if lines then
-                    for i = 1, #lines do
-                        if #lines[i] > 0 then list[#list + 1] = lines[i] end
-                    end
-                end
-            end
-            local imported, msgs = 0, {}
-            for _, fnm in ipairs(list) do
-                if type(fnm) == "string" and fnm:match("^map_.+%.csv$") then
-                    local name = fnm:sub(5, -5)
-                    local ok2, w2 = STORE.map_import_file("2:" .. fnm, name)
-                    if ok2 then imported = imported + 1 else msgs[#msgs + 1] = w2 end
-                end
-            end
-            log(imported > 0 and "INF" or "WRN",
-                ("UÅÌµ¼Èë %d ÕÅµØÍ¼"):format(imported))
-            if #msgs > 0 then log("ERR", msgs[1]) end
-            wstr(LW.TW.detail,
-                imported > 0 and ("µ¼Èë%dÕÅµØÍ¼"):format(imported)
-                or "ÎŞµØÍ¼ÎÄ¼ş(»òÎ´²åUÅÌ)")
-            -- Ë¢ĞÂ²½Öè1ÁĞ±í
-            if r16(LW.TW.step) == 1 then
-                W.sel, W.top = 0, 0
-                step1_items()
-                render_list()
-            end
-        end)
-        if not ok then
-            scan_deadline = nil
-            wstr(LW.TW.detail, "UÅÌ²»¿ÉÓÃ")
-            log("ERR", "UÅÌÎ´²åÈë»ò²»¿É¶Á")
-        end
-    end
-
-    ------------------------------------------------------------------ °´Å¥´¦Àí
+    ------------------------------------------------------------------ °´Å¥
     local function on_btn(addr, val)
         if val ~= 1 then return end
+        local ts = r16(LW.TW.tstate) or 1
+
+        -- ÁĞ±í·­Ñ¡(ÅäÖÃÌ¬)
         if addr == LW.TW.btn_up and W.sel > 0 then
             W.sel = W.sel - 1
             if W.sel < W.top then W.top = W.sel end
@@ -3685,34 +3724,23 @@ return function(ctx)
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
             render_list()
-        elseif addr == LW.TW.btn_cancel then
-            W.map = nil
-            goto_step(1)
+
         elseif addr == LW.TW.btn_sel then
-            local step = r16(LW.TW.step) or 1
-            if step == 1 then
-                if W.sel == 0 then
-                    usb_import()
-                else
-                    local names = STORE and STORE.map_list() or {}
-                    W.map = names[W.sel]
-                    if W.map then goto_step(2) end
-                end
-            elseif step == 2 then
-                W.use_ab = (W.sel == 1)
-                goto_step(3)
-            else
-                goto_step(math.min(step + 1, 4))
+            -- ÅäÖÃÌ¬: Ñ¡ÖĞÁĞ±íÏîÎªµ±Ç°µØÍ¼
+            if ts == 1 and STORE then
+                local names = STORE.map_list()
+                local name = names[W.sel + 1]
+                if name then pick_map(name) end
             end
-        elseif addr == LW.TW.btn_prev then
-            local step = r16(LW.TW.step) or 1
-            if step > 1 then goto_step(step - 1) end
-        elseif addr == LW.TW.btn_import then
-            usb_import()
+
         elseif addr == LW.TW.btn_ok then
-            -- ²½Öè4: ´´½¨ÈÎÎñ²¢Æô¶¯
-            local m = STORE.map_get(W.map)
-            if not m then goto_step(1); return end
+            -- ´´½¨ÈÎÎñ(²»×Ô¶¯¿ªÊ¼, 2026-09-24ÓÃ»§¾ö²ß: ÉèÖÃÍê²ÎÊıµã¿ªÊ¼ÔÙÖ´ĞĞ)
+            local m = STORE and STORE.map_get(W.map)
+            if not m then
+                goto_state(1)
+                wstr(LW.TW.detail, "ÇëÏÈÑ¡ÔñµØÍ¼")
+                return
+            end
             local drow = math.max(0, math.min(m.rows - 1,
                 m.rows - (r16(LW.TW.start_row) or m.rows)))
             local dcol = math.max(0, math.min(m.cols - 1,
@@ -3724,32 +3752,54 @@ return function(ctx)
                 r16(LW.TW.sow_exceed) or 0, drow, dcol, NOW())
             if not ok then
                 log("ERR", "ÈÎÎñ´´½¨Ê§°Ü: " .. tostring(err))
-                wstr(LW.TW.detail, "´´½¨Ê§°Ü " .. tostring(err):sub(1, 24))
+                wstr(LW.TW.detail, "´´½¨Ê§°Ü " .. tostring(err):sub(1, 20))
                 return
             end
+            W.task = name
             log("CMD", ("´´½¨ÈÎÎñ %s µØÍ¼=%s"):format(name, W.map))
-            local ok2, err2 = JOBRUN.start(name)
-            if not ok2 then
-                log("ERR", "×÷ÒµÆô¶¯Ê§°Ü: " .. tostring(err2))
-                wstr(LW.TW.detail, "Æô¶¯Ê§°Ü " .. tostring(err2):sub(1, 24))
-                return
+            goto_state(4)
+
+        elseif addr == LW.TW.btn_start then
+            if ts == 4 and W.task then
+                local ok, err = JOBRUN.start(W.task)
+                if ok then
+                    goto_state(2)
+                else
+                    wstr(LW.TW.detail, "Æô¶¯Ê§°Ü " .. tostring(err):sub(1, 20))
+                end
+            elseif ts == 2 then
+                -- ×÷ÒµÖĞ¿ªÊ¼¼ü: ÌË¼ä¹ÒÆğÌáÊ¾ÏÈÍ£Ö¹, ·ñÔòÂã·¢0x0AĞø²¥(QTÓïÒå)
+                if JOBRUN.active() then
+                    local s = JOBRUN.snapshot()
+                    if s and s.trip_wait then
+                        wstr(LW.TW.detail, "±¾ÌËÒÑÍê³É ÇëÏÈ°´Í£Ö¹")
+                    else
+                        ctx.PROTOCOL.send(ctx.PROTOCOL.FNC.CMD_START_BZ)
+                    end
+                end
             end
-            w16(LW.TW.tstate, 2)
-            wstr(LW.TW.detail, "×÷ÒµÖĞ " .. name)
+
+        elseif addr == LW.TW.btn_stop then
+            if JOBRUN then
+                JOBRUN.stop()
+                goto_state(3)
+            end
+
+        elseif addr == LW.TW.btn_cancel then
+            -- ·µ»ØÅäÖÃ(²»É¾³ıÒÑ½¨ÈÎÎñ)
+            goto_state(1)
+
         elseif addr == LW.TW.btn_resume then
-            -- Ğø½Ó: ÕÒ×î½üµÄÎ´Íê³ÉÈÎÎñ
+            -- Ğø½Ó×î½üµÄÎ´Íê³ÉÈÎÎñ
             for _, n in ipairs(STORE.task_list()) do
                 local t = STORE.task_get(n)
                 if t then
                     local d, tot = STORE.task_progress(n)
                     if d < tot then
+                        W.task = n
                         local ok, err = JOBRUN.start(n, { resume = true })
-                        if ok then
-                            w16(LW.TW.tstate, 2)
-                            wstr(LW.TW.detail, "Ğø×÷ " .. n)
-                        else
-                            wstr(LW.TW.detail, tostring(err):sub(1, 24))
-                        end
+                        if ok then goto_state(2)
+                        else wstr(LW.TW.detail, tostring(err):sub(1, 20)) end
                         return
                     end
                 end
@@ -3760,49 +3810,48 @@ return function(ctx)
 
     ------------------------------------------------------------------ Ò³Ãæ±í
     local page = {
-        id = LW.SCREEN.TASK,                     -- »­ÃæºÅ(Êı×Ö, APP.set_screen °´ pages[6] Â·ÓÉ)
-        on_enter = function()
-            if JOBRUN.active() then
-                local cs = JOBRUN.snapshot()
-                w16(LW.TW.tstate, (cs and cs.completed) and 3 or 2)
-            elseif W.map then
-                goto_step(r16(LW.TW.step) or 1)
-            else
-                goto_step(1)
-            end
-        end,
-        on_leave = function() end,
+        id = LW.SCREEN.TASK,
         poll_cmds = {},
-        addrs = {                                -- °´Å¥µØÖ·ÉùÃ÷(APP.by_addr Â·ÓÉ±ØĞè)
-            LW.TW.btn_up, LW.TW.btn_down, LW.TW.btn_sel, LW.TW.btn_prev,
-            LW.TW.btn_ok, LW.TW.btn_cancel, LW.TW.btn_resume, LW.TW.btn_import,
-            LW.TW.ab_view, LW.TW.ab_import, LW.TW.ab_clear, LW.TW.ab_save,
+        addrs = {
+            LW.TW.btn_up, LW.TW.btn_down, LW.TW.btn_sel, LW.TW.btn_ok,
+            LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
+            LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
         },
-        on_frame = function(f)
-            if f.fnc == ctx.PROTOCOL.FNC.GET_BZ_STATUS then
-                job_view()
-            end
-        end,
     }
 
-    function page:on_update(addr, val)           -- Ã°ºÅ¶¨Òå(app.lua Ã°ºÅµ÷ÓÃ, µã¶¨Òå»á´íÎ»ÊÕ self)
+    function page:on_enter()
+        if JOBRUN.active() then
+            local cs = JOBRUN.snapshot()
+            if cs then W.task = cs.task end
+            w16(LW.TW.tstate, (cs and cs.completed) and 3 or 2)
+        else
+            goto_state(1)
+        end
+    end
+
+    function page:on_leave() end
+
+    function page:on_frame(f)
+        if f.fnc == ctx.PROTOCOL.FNC.GET_BZ_STATUS then
+            job_view()
+        end
+    end
+
+    function page:on_update(addr, val)           -- Ã°ºÅ¶¨Òå(app.lua Ã°ºÅµ÷ÓÃ)
         on_btn(addr, val)
         on_ab_btn(addr)
     end
 
-    -- ×÷ÒµÊÓÍ¼Ë¢ĞÂ(0x21 ±» jobrun ³£×¤½Ø»ñ, Ò³ÃæÓÃ tick ¼¶ÇáË¢ĞÂ)
+    -- ×÷ÒµÊÓÍ¼Ë¢ĞÂ(0x21±»jobrun³£×¤½Ø»ñ, Ò³ÃæÓÃtick¼¶ÇáË¢ĞÂ)
     function job_view()
         if not JOBRUN.active() then
-            if (r16(LW.TW.tstate) or 0) == 2 then
-                w16(LW.TW.tstate, 3)
-            end
+            if (r16(LW.TW.tstate) or 0) == 2 then w16(LW.TW.tstate, 3) end
             return
         end
         local s = JOBRUN.snapshot()
         if s then
-            if s.completed then w16(LW.TW.tstate, 3) end   -- Íê³É´ıÊÖ¶¯Í£Ö¹
-            -- ÏÔÊ¾ÅÅ=rows-r(0»ù->1»ùÏÔÊ¾¿Ú¾¶, ¶ÔÆëÏòµ¼Ò³Óë¶³½á¹æ¸ñ); cur_col+1
-            w16(LW.TW.cur_row, s.rows and (s.rows - (s.cur_row or 0)) or (s.cur_row or 0))
+            if s.completed then w16(LW.TW.tstate, 3) end
+            w16(LW.TW.cur_row, s.rows and (s.rows - (s.cur_row or 0)) or 0)
             w16(LW.TW.cur_col, (s.cur_col or 0) + 1)
             w16(LW.TW.done_cnt, s.done or 0)
             w16(LW.TW.total_cnt, s.total or 0)
@@ -3810,14 +3859,7 @@ return function(ctx)
         end
     end
 
-    -- Ò³Ãæ tick ¹³×Ó: É¨Ãè»Øµ÷³¬Ê±ÅĞ¶¨ + ×÷Òµ½ø¶ÈÇáË¢ĞÂ(APP.tick Ä©Î²µ÷ÓÃ, Èô´æÔÚ)
     page.on_tick = function()
-        tick_n = tick_n + 1
-        if scan_deadline and tick_n > scan_deadline then
-            scan_deadline = nil
-            wstr(LW.TW.detail, "É¨ÃèÎŞÏìÓ¦(Î´²åUÅÌ?)")
-            log("WRN", "list_dir »Øµ÷³¬Ê±(Òì²½ÎŞ¹û)")
-        end
         job_view()
     end
 
@@ -4038,6 +4080,202 @@ return function(ctx)
 end
 
 ]==]
+
+_MODS["page_map.lua"] = [==[
+--[[
+page_map.lua â€”â€” åœ°å›¾å¯¼å…¥é¡µ(ç”»é¢9, 2026-09-24æ–°å¢)
+================================================================================
+ä»¿QTåœ°å›¾ç®¡ç†é¡µçš„å±ç«¯å­é›†(åœ°å›¾åˆ›å»º/ç¼–è¾‘ç”±PCå¯¼å‡ºå·¥å…·è´Ÿè´£):
+  åœ°å›¾åˆ—è¡¨(é€‰ä¸­) + è¯¦æƒ…æ‘˜è¦ + Uç›˜æ‰«æå¯¼å…¥(map_*.csv, æ–‡ä»¶åé¡»ASCII, æ˜¾ç¤ºåå–#MAP)
+  + åˆ é™¤åœ°å›¾ + ABçº¿æ“ä½œ(æŸ¥çœ‹=å¯¹è¯æ¡†0x23å›æ˜¾ / å¯¼å…¥=RWç¼“å­˜ç»‘å®šæœ¬å›¾ / æ¸…é™¤=è§£ç»‘)
+Uç›˜å¯¼å…¥é€»è¾‘è‡ªåŸä»»åŠ¡å‘å¯¼é¡µè¿ç§»(2026-09-24å‘å¯¼åˆ é™¤)ã€‚
+LW: LW.MAP (0x1C00åŒº); ABæŸ¥çœ‹æŒ‰é’®=åŠŸèƒ½æŒ‰é’®(æ‰“å¼€å¯¹è¯æ¡†ç”»é¢22+é€šçŸ¥LW.ABP.req=2)ã€‚
+ä¾èµ–æ³¨å…¥: creator(ctx) åŒç°æœ‰é¡µé¢æ¨¡å¼ã€‚
+--]]
+
+return function(ctx)
+    local APP, LW = ctx.APP, ctx.LW
+    local STORE, JOBRUN, LOGGER, FILEIO = ctx.STORE, ctx.JOBRUN, ctx.LOGGER, ctx.FILEIO
+    local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
+
+    local LIST_ROWS = 6
+    local W = { sel = 0, top = 0, items = {} }
+
+    local function log(tag, msg)
+        if LOGGER then LOGGER.log(tag, msg) end
+    end
+
+    local function render_list()
+        local lines = {}
+        for i = W.top + 1, math.min(W.top + LIST_ROWS, #W.items) do
+            local mark = (i == W.sel + 1) and ">" or " "
+            lines[#lines + 1] = mark .. W.items[i]
+        end
+        while #lines < 1 do lines[1] = " " end
+        wstr(LW.MAP.list, table.concat(lines, "\r\n"))
+        w16(LW.MAP.count, #W.items)
+        w16(LW.MAP.selidx, W.sel)
+        w16(LW.MAP.listtop, W.top)
+    end
+
+    local function selected_name()
+        local names = STORE and STORE.map_list() or {}
+        return names[W.sel + 1]
+    end
+
+    local function refresh()
+        W.items = {}
+        if STORE then
+            for _, n in ipairs(STORE.map_list()) do
+                W.items[#W.items + 1] = n .. " " .. STORE.map_spec(n)
+            end
+        end
+        if #W.items == 0 then W.items[1] = "(æ— åœ°å›¾, è¯·æ‰«æUç›˜å¯¼å…¥)" end
+        W.sel, W.top = 0, 0
+        render_list()
+        wstr(LW.MAP.detail, "")
+    end
+
+    local function show_detail()
+        local n = selected_name()
+        if not (n and STORE) then return end
+        local m = STORE.map_get(n)
+        if not m then return end
+        JOBRUN.ab_hint_map = n                  -- ABå¯¹è¯æ¡†çš„é»˜è®¤ç›®æ ‡åœ°å›¾
+        local ab = m.ab and ("å·²ç»‘AB " .. (m.ab.name or "?"))
+                       or "æ— ABçº¿"
+        wstr(LW.MAP.detail, ("%s %dæ’x%dåˆ— %s"):format(n, m.rows, m.cols, ab))
+    end
+
+    ------------------------------------------------------------------ Uç›˜å¯¼å…¥
+    -- list_dir å›ºä»¶åŒæ—¶åº: å¼‚æ­¥ç» on_list_dir è·¯ç”± / åŒæ­¥è¿”å› table(è§ fileio.lua)
+    local tick_n = 0
+    local scan_deadline = nil
+    local SCAN_TICKS = math.max(5, math.ceil(3000 / (ctx.poll_ms or 200)))
+
+    local function usb_import()
+        if not FILEIO then return end
+        if not STORE then wstr(LW.MAP.detail, "æ•°æ®å±‚ä¸å¯ç”¨"); return end
+        if scan_deadline then wstr(LW.MAP.detail, "æ‰«æä¸­,è¯·ç¨å€™"); return end
+        wstr(LW.MAP.detail, "æ‰«æUç›˜ä¸­...")
+        scan_deadline = tick_n + SCAN_TICKS
+        local ok, err = FILEIO.list("2:", function(list, dir)
+            scan_deadline = nil
+            if not list then
+                log("ERR", "åˆ—ç›®å½•å¤±è´¥ " .. tostring(dir))
+                wstr(LW.MAP.detail, "æ‰«æå¤±è´¥(æœªæ’Uç›˜?)")
+                return
+            end
+            if #list == 0 then                   -- è™šæ‹Ÿå±å›é€€: çº¦å®šæ¸…å• 2:maps.txt
+                local lines = FILEIO.read_lines("2:maps.txt")
+                if lines then
+                    for i = 1, #lines do
+                        if #lines[i] > 0 then list[#list + 1] = lines[i] end
+                    end
+                end
+            end
+            local imported, msgs = 0, {}
+            for _, fnm in ipairs(list) do
+                if type(fnm) == "string" and fnm:match("^map_.+%.csv$") then
+                    local name = fnm:sub(5, -5)
+                    local ok2, w2 = STORE.map_import_file("2:" .. fnm, name)
+                    if ok2 then imported = imported + 1 else msgs[#msgs + 1] = w2 end
+                end
+            end
+            log(imported > 0 and "INF" or "WRN",
+                ("Uç›˜å¯¼å…¥ %d å¼ åœ°å›¾"):format(imported))
+            if #msgs > 0 then log("ERR", msgs[1]) end
+            wstr(LW.MAP.detail,
+                imported > 0 and ("å¯¼å…¥%då¼ åœ°å›¾"):format(imported)
+                or "æ— åœ°å›¾æ–‡ä»¶(æˆ–æœªæ’Uç›˜)")
+            refresh()
+        end)
+        if not ok then
+            scan_deadline = nil
+            wstr(LW.MAP.detail, "Uç›˜ä¸å¯ç”¨")
+            log("ERR", "Uç›˜æœªæ’å…¥æˆ–ä¸å¯è¯»")
+        end
+    end
+
+    ------------------------------------------------------------------ æŒ‰é’®
+    local function on_btn(addr, val)
+        if val ~= 1 then return end
+        if addr == LW.MAP.btn_up and W.sel > 0 then
+            W.sel = W.sel - 1
+            if W.sel < W.top then W.top = W.sel end
+            render_list()
+        elseif addr == LW.MAP.btn_down and W.sel < #W.items - 1 then
+            W.sel = W.sel + 1
+            if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
+            render_list()
+        elseif addr == LW.MAP.btn_sel then
+            show_detail()
+        elseif addr == LW.MAP.btn_usb then
+            usb_import()
+        elseif addr == LW.MAP.btn_del then
+            local n = selected_name()
+            if n and STORE then
+                STORE.map_delete(n)
+                log("CMD", "åˆ é™¤åœ°å›¾ " .. n)
+                wstr(LW.MAP.detail, "å·²åˆ é™¤ " .. n)
+                refresh()
+            end
+        elseif addr == LW.MAP.ab_import then
+            local n = selected_name()
+            if not n then return end
+            if JOBRUN then
+                if not JOBRUN.ab_cache then
+                    JOBRUN.ab_cache = JOBRUN.ab_rw_load()
+                end
+                local ok, err = JOBRUN.ab_bind_map(n)
+                wstr(LW.MAP.detail, ok and ("ABçº¿å·²ç»‘å®š " .. n)
+                                       or ("ç»‘å®šå¤±è´¥ " .. tostring(err):sub(1, 16)))
+                show_detail()
+            end
+        elseif addr == LW.MAP.ab_clear then
+            local n = selected_name()
+            if n and JOBRUN then
+                local ok, err = JOBRUN.ab_clear_map(n)
+                wstr(LW.MAP.detail, ok and ("ABçº¿å·²æ¸…é™¤ " .. n)
+                                       or ("æ¸…é™¤å¤±è´¥ " .. tostring(err):sub(1, 16)))
+                show_detail()
+            end
+        end
+    end
+
+    local page = {
+        id = LW.SCREEN.MAP,
+        poll_cmds = {},
+        addrs = {
+            LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
+            LW.MAP.btn_usb, LW.MAP.ab_import, LW.MAP.ab_clear,
+        },
+    }
+
+    function page:on_enter()
+        refresh()
+    end
+
+    function page:on_leave() end
+
+    function page:on_frame() end
+
+    function page:on_update(addr, val)           -- å†’å·å®šä¹‰(app.lua å†’å·è°ƒç”¨)
+        on_btn(addr, val)
+    end
+
+    page.on_tick = function()
+        tick_n = tick_n + 1
+        if scan_deadline and tick_n > scan_deadline then
+            scan_deadline = nil
+            wstr(LW.MAP.detail, "æ‰«ææ— å“åº”(æœªæ’Uç›˜?)")
+            log("WRN", "list_dir å›è°ƒè¶…æ—¶(å¼‚æ­¥æ— æœ)")
+        end
+    end
+
+    return page
+end
+]==]
 -- END _MODS
 
 --================ Ä£¿é¼ÓÔØ: dofile ÓÅÏÈ(¹Ù·½Ö§³Ö), load() ÄÚÇ¶¶µµ× =================
@@ -4130,6 +4368,7 @@ local function setup()
                     STORE = STORE, PATHALGO = PATHALGO, LOGGER = LOGGER,
                     LW = LWMAP, w16 = w16, w32 = w32, wstr = wstr, now = now_s,
                     rw16 = rw16, rw16w = rw16w,     -- ABÏßRW³Ö¾Ã»¯(2026-09-23×Ôpage_ablineÇ¨Èë)
+                    rstr = rstr, r16 = r16,         -- AB¶Ô»°¿ò: ¶ÁÃû³Æ/ÇëÇóÖµ(2026-09-24)
                 }
             end
             if STORE then STORE.boot() end         -- µôµç»Ö¸´(¿ÕÆ¬Ê×Æô²»±¨´í)
