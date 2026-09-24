@@ -21,7 +21,7 @@ return function(ctx)
     local page = {
         id        = LW.SCREEN.TESTDIAG,
         poll_cmds = { FNC.GET_TEST_STATUS },         -- 0x08 仅本页可见时轮询
-        addrs     = { LW.TD.enter, LW.TD.exit, LW.TD.jogtrig, LW.TD.debug },
+        addrs     = { LW.TD.enter, LW.TD.exit, LW.TD.jogtrig },
     }
 
     function page:on_frame(f)

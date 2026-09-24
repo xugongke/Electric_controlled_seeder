@@ -227,7 +227,6 @@ LW.AB = {
     offlen      = 0x150E, -- u16 OffLen 偏移量
     bdofftime   = 0x150F, -- u16 BDOffTime
     -- 原 capture/send/save/load 按钮随页面3删除, 操作移至 LW.TW.ab_*
-    rw_magic    = 0x0000, -- RW区 AB线有效标志 0x55AA(见 LW.RW)
 }
 
 --==================== 页面4 参数页(0x1600~, TerParaType 40B + UserParaType 16B) ====================
@@ -301,7 +300,6 @@ LW.TD = {
 -- 字符串占用说明: 占用字数=控件"最大字符数"配置, GB2312下1汉字=2字节=1LW,
 --   表内注释跨度为规划上限, 控件配置不得超过
 LW.TW = {
-    step       = 0x1800, -- u16 向导步骤 1~4
     tstate     = 0x1801, -- u16 任务状态 0=无 1=向导中 2=作业中 3=已完成
     count      = 0x1802, -- u16 当前列表可选项数
     selidx     = 0x1803, -- u16 列表选中项(0基)
@@ -322,17 +320,13 @@ LW.TW = {
     btn_up     = 0x1880, -- 按钮 选项上移
     btn_down   = 0x1881, -- 按钮 选项下移
     btn_sel    = 0x1882, -- 按钮 选中/进入下一步
-    btn_prev   = 0x1883, -- 按钮 上一步
     btn_ok     = 0x1884, -- 按钮 创建任务(步骤4)
     btn_cancel = 0x1885, -- 按钮 取消向导
     btn_resume = 0x1886, -- 按钮 续接未完成任务
-    btn_import = 0x1887, -- 按钮 扫描U盘导入地图(步骤1)
     -- AB线操作(2026-09-23自page_abline迁移; 配置期作用于所选地图, 作业期作用于当前地图;
     -- 绑定信息显示复用 LW.AB 地址区, 查看/保存走AB对话框画面22)
-    ab_view    = 0x1888, -- 按钮 AB线查看(打开对话框+0x23回显)
     ab_import  = 0x1889, -- 按钮 AB线导入: RW缓存绑定到地图(#AB段落盘)
     ab_clear   = 0x188A, -- 按钮 AB线清除: 解除地图绑定
-    ab_save    = 0x188B, -- 按钮 AB线保存(打开对话框命名, 采集后存RW+绑地图)
     btn_start  = 0x188C, -- 按钮 开始作业(任务就绪后启动; 作业中=续趟裸发0x0A)
     btn_stop   = 0x188D, -- 按钮 停止作业(收尾断点+无AB线时弹保存对话框)
 }
@@ -349,7 +343,6 @@ LW.MAP = {
     btn_sel    = 0x1C72, -- 按钮 查看详情
     btn_del    = 0x1C73, -- 按钮 删除地图
     btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
-    ab_view    = 0x1C75, -- 按钮 AB线查看(对话框)
     ab_import  = 0x1C76, -- 按钮 AB线导入(RW缓存绑定本图)
     ab_clear   = 0x1C77, -- 按钮 AB线清除(解绑本图)
 }
@@ -988,6 +981,9 @@ local function hb_on_debug(f)
         ENV.wstr(LW.A.tip, "√ 通信恢复")
         PROTOCOL.send(PROTOCOL.FNC.GET_SOFT_VER)
     end
+    -- 调试串显示(2026-09-24): 画面文本控件统一GB2312, 0x22应答本身即GB2312
+    -- 字节流, 直通写入 LW.A.log 正确显示中文(原ASCII过滤已删, GB2312转码待办完结)
+    ENV.wstr(LW.A.log, f.data)
     if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end   -- 页面显示照旧
 end
 
@@ -1365,7 +1361,7 @@ return function(ctx)
     local page = {
         id        = LW.SCREEN.TESTDIAG,
         poll_cmds = { FNC.GET_TEST_STATUS },         -- 0x08 仅本页可见时轮询
-        addrs     = { LW.TD.enter, LW.TD.exit, LW.TD.jogtrig, LW.TD.debug },
+        addrs     = { LW.TD.enter, LW.TD.exit, LW.TD.jogtrig },
     }
 
     function page:on_frame(f)
