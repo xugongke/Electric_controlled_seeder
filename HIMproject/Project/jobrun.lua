@@ -483,8 +483,8 @@ function jobrun._feed(f)
             J.disp_row = J.m.rows - rn            -- 图内: 显示排号(1基)
         end
         w16(LW.A.rownum, (J and J.disp_row) or rn)
-        for i = 1, CODEC.ROWS do w16(LW.A.loufei1 + i - 1, st.LoufeiCnt[i]) end
-        w16(LW.A.louzh, st.LouZHCnt[1])
+        -- 漏肥/漏株计数不再写A区(2026-09-24): 显示统一走测试诊断页
+        -- td_loufei1-6/td_louzh1-6, A区原地址(0x1009~0x100F)释放
     end
 
     if not J then return end
