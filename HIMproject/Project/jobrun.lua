@@ -483,7 +483,7 @@ function jobrun._feed(f)
             J.disp_row = J.m.rows - rn            -- Í¼ÄÚ: ÏÔÊ¾ÅÅºÅ(1»ù)
         end
         w16(LW.A.rownum, (J and J.disp_row) or rn)
-        for i = 1, CODEC.ROWS do w16(LW.A.loufei + i - 1, st.LoufeiCnt[i]) end
+        for i = 1, CODEC.ROWS do w16(LW.A.loufei1 + i - 1, st.LoufeiCnt[i]) end
         w16(LW.A.louzh, st.LouZHCnt[1])
     end
 

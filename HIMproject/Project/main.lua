@@ -170,9 +170,14 @@ LW.A = {
     rownum   = 0x1004, -- u16 当前排号(显示排号rows-r,作业中图外保持最近图内值)
     offlen   = 0x1005, -- i32 AB行程偏移cm    (占 0x1005~0x1006) 画面配2位小数->m(=QT排行程)
     voff     = 0x1007, -- i32 垂直偏移cm      (占 0x1007~0x1008) 画面配2位小数->m(=QT列行程)
-    loufei   = 0x1009, -- u16 x4 漏种计数1~4行 (0x1009~0x100C)
-    louzh    = 0x100D, -- u16 漏株计数(第1行)
-    -- 0x100E~0x1013 预留(漏株2~4行扩展)
+    loufei1  = 0x1009, -- u16 漏肥计数第1路(数组基址, 代码按 +i-1 访问)
+    loufei2  = 0x100A, -- u16 漏肥计数第2路(标签绑定用, 2026-09-24拆分为独立地址)
+    loufei3  = 0x100B, -- u16 漏肥计数第3路
+    loufei4  = 0x100C, -- u16 漏肥计数第4路
+    loufei5  = 0x100D, -- u16 漏肥计数第5路(6行机; 旧版此处为louzh, 已迁移)
+    loufei6  = 0x100E, -- u16 漏肥计数第6路(6行机)
+    louzh    = 0x100F, -- u16 漏株计数(第1行; 2026-09-24自0x100D迁出避让6路数组)
+    -- 0x1010~0x1012 预留
     tx_cnt   = 0x1014, -- u16 发帧计数(lua心跳, on_run活着就会动)
     rx_cnt   = 0x1015, -- u16 收帧计数
     link     = 0x1013, -- u16 链路状态 0=通信中断 1=在线(app.lua心跳判定,
@@ -270,11 +275,25 @@ LW.PU = {                  -- 用户参数
 LW.TD = {
     encodercnt = 0x1700,   -- u32 编码器计数(占2字)
     bdcnt      = 0x1702,   -- u32 北斗计数(占2字)
-    loufei     = 0x1704,   -- u32 x4 漏种计数[1..4] (0x1704~0x170B)
-    louzh      = 0x170C,   -- u32 x4 漏株计数[1..4] (0x170C~0x1713)
-    input      = 0x1714,   -- u32 IO输入位图(位指示灯 x32)
-    warning    = 0x1716,   -- u32 报警位图(位指示灯 x32)
-    ctrl       = 0x1718,   -- u32 输出位图(位指示灯 x32)
+    -- 漏肥/漏种各6路(2026-09-24扩为独立地址: 兼容6行机, 标签不可下标访问);
+    -- loufei1/louzh1 为数组基址, 代码按 +(i-1)*2 访问u32元素
+    loufei1    = 0x1704,   -- u32 漏肥计数第1路 (0x1704~0x1705)
+    loufei2    = 0x1706,   -- u32 漏肥计数第2路
+    loufei3    = 0x1708,   -- u32 漏肥计数第3路
+    loufei4    = 0x170A,   -- u32 漏肥计数第4路
+    loufei5    = 0x170C,   -- u32 漏肥计数第5路(6行机)
+    loufei6    = 0x170E,   -- u32 漏肥计数第6路(6行机)
+    louzh1     = 0x1710,   -- u32 漏株计数第1路 (0x1710~0x1711)
+    louzh2     = 0x1712,   -- u32 漏株计数第2路
+    louzh3     = 0x1714,   -- u32 漏株计数第3路
+    louzh4     = 0x1716,   -- u32 漏株计数第4路
+    louzh5     = 0x1718,   -- u32 漏株计数第5路(6行机)
+    louzh6     = 0x171A,   -- u32 漏株计数第6路(6行机)
+    -- 位图三件(2026-09-24自0x1714/16/18迁至0x171C/1E/20, 6路扩展让位;
+    -- 画面5的位指示灯绑定需同步改!)
+    input      = 0x171C,   -- u32 IO输入位图(位指示灯 x32)
+    warning    = 0x171E,   -- u32 报警位图(位指示灯 x32)
+    ctrl       = 0x1720,   -- u32 输出位图(位指示灯 x32)
     -- 调试信息字符串复用全局 LW.A.log(0x1060)
     enter      = 0x1740,   -- 按钮 进入测试模式 -> 0x0E
     exit       = 0x1741,   -- 按钮 退出测试模式 -> 0x0F
@@ -1143,7 +1162,7 @@ return function(ctx)
                 w16(LW.A.rownum,   st.RowNum)
                 w32(LW.A.offlen,   st.OffLen)
                 w32(LW.A.voff,     st.VerticalOff)
-                for i = 1, CODEC.ROWS do w16(LW.A.loufei + i - 1, st.LoufeiCnt[i]) end
+                for i = 1, CODEC.ROWS do w16(LW.A.loufei1 + i - 1, st.LoufeiCnt[i]) end
                 w16(LW.A.louzh, st.LouZHCnt[1])
             else
                 wstr(LW.A.log, "bzstatus unpack err: len=" .. #d)
@@ -1471,8 +1490,8 @@ return function(ctx)
                 w32(LW.TD.encodercnt, st.EncoderCnt)
                 w32(LW.TD.bdcnt,      st.BdCnt)
                 for i = 1, CODEC.ROWS do
-                    w32(LW.TD.loufei + (i - 1) * 2, st.LoufeiCnt[i])
-                    w32(LW.TD.louzh  + (i - 1) * 2, st.LouZHCnt[i])
+                    w32(LW.TD.loufei1 + (i - 1) * 2, st.LoufeiCnt[i])
+                    w32(LW.TD.louzh1 + (i - 1) * 2, st.LouZHCnt[i])
                 end
                 w32(LW.TD.input,   st.InputState)   -- 位指示灯 x32 绑定
                 w32(LW.TD.warning, st.WarningState)
@@ -3477,7 +3496,7 @@ function jobrun._feed(f)
             J.disp_row = J.m.rows - rn            -- 图内: 显示排号(1基)
         end
         w16(LW.A.rownum, (J and J.disp_row) or rn)
-        for i = 1, CODEC.ROWS do w16(LW.A.loufei + i - 1, st.LoufeiCnt[i]) end
+        for i = 1, CODEC.ROWS do w16(LW.A.loufei1 + i - 1, st.LoufeiCnt[i]) end
         w16(LW.A.louzh, st.LouZHCnt[1])
     end
 

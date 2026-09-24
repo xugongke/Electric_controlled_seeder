@@ -32,8 +32,8 @@ return function(ctx)
                 w32(LW.TD.encodercnt, st.EncoderCnt)
                 w32(LW.TD.bdcnt,      st.BdCnt)
                 for i = 1, CODEC.ROWS do
-                    w32(LW.TD.loufei + (i - 1) * 2, st.LoufeiCnt[i])
-                    w32(LW.TD.louzh  + (i - 1) * 2, st.LouZHCnt[i])
+                    w32(LW.TD.loufei1 + (i - 1) * 2, st.LoufeiCnt[i])
+                    w32(LW.TD.louzh1 + (i - 1) * 2, st.LouZHCnt[i])
                 end
                 w32(LW.TD.input,   st.InputState)   -- 位指示灯 x32 绑定
                 w32(LW.TD.warning, st.WarningState)

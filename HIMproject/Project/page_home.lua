@@ -42,7 +42,7 @@ return function(ctx)
                 w16(LW.A.rownum,   st.RowNum)
                 w32(LW.A.offlen,   st.OffLen)
                 w32(LW.A.voff,     st.VerticalOff)
-                for i = 1, CODEC.ROWS do w16(LW.A.loufei + i - 1, st.LoufeiCnt[i]) end
+                for i = 1, CODEC.ROWS do w16(LW.A.loufei1 + i - 1, st.LoufeiCnt[i]) end
                 w16(LW.A.louzh, st.LouZHCnt[1])
             else
                 wstr(LW.A.log, "bzstatus unpack err: len=" .. #d)
