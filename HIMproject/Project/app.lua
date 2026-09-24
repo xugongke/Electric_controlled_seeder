@@ -90,6 +90,14 @@ local function hb_on_debug(f)
         ENV.wstr(LW.A.tip, "√ 通信恢复")
         PROTOCOL.send(PROTOCOL.FNC.GET_SOFT_VER)
     end
+    -- 调试串显示(原page_home逻辑迁移, 2026-09-24主页改纯导航):
+    -- GB2312暂按ASCII过滤(完整中文转码见待办), 写 LW.A.log 供状态栏显示
+    local t = {}
+    for i = 1, #f.data do
+        local b = string.byte(f.data, i)
+        if b < 0x80 then t[#t + 1] = string.char(b) end
+    end
+    ENV.wstr(LW.A.log, table.concat(t))
     if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end   -- 页面显示照旧
 end
 

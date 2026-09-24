@@ -22,10 +22,6 @@ a_tip,LW101C,字符串 操作提示(ack 弹窗文本， 占0x101C~0x1023 共8字)
 a_ver,LW1024,字符串 下位机版本号(0xA3， 占0x1024~0x102B 共8字;
 a_log,LW1060,字符串 调试信息(0x22)/模块加载错误详情
 a_taskinfo,LW1030,字符串 主页任务进度文本(B档: "任务1 12/24 50%"， 占0x1030~0x104F)
-b_start,LW1100,启动小区播种  -> 0x0A
-b_stop,LW1101,停止播种      -> 0x0B
-b_ver,LW1102,查询版本      -> 0xA3
-b_debug,LW1103,读调试信息    -> 0x22
 cont_density,LW1400,i32 密度 Density
 cont_celllen,LW1402,i32 行长 CellLen
 cont_hju,LW1404,i32 行距 Hju(i16域， 下发截断)
