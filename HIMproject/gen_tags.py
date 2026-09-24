@@ -9,7 +9,8 @@
   第2列变量地址(LWxxxx), 第3列描述说明。
   (XML导入实测失败, 2026-09-24 弃用, 统一走CSV)
 
-跳过: LW.SCREEN(画面号非变量)、LW.RW(RW区由Lua直访, 标签体系不含RW)。
+跳过: LW.SCREEN(画面号非变量)、LW.RW(RW区由Lua直访, 标签体系不含RW)、
+      NOTAG(代码内部写入的调试/流程地址, 无画面控件绑定, 见集合注释)。
 用法: python gen_tags.py
 """
 import os
@@ -17,6 +18,11 @@ import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LWMAP = os.path.join(HERE, 'Project', 'lwmap.lua')
+
+
+# 不生成标签的地址(代码会写, 但画面上没有控件绑定: 调试码/收发计数/ack原始值)
+NOTAG = {('A', 'diag'), ('A', 'txfn'), ('A', 'tx_cnt'), ('A', 'rx_cnt'),
+         ('A', 'ack')}
 
 
 def parse_lwmap():
@@ -33,7 +39,7 @@ def parse_lwmap():
         m = re.match(r'\s{4}(\w+)\s*=\s*0x([0-9A-Fa-f]+),\s*--\s*(.*)$', line)
         if m:
             key, addr, tip = m.group(1), m.group(2).upper(), m.group(3).strip()
-            if key.startswith('rw_'):
+            if key.startswith('rw_') or (region, key) in NOTAG:
                 continue
             out.append((region, key, addr, tip))
     return out

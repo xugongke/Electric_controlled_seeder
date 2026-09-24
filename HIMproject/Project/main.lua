@@ -303,7 +303,6 @@ LW.TW = {
     tstate     = 0x1801, -- u16 任务状态 0=无 1=向导中 2=作业中 3=已完成
     count      = 0x1802, -- u16 当前列表可选项数
     selidx     = 0x1803, -- u16 列表选中项(0基)
-    listtop    = 0x1804, -- u16 列表窗口首项(0基, 滚动)
     path_type  = 0x1805, -- u16 路径方式0~5(步骤3数值输入: 0梭形/1同向/2中间左/3右梭/4右同/5中间右)
     positive   = 0x1806, -- u16 行进方向 0=正向 1=反向(步骤3开关)
     start_row  = 0x1807, -- u16 起始小区排(1基显示号, 步骤4数值输入, 默认=算法起点)
@@ -335,7 +334,6 @@ LW.TW = {
 LW.MAP = {
     count      = 0x1C00, -- u16 地图数
     selidx     = 0x1C01, -- u16 列表选中项(0基)
-    listtop    = 0x1C02, -- u16 列表窗口首项(0基)
     list       = 0x1C04, -- 字符串 列表多行文本(占0x1C04~0x1C43, 64字)
     detail     = 0x1C44, -- 字符串 选中地图详情(占0x1C44~0x1C63, 32字)
     btn_up     = 0x1C70, -- 按钮 选项上移
@@ -363,7 +361,6 @@ LW.ABP = {
 LW.HIST = {
     count    = 0x1900, -- u16 任务总数
     selidx   = 0x1901, -- u16 选中任务(0基)
-    listtop  = 0x1902, -- u16 列表窗口首项(0基)
     list     = 0x1910, -- 字符串 任务列表(规划占0x1910~0x194F, 64字≈6行)
     detail   = 0x1950, -- 字符串 任务明细多行(规划占0x1950~0x19BF, 112字≈8行: 各排穴数/肥数)
     btn_up   = 0x19C0, -- 按钮 上移
@@ -3088,12 +3085,6 @@ function jobrun.ab_rw_load()
     return p
 end
 
--- 手动采集(查看): 向下位机要当前AB线(应答经全局0x23路由回填cache/显示)
-function jobrun.ab_collect()
-    PROTOCOL.send(PROTOCOL.FNC.STORE_AB)
-    return true
-end
-
 -- 把 cache 绑定到地图(QT FormMap 导入语义: 写 #AB 段并落盘)
 -- name: AB线显示名(对话框输入); pa: 停止快照{a_row,dir}(优先于作业参考)
 function jobrun.ab_bind_map(map_name, name, pa)
@@ -3531,7 +3522,6 @@ return function(ctx)
         wstr(LW.TW.list, table.concat(lines, "\r\n"))
         w16(LW.TW.count, #W.items)
         w16(LW.TW.selidx, W.sel)
-        w16(LW.TW.listtop, W.top)
     end
 
     -- 配置态列表: 地图清单

@@ -39,7 +39,6 @@ return function(ctx)
         wstr(LW.TW.list, table.concat(lines, "\r\n"))
         w16(LW.TW.count, #W.items)
         w16(LW.TW.selidx, W.sel)
-        w16(LW.TW.listtop, W.top)
     end
 
     -- 配置态列表: 地图清单

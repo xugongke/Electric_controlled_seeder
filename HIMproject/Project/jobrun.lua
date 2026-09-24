@@ -193,12 +193,6 @@ function jobrun.ab_rw_load()
     return p
 end
 
--- 手动采集(查看): 向下位机要当前AB线(应答经全局0x23路由回填cache/显示)
-function jobrun.ab_collect()
-    PROTOCOL.send(PROTOCOL.FNC.STORE_AB)
-    return true
-end
-
 -- 把 cache 绑定到地图(QT FormMap 导入语义: 写 #AB 段并落盘)
 -- name: AB线显示名(对话框输入); pa: 停止快照{a_row,dir}(优先于作业参考)
 function jobrun.ab_bind_map(map_name, name, pa)
