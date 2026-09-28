@@ -19,9 +19,9 @@ PROJ = os.path.join(HERE, 'Project')
 MAIN = os.path.join(PROJ, 'main.lua')
 
 MODULES = ['lwmap', 'protocol', 'codec', 'csv', 'fileio', 'store', 'app',
-           'pathalgo', 'jobrun', 'logger', 'page_home', 'page_task',
-           'page_cellpara', 'page_continuous', 'page_history', 'page_params',
-           'page_testdiag', 'page_abline', 'page_logview']
+           'pathalgo', 'jobrun', 'logger', 'page_task', 'page_map',
+           'page_userparam', 'page_manuparam', 'page_continuous',
+           'page_testdiag', 'page_history', 'page_logview']
 
 
 def crlf(b):

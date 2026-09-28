@@ -52,6 +52,17 @@ function jobrun.init(deps)
     RSTR, r16 = deps.rstr, deps.r16
     -- 常驻订阅: 0x21 帧无论当前页都进状态机(作业中切页不丢)
     APP.sub_always(PROTOCOL.FNC.GET_BZ_STATUS, function(f) jobrun._feed(f) end)
+    -- 0x26 全局路由(2026-09-28修4行残留): 按厂家参数行数字段(Resv1=U8Resv2)
+    -- 动态重置 codec 行数变体——此前 codec.init{rows=4} 后无人更新, 测试页
+    -- 计数/密度数组永远按4行解析(用户实测暴露); 处理后转发当前页(参数页回显)
+    APP.sub_always(PROTOCOL.FNC.GET_TER_PARA, function(f)
+        local ok, p = pcall(CODEC.terpara.unpack, f.data)
+        if ok and (p.Resv1 == 4 or p.Resv1 == 6) and p.Resv1 ~= CODEC.ROWS then
+            CODEC.init { rows = p.Resv1 }
+            log("INF", ("行数切换 codec.ROWS=%d"):format(p.Resv1))
+        end
+        if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
+    end)
     -- 0x23 采集应答全局处理: 填 ab_cache 与 LW.AB 显示区(对话框画面22的显示控件
     -- 绑同一地址区)。2026-09-24 起停止不再自动落图, 改由对话框确认保存
     APP.sub_always(PROTOCOL.FNC.STORE_AB, function(f)
@@ -62,7 +73,6 @@ function jobrun.init(deps)
         end
         jobrun.ab_cache = p
         jobrun.ab_show(p)
-        wstr(LW.A.tip, "√ AB线已采集")
     end)
     -- AB对话框通知地址(画面22的功能按钮执行通知写LW=1) -> 影子页全局路由
     APP.register({
@@ -125,7 +135,6 @@ local function advance()
             local _, _, pct = STORE.task_progress(J.task)
             log("INF", ("本趟完成 下一趟列组=%d 进度%d%% 请停止后掉头再开始")
                 :format(np.column + 1, pct or 0))
-            jobrun._refresh_ui()
         else
             send_node(np.row, J.cur_col)      -- 同趟下一排: QT :469 自动
             -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
@@ -384,7 +393,6 @@ function jobrun._ab_dlg_on_update(addr)
         ab_dlg_mode = 0
         pending_ab = nil
         w16(LW.ABP.auto_req, 0)
-        wstr(LW.A.tip, "AB线未保存")
     end
 end
 
@@ -417,12 +425,10 @@ function jobrun.ab_dlg_confirm()
     ab_dlg_mode = 0
     w16(LW.ABP.auto_req, 0)
     if not (ab_dlg_map and STORE.maps[ab_dlg_map]) then
-        wstr(LW.A.tip, "× 无目标地图")
         return
     end
     jobrun.ab_cache = jobrun.ab_cache
     if not jobrun.ab_cache then
-        wstr(LW.A.tip, "× AB线采集无应答, 未保存")
         return
     end
     local name = rstr_safe(LW.ABP.name)
@@ -431,10 +437,8 @@ function jobrun.ab_dlg_confirm()
     local ok, err = jobrun.ab_bind_map(ab_dlg_map, name, pa)
     if ok then
         jobrun.ab_rw_save()
-        wstr(LW.A.tip, "√ AB线已保存 " .. name)
         log("INF", ("AB线保存 %s -> 地图%s"):format(name, ab_dlg_map))
     else
-        wstr(LW.A.tip, "× " .. tostring(err))
     end
     pending_ab = nil
 end
@@ -444,13 +448,8 @@ end
 function jobrun._feed(f)
     local ok, st = pcall(CODEC.bzstatus.unpack, f.data)
     if not ok then return end
+    jobrun.last_status = st      -- 最近一帧0x21快照(连续播种页显示用)
 
-    -- 全局状态区刷新(2026-09-24按画面配置清单收敛): 仅保留画面实际绑定的
-    -- a_runstate(状态栏运行灯); speed/offlen/voff/rownum/bdstate 无控件绑定,
-    -- 对应A区地址与写入已删(清单未列即删, 行程/速度显示待地图画布需求再议)
-    if w16 then
-        w16(LW.A.runstate, st.RunState)
-    end
 
     if not J then return end
     if st.RowNum <= -10000000 then return end        -- 未开播哨兵(QT :399)
@@ -524,7 +523,6 @@ function jobrun._feed(f)
         end
     end
     J.cur_read_row = st.RowNum
-    jobrun._refresh_ui()
 end
 
 -- QT :1106 getIndex: path 中找 {row,column} 节点序号
@@ -542,17 +540,7 @@ function jobrun._complete()
     J.sow_state = false                            -- 停推进, 不再下发新节点
     if STORE then STORE.task_save(J.task) end
     log("INF", "作业完成(待手动停止) " .. J.task)
-    jobrun._refresh_ui()
 end
 
--- 主页进度文本 LW.A.taskinfo: "任务1 12/24 50%"
-function jobrun._refresh_ui()
-    if not (wstr and J) then return end
-    local d, tot, pct = STORE.task_progress(J.task)
-    local s = ("%s %d/%d %d%%"):format(J.task, d, tot, pct)
-    if J.completed then s = s .. " 已完成"
-    elseif J.trip_wait then s = s .. " 本趟完成" end
-    wstr(LW.A.taskinfo, s)
-end
 
 return jobrun

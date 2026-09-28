@@ -1,26 +1,27 @@
 标签名称,变量地址,描述说明
 a_link,LW1013,u16 链路状态 0=通信中断 1=在线(app.lua心跳判定，
-a_runstate,LW1019,u16 作业状态 RunState
-a_tip,LW101C,字符串 操作提示(ack 弹窗文本， 占0x101C~0x1023 共8字)
 a_ver,LW1024,字符串 下位机版本号(0xA3， 占0x1024~0x102B 共8字;
-a_log,LW1060,字符串 调试信息(0x22)/模块加载错误详情
-a_taskinfo,LW1030,字符串 主页任务进度文本(B档: "任务1 12/24 50%"， 占0x1030~0x104F)
-cont_density,LW1400,i32 密度 Density
-cont_celllen,LW1402,i32 行长 CellLen
-cont_hju,LW1404,i32 行距 Hju(i16域， 下发截断)
-cont_zhushu,LW1406,u32 株数 ZhuShu(u16域， 下发截断)
-cont_start,LW1410,按钮 启动连续播种 -> 0x11
-cont_stop,LW1411,按钮 停止连续播种 -> 0x12
-ab_startn,LW1500,字符串 StartN 起点纬度
-ab_starte,LW1502,字符串 StartE 起点经度
-ab_endbn,LW1504,字符串 EndBN 终点纬度
-ab_endbe,LW1506,字符串 EndBE 终点经度
-ab_startdir,LW1508,字符串 StartDir 起始方向角
-ab_calcdir,LW150A,字符串 CalcDir 计算方向角
-ab_startstate,LW150C,u16 StartState
-ab_calcdirflag,LW150D,u16 CalcDirFlag
-ab_offlen,LW150E,u16 OffLen 偏移量
-ab_bdofftime,LW150F,u16 BDOffTime
+a_log,LW1060,字符串 调试串(0x22心跳全局刷新， GB2312直通;
+cont_density,LW1400,i32 输入 密度(株/亩)
+cont_hju,LW1402,i32 输入 行距cm(默认60; 下发截s16)
+cont_celllen,LW1404,i32 输入 行长cm(默认500)
+cont_zhuju,LW1406,i32 只读 株距cm(计算显示)
+cont_offlen,LW1408,i32 只读 排列行程cm(0x21)
+cont_speed,LW140A,i32 只读 速度mm/s(0x21)
+cont_loufei1,LW140C,u32 x6 只读 漏肥计数(0x140C~0x1417)
+cont_louzh1,LW1418,u32 x6 只读 漏株计数(0x1418~0x1423)
+cont_start,LW1430,按钮 启动连续播种 -> 0x11
+cont_stop,LW1431,按钮 停止连续播种 -> 0x12
+ab_startn,LW1500,字符串 A点纬度  (占0x1500~0x1505 共6字)
+ab_starte,LW1506,字符串 A点经度  (占0x1506~0x150B 共6字)
+ab_endbn,LW150C,字符串 B点纬度  (占0x150C~0x1511 共6字)
+ab_endbe,LW1512,字符串 B点经度  (占0x1512~0x1517 共6字)
+ab_startdir,LW1518,字符串 起始方向角(占0x1518~0x151B 共4字)
+ab_calcdir,LW151C,字符串 计算方向角(占0x151C~0x151F 共4字)
+ab_startstate,LW1520,u16 StartState
+ab_calcdirflag,LW1521,u16 CalcDirFlag
+ab_offlen,LW1522,u16 OffLen 偏移量
+ab_bdofftime,LW1523,u16 BDOffTime
 pf_a,LW1600,i16 A
 pf_b,LW1601,i16 B
 pf_encodenum,LW1602,u16 EncodeNum 编码器脉冲
@@ -38,7 +39,6 @@ pf_prepercent,LW160D,u8 PrePercent 预压比
 pf_read,LW1640,按钮 读厂家参数 -> 0x26
 pf_write,LW1641,按钮 写厂家参数 -> 0x25 (读表单+范围校验)
 pf_pass,LW1650,u32 密码输入(数值输入， 占2字; Qt端密码同源)
-pf_unlock,LW1652,按钮 解锁厂家参数(校验密码， 通过后放行写)
 pu_dztime,LW1620,u16 DZTime 点滞时间
 pu_hj,LW1621,i16 HJ
 pu_rmp,LW1622,u32 RMP (占2字)
@@ -48,26 +48,39 @@ pu_read,LW1642,按钮 读用户参数 -> 0x28
 pu_write,LW1643,按钮 写用户参数 -> 0x27
 td_encodercnt,LW1700,u32 编码器计数(占2字)
 td_bdcnt,LW1702,u32 北斗计数(占2字)
-td_loufei1,LW1704,u32 漏肥计数第1路 (0x1704~0x1705)
+td_loufei1,LW1704,u32 漏肥计数第1路
 td_loufei2,LW1706,u32 漏肥计数第2路
 td_loufei3,LW1708,u32 漏肥计数第3路
 td_loufei4,LW170A,u32 漏肥计数第4路
 td_loufei5,LW170C,u32 漏肥计数第5路(6行机)
 td_loufei6,LW170E,u32 漏肥计数第6路(6行机)
-td_louzh1,LW1710,u32 漏株计数第1路 (0x1710~0x1711)
+td_louzh1,LW1710,u32 漏株计数第1路
 td_louzh2,LW1712,u32 漏株计数第2路
 td_louzh3,LW1714,u32 漏株计数第3路
 td_louzh4,LW1716,u32 漏株计数第4路
 td_louzh5,LW1718,u32 漏株计数第5路(6行机)
 td_louzh6,LW171A,u32 漏株计数第6路(6行机)
-td_input,LW171C,u32 IO输入位图(位指示灯 x32)
-td_warning,LW171E,u32 报警位图(位指示灯 x32)
-td_ctrl,LW1720,u32 输出位图(位指示灯 x32)
+td_input,LW171C,u32 IO输入位图(具名位灯绑位0~14， 见画面配置清单)
+td_warning,LW171E,u32 报警位图(同上， 报警红字)
+td_ctrl,LW1720,u32 输出位图(阀位0~9， 电机位16~22)
+td_sw0,LW1728,按钮 预落种阀(CtrlNo0)
+td_sw1,LW1729,按钮 倒种阀(CtrlNo1)
+td_sw2,LW172A,按钮 清种阀(CtrlNo2)
+td_sw3,LW172B,按钮 刮种阀(CtrlNo3)
+td_sw4,LW172C,按钮 阀5(CtrlNo4)
+td_sw5,LW172D,按钮 阀6(CtrlNo5)
+td_sw6,LW172E,按钮 阀7(CtrlNo6)
+td_sw7,LW172F,按钮 阀8(CtrlNo7)
+td_sw8,LW1730,按钮 阀9(CtrlNo8)
+td_m1,LW1731,按钮 播种盘1电机(CtrlNo16)
+td_m2,LW1732,按钮 播种盘2电机(CtrlNo17)
+td_m3,LW1733,按钮 播种盘3电机(CtrlNo18)
+td_m4,LW1734,按钮 播种盘4电机(CtrlNo19)
+td_m5,LW1735,按钮 自动供种电机(CtrlNo20)
+td_m6,LW1736,按钮 播种盘5电机(CtrlNo21)
+td_m7,LW1737,按钮 播种盘6电机(CtrlNo22)
 td_enter,LW1740,按钮 进入测试模式 -> 0x0E
 td_exit,LW1741,按钮 退出测试模式 -> 0x0F
-td_jogno,LW1742,u16 点动通道号 CtrlNo(数值输入， 0~31 位)
-td_jogon,LW1743,u16 点动 State 原值透传(下位机主循环消费， 屏端不解释)
-td_jogtrig,LW1744,按钮 触发点动 -> 0x09 (组包 TestCMDType)
 tw_tstate,LW1801,u16 任务状态 0=无 1=向导中 2=作业中 3=已完成
 tw_count,LW1802,u16 当前列表可选项数
 tw_selidx,LW1803,u16 列表选中项(0基)

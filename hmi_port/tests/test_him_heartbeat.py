@@ -97,9 +97,8 @@ end
 
     print('2) 首个应答 -> 在线 + 补发0xA3')
     sent = feed(FNC['RD_DEBUG_INFO'], b'idle')
-    check(env['writes'][A['link']] == 1 and tip_is('√ 通信恢复')
-          and sent == [FNC['GET_SOFT_VER']],
-          '0x22应答: link=1, 提示恢复, 补发0xA3: %s' % [hex(f) for f in sent])
+    check(env['writes'][A['link']] == 1 and sent == [FNC['GET_SOFT_VER']],
+          '0x22应答: link=1 + 补发0xA3: %s' % [hex(f) for f in sent])
     feed(FNC['GET_SOFT_VER'], b'hd3005a2 v2.0')
     check(env['writes'][A['ver']] == 'hd3005a2 v2.0', '0xA3应答更新版本显示')
 
@@ -118,8 +117,7 @@ function __PAGE:on_frame(f) self.hits = self.hits + 1 end
     for _ in range(30):                        # 6个周期无应答
         app['tick']()
     probes = fncs().count(FNC['RD_DEBUG_INFO'])
-    check(env['writes'][A['link']] == 0 and tip_is('× 通信中断'),
-          '3个周期无应答 -> 掉线: link=0 + 提示')
+    check(env['writes'][A['link']] == 0, '3个周期无应答 -> 掉线: link=0')
     check(probes >= 5, '掉线期间0x22探测持续(%d次/30tick)' % probes)
 
     print('5) 重连恢复')

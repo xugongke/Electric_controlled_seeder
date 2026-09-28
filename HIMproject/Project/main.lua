@@ -32,7 +32,7 @@ local TX_ONE_BASED  = true   -- 发送字节数组下标约定: true=从1起(大彩文档用法)
 -- 模块清单(新页面在此追加, deploy_screen.py 同步扫描同列表)
 local MODULES = {
     "lwmap.lua", "protocol.lua", "codec.lua", "app.lua",
-    "page_params.lua", "page_continuous.lua",
+    "page_userparam.lua", "page_manuparam.lua", "page_continuous.lua",
     "page_testdiag.lua",
     -- B档新增: 文件IO/CSV/数据层/路径算法/作业调度/日志/3新页面
     "fileio.lua", "csv.lua", "store.lua", "pathalgo.lua", "logger.lua", "jobrun.lua",
@@ -178,16 +178,10 @@ LW.A = {
     -- 注: LW>=0x1000 的存储器地址均可正常读写(早期"0x1016禁写"为误判, 2026-09-23更正)
     diag     = 0x1017, -- u16 诊断码(见 app.lua APP.diag)
     txfn     = 0x1018, -- u16 发送函数探测 1=uart_send 2=uart_send_data 0=都没有
-    runstate = 0x1019, -- u16 作业状态 RunState
-    ack      = 0x101B, -- u16 最近命令应答(1成功/0失败)
-    -- tip/ver 为字符串变量, set_string 按串长写入不清尾, 必须留足隔离区:
-    -- "√ 下发小区参数"=15B 需 8 个 LW 字(0x101C~0x1023); 旧规划 tip 只有
-    -- 4 字, 溢出踩 ver(0x1020) 造成两串互染(主页"√下发蠕OC-SIM"乱码实锤)
-    tip      = 0x101C, -- 字符串 操作提示(ack 弹窗文本, 占0x101C~0x1023 共8字)
     ver      = 0x1024, -- 字符串 下位机版本号(0xA3, 占0x1024~0x102B 共8字;
                        --   原0x1020已废, 画面0版本文本控件绑定须改0x1024)
-    log      = 0x1060, -- 字符串 调试信息(0x22)/模块加载错误详情
-    taskinfo = 0x1030, -- 字符串 主页任务进度文本(B档: "任务1 12/24 50%", 占0x1030~0x104F)
+    log      = 0x1060, -- 字符串 调试串(0x22心跳全局刷新, GB2312直通;
+                       --   占0x1060~0x109F 共64字, 文本控件字数配64)
 }
 
 -- 全局按钮区 LW.B(0x1100~0x1103)已删除(2026-09-24): 主页改为纯导航,
@@ -198,12 +192,18 @@ LW.A = {
 
 --==================== 页面2 连续播种(0x1400~, LXBZParaType 12B) ====================
 LW.CONT = {
-    density = 0x1400,     -- i32 密度 Density
-    celllen = 0x1402,     -- i32 行长 CellLen
-    hju     = 0x1404,     -- i32 行距 Hju(i16域, 下发截断)
-    zhushu  = 0x1406,     -- u32 株数 ZhuShu(u16域, 下发截断)
-    start   = 0x1410,     -- 按钮 启动连续播种 -> 0x11
-    stop    = 0x1411,     -- 按钮 停止连续播种 -> 0x12
+    -- 2026-09-28对齐QT formcontinuoussow: 用户只须输密度, 行距/行长默认
+    -- 60/500可改; 株距=行长*10/(密度-1)四舍五入只读显示; ZhuShu=0自动
+    density = 0x1400,     -- i32 输入 密度(株/亩)
+    hju     = 0x1402,     -- i32 输入 行距cm(默认60; 下发截s16)
+    celllen = 0x1404,     -- i32 输入 行长cm(默认500)
+    zhuju   = 0x1406,     -- i32 只读 株距cm(计算显示)
+    offlen  = 0x1408,     -- i32 只读 排列行程cm(0x21)
+    speed   = 0x140A,     -- i32 只读 速度mm/s(0x21)
+    loufei1 = 0x140C,     -- u32 x6 只读 漏肥计数(0x140C~0x1417)
+    louzh1  = 0x1418,     -- u32 x6 只读 漏株计数(0x1418~0x1423)
+    start   = 0x1430,     -- 按钮 启动连续播种 -> 0x11
+    stop    = 0x1431,     -- 按钮 停止连续播种 -> 0x12
 }
 
 --==================== AB线显示区(0x1500~, BDParaType 56B) ====================
@@ -211,17 +211,19 @@ LW.CONT = {
 -- 操作按钮在 LW.TW.ab_*(查看/导入/清除/保存), 采集应答经 jobrun 全局0x23路由。
 -- double/float 屏端无原生控件: lua 读值后 string.format 写字符串控件显示
 LW.AB = {
-    startn      = 0x1500, -- 字符串 StartN 起点纬度
-    starte      = 0x1502, -- 字符串 StartE 起点经度
-    endbn       = 0x1504, -- 字符串 EndBN 终点纬度
-    endbe       = 0x1506, -- 字符串 EndBE 终点经度
-    startdir    = 0x1508, -- 字符串 StartDir 起始方向角
-    calcdir     = 0x150A, -- 字符串 CalcDir 计算方向角
-    startstate  = 0x150C, -- u16 StartState
-    calcdirflag = 0x150D, -- u16 CalcDirFlag
-    offlen      = 0x150E, -- u16 OffLen 偏移量
-    bdofftime   = 0x150F, -- u16 BDOffTime
-    -- 原 capture/send/save/load 按钮随页面3删除, 操作移至 LW.TW.ab_*
+    -- 字符串区按 %.7f 最长11字符=6字/串 重排(2026-09-24; 旧版每串2字会互相
+    -- 覆盖截断); 方向角 %.3f=6字符=3字, 配4字余量
+    startn      = 0x1500, -- 字符串 A点纬度  (占0x1500~0x1505 共6字)
+    starte      = 0x1506, -- 字符串 A点经度  (占0x1506~0x150B 共6字)
+    endbn       = 0x150C, -- 字符串 B点纬度  (占0x150C~0x1511 共6字)
+    endbe       = 0x1512, -- 字符串 B点经度  (占0x1512~0x1517 共6字)
+    startdir    = 0x1518, -- 字符串 起始方向角(占0x1518~0x151B 共4字)
+    calcdir     = 0x151C, -- 字符串 计算方向角(占0x151C~0x151F 共4字)
+    startstate  = 0x1520, -- u16 StartState
+    calcdirflag = 0x1521, -- u16 CalcDirFlag
+    offlen      = 0x1522, -- u16 OffLen 偏移量
+    bdofftime   = 0x1523, -- u16 BDOffTime
+    -- 原操作按钮(0x1520~0x1523)已随页面3删除, 区址让位给数值字段
 }
 
 --==================== 页面4 参数页(0x1600~, TerParaType 40B + UserParaType 16B) ====================
@@ -244,7 +246,6 @@ LW.PF = {                  -- 厂家参数(只读展示+授权后可写)
     read        = 0x1640,  -- 按钮 读厂家参数 -> 0x26
     write       = 0x1641,  -- 按钮 写厂家参数 -> 0x25 (读表单+范围校验)
     pass        = 0x1650,  -- u32 密码输入(数值输入, 占2字; Qt端密码同源)
-    unlock      = 0x1652,  -- 按钮 解锁厂家参数(校验密码, 通过后放行写)
                            -- 【勿放0x1651】pass占0x1650~51, 0x1651是其高字, 写密码会误触发
 }
 LW.PU = {                  -- 用户参数
@@ -261,31 +262,42 @@ LW.PU = {                  -- 用户参数
 LW.TD = {
     encodercnt = 0x1700,   -- u32 编码器计数(占2字)
     bdcnt      = 0x1702,   -- u32 北斗计数(占2字)
-    -- 漏肥/漏种各6路(2026-09-24扩为独立地址: 兼容6行机, 标签不可下标访问);
-    -- loufei1/louzh1 为数组基址, 代码按 +(i-1)*2 访问u32元素
-    loufei1    = 0x1704,   -- u32 漏肥计数第1路 (0x1704~0x1705)
+    -- 漏肥/漏种各6路(独立地址, 兼容6行机); loufei1/louzh1 为基址代码按 +(i-1)*2 访问
+    loufei1    = 0x1704,   -- u32 漏肥计数第1路
     loufei2    = 0x1706,   -- u32 漏肥计数第2路
     loufei3    = 0x1708,   -- u32 漏肥计数第3路
     loufei4    = 0x170A,   -- u32 漏肥计数第4路
     loufei5    = 0x170C,   -- u32 漏肥计数第5路(6行机)
     loufei6    = 0x170E,   -- u32 漏肥计数第6路(6行机)
-    louzh1     = 0x1710,   -- u32 漏株计数第1路 (0x1710~0x1711)
+    louzh1     = 0x1710,   -- u32 漏株计数第1路
     louzh2     = 0x1712,   -- u32 漏株计数第2路
     louzh3     = 0x1714,   -- u32 漏株计数第3路
     louzh4     = 0x1716,   -- u32 漏株计数第4路
     louzh5     = 0x1718,   -- u32 漏株计数第5路(6行机)
     louzh6     = 0x171A,   -- u32 漏株计数第6路(6行机)
-    -- 位图三件(2026-09-24自0x1714/16/18迁至0x171C/1E/20, 6路扩展让位;
-    -- 画面5的位指示灯绑定需同步改!)
-    input      = 0x171C,   -- u32 IO输入位图(位指示灯 x32)
-    warning    = 0x171E,   -- u32 报警位图(位指示灯 x32)
-    ctrl       = 0x1720,   -- u32 输出位图(位指示灯 x32)
-    -- 调试信息字符串复用全局 LW.A.log(0x1060)
+    input      = 0x171C,   -- u32 IO输入位图(具名位灯绑位0~14, 见画面配置清单)
+    warning    = 0x171E,   -- u32 报警位图(同上, 报警红字)
+    ctrl       = 0x1720,   -- u32 输出位图(阀位0~9, 电机位16~22)
+    -- 输出一键翻转按钮(2026-09-28对齐QT测试页: 点按=取反当前位再0x09下发;
+    -- 原jogno/jogon/jogtrig三件套已删)
+    sw0        = 0x1728,   -- 按钮 预落种阀(CtrlNo0)
+    sw1        = 0x1729,   -- 按钮 倒种阀(CtrlNo1)
+    sw2        = 0x172A,   -- 按钮 清种阀(CtrlNo2)
+    sw3        = 0x172B,   -- 按钮 刮种阀(CtrlNo3)
+    sw4        = 0x172C,   -- 按钮 阀5(CtrlNo4)
+    sw5        = 0x172D,   -- 按钮 阀6(CtrlNo5)
+    sw6        = 0x172E,   -- 按钮 阀7(CtrlNo6)
+    sw7        = 0x172F,   -- 按钮 阀8(CtrlNo7)
+    sw8        = 0x1730,   -- 按钮 阀9(CtrlNo8)
+    m1         = 0x1731,   -- 按钮 播种盘1电机(CtrlNo16)
+    m2         = 0x1732,   -- 按钮 播种盘2电机(CtrlNo17)
+    m3         = 0x1733,   -- 按钮 播种盘3电机(CtrlNo18)
+    m4         = 0x1734,   -- 按钮 播种盘4电机(CtrlNo19)
+    m5         = 0x1735,   -- 按钮 自动供种电机(CtrlNo20)
+    m6         = 0x1736,   -- 按钮 播种盘5电机(CtrlNo21)
+    m7         = 0x1737,   -- 按钮 播种盘6电机(CtrlNo22)
     enter      = 0x1740,   -- 按钮 进入测试模式 -> 0x0E
     exit       = 0x1741,   -- 按钮 退出测试模式 -> 0x0F
-    jogno      = 0x1742,   -- u16 点动通道号 CtrlNo(数值输入, 0~31 位)
-    jogon      = 0x1743,   -- u16 点动 State 原值透传(下位机主循环消费, 屏端不解释)
-    jogtrig    = 0x1744,   -- 按钮 触发点动 -> 0x09 (组包 TestCMDType)
 }
 
 --==================== 页面6 任务向导(0x1800~0x18FF, B档新增) ====================
@@ -921,15 +933,6 @@ local ACK_CMDS = {
     [0x24]=true, [0x25]=true, [0x27]=true, [0x29]=true, [0x31]=true,
 }
 
--- ack 提示用命令名
-local CMD_NAME = {
-    [0x05]="设置时间", [0x09]="测试控制", [0x0A]="启动小区播种", [0x0B]="停止播种",
-    [0x10]="重启设备", [0x0E]="进入测试模式", [0x0F]="退出测试模式",
-    [0x11]="启动连续播种", [0x12]="停止连续播种", [0x20]="下发小区参数",
-    [0x24]="下发AB线", [0x25]="写厂家参数", [0x27]="写用户参数",
-    [0x29]="清零通道", [0x31]="滚动通道",
-}
-
 --------------------------------------------------------------------
 -- 常驻订阅(B档): 作业状态机(0x21)不随页面切换中断
 --   APP.sub_always(fnc, handler)  注册: 该 fnc 帧优先路由 handler, 不进页面
@@ -967,7 +970,6 @@ local function hb_on_debug(f)
     if not hb.online then
         hb.online = true
         ENV.w16(LW.A.link, 1)
-        ENV.wstr(LW.A.tip, "√ 通信恢复")
         PROTOCOL.send(PROTOCOL.FNC.GET_SOFT_VER)
     end
     -- 调试串显示(2026-09-24): 画面文本控件统一GB2312, 0x22应答本身即GB2312
@@ -1039,7 +1041,7 @@ function APP.tick()
         if hb.online and (hb.ticks - hb.last_rx) >= hb.period * hb.offline_after then
             hb.online = false
             ENV.w16(LW.A.link, 0)
-            ENV.wstr(LW.A.tip, "× 通信中断")
+            ENV.wstr(LW.A.log, "× 通信中断")
         end
         PROTOCOL.send(PROTOCOL.FNC.RD_DEBUG_INFO)
     end
@@ -1057,7 +1059,7 @@ end
 
 --------------------------------------------------------------------
 -- 帧分发总线(PROTOCOL.on_frame):
---   1) 命令类 1 字节应答 -> 统一 ack 提示(LW.A.ack + LW.A.tip) + on_ack
+--   1) 命令类 1 字节应答 -> 页面 on_ack (ack/tip提示随状态栏收敛已删)
 --   2) 其余 -> 当前页 on_frame
 --------------------------------------------------------------------
 function APP.feed_frame(f)
@@ -1067,9 +1069,6 @@ function APP.feed_frame(f)
     if h then h(f) return end
     if #f.data == 1 and ACK_CMDS[f.fnc] then
         local ok = string.byte(f.data, 1)
-        ENV.w16(LW.A.ack, ok)
-        local name = CMD_NAME[f.fnc] or string.format("命令%#x", f.fnc)
-        ENV.wstr(LW.A.tip, (ok == 1 and "√ " or "× ") .. name)
         if APP.cur and APP.cur.on_ack then APP.cur:on_ack(f.fnc, ok) end
         return
     end
@@ -1095,195 +1094,24 @@ return APP
 ]==]
 
 
-_MODS["page_params.lua"] = [==[
---[[
-page_params.lua —— 厂家/用户参数页: 0x26/0x28 读快照, 0x25/0x27 写入+前端校验
-================================================================================
-范围表来源(下位机强制, hd3005a1/Src/para.c ParaLegalCheck, 2026-09 核对):
-  GearRatio      <2  回落10   => [2, 65535]        para.c:168
-  HoleNum        ==0 回落9    => [1, 255]          para.c:171
-  HJ             10~5000 回落60                   para.c:174
-  DZTime         100~10000 回落1500                para.c:177
-  RMP            5~70 回落20                        para.c:180
-  TapperTime     >1000 回落60 => [0, 1000]          para.c:183
-  MicroStepValue >6400 回落800 => [0, 6400]          para.c:187
-  EncodeNum      ==0 回落700  => [1, 65535]         para.c:191
-  PrePercent     无校验, 按注释 [0,100]              para.h:165
-  其余字段无下位机校验, 放行(负值经 LW i16 控件语义)
-密码锁: 厂家参数写入前须解锁, 密码与 Qt 端一致 formconfig.cpp:172 ("515516")
-CrcCheck: 传 0 占位, 下位机写 EEPROM 前重算(Qt 同此行为)
-返回 creator(ctx) -> page
---]]
-
-return function(ctx)
-    local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
-    local FNC = PROTOCOL.FNC
-    local w16, w32, wstr, r16, r32 = ctx.w16, ctx.w32, ctx.wstr, ctx.r16, ctx.r32
-
-    local PASSWORD = 515516
-    local unlocked = false
-
-    -- 最近一次 0x26 快照: 写回时保留固件侧维护的字段。
-    -- Resv1 即行数字段U8Resv2(4/6), 曾被硬编码0下发, 真机实测会把行数冲掉
-    -- (模拟器状态文件被写成 U8Resv2=0 复现), 必须从快照原样带回。
-    local last_ter = nil
-
-    -- 范围表: { 字段, 下限, 上限, 中文名 }  nil 下限/上限 = 不检
-    local RANGE_T = {
-        { "GearRatio",      2,     65535, "传动比" },
-        { "HoleNum",        1,     255,   "排种盘孔数" },
-        { "EncodeNum",      1,     65535, "编码器脉冲" },
-        { "MicroStepValue", 0,     6400,  "细分值" },
-        { "TapperTime",     0,     1000,  "打点时间" },
-        { "PrePercent",     0,     100,   "预压比" },
-    }
-    local RANGE_U = {
-        { "HJ",     10, 5000,  "行间距HJ" },
-        { "DZTime", 100, 10000, "点滞时间" },
-        { "RMP",    5,  70,    "播种盘转速RMP" },
-    }
-
-    local function s16(v)                       -- u16 -> i16 符号扩展
-        v = v & 0xFFFF
-        if v >= 0x8000 then v = v - 0x10000 end
-        return v
-    end
-
-    local function check(t, ranges)
-        for _, r in ipairs(ranges) do
-            local name, lo, hi, cn = r[1], r[2], r[3], r[4]
-            local v = t[name]
-            if lo and v < lo then return name, ("参数%s=%d 低于下限%d"):format(cn, v, lo) end
-            if hi and v > hi then return name, ("参数%s=%d 超过上限%d"):format(cn, v, hi) end
-        end
-        return nil
-    end
-
-    -- 读表单(LW) -> terpara 表(i16 字段符号扩展, Crc 占位0)
-    local function read_ter_form()
-        local P = LW.PF
-        local rows = last_ter and last_ter.Resv1
-        if rows ~= 4 and rows ~= 6 then rows = 6 end   -- 无快照时兜底6行
-        return {
-            A = s16(r16(P.a)), B = s16(r16(P.b)),
-            EncodeNum = r16(P.encodenum), EncoderDir = r16(P.encoderdir),
-            HoleNum = r16(P.holenum), GearRatio = r16(P.gearratio),
-            MicroStepValue = s16(r16(P.microstep)),
-            X1 = s16(r16(P.x1)), BDiroff = s16(r16(P.bdiroff)),
-            TappTrigOff = s16(r16(P.tapptrigoff)), TapperTime = r16(P.tappertime),
-            ZeroPosEn = r16(P.zeroposen), GZEn = r16(P.gzen),
-            PrePercent = r16(P.prepercent),
-            Resv1 = rows, Resv0 = 0, Resv1_ = 0, Resv2 = 0, CrcCheck = 0,
-        }
-    end
-
-    -- 读表单 -> userpara 表
-    local function read_user_form()
-        local U = LW.PU
-        return {
-            DZTime = r16(U.dztime), HJ = s16(r16(U.hj)), RMP = r32(U.rmp),
-            AntennaType = r16(U.antennatype), U8Resv = 0,
-            AntennaDistance = s16(r16(U.antennadist)), CrcCheck = 0,
-        }
-    end
-
-    -- 0x26/0x28 应答 -> LW 表单回显
-    local function show_ter(p)
-        local P = LW.PF
-        w16(P.a, p.A & 0xFFFF);          w16(P.b, p.B & 0xFFFF)
-        w16(P.encodenum, p.EncodeNum);   w16(P.encoderdir, p.EncoderDir)
-        w16(P.holenum, p.HoleNum);       w16(P.gearratio, p.GearRatio)
-        w16(P.microstep, p.MicroStepValue & 0xFFFF)
-        w16(P.x1, p.X1 & 0xFFFF);        w16(P.bdiroff, p.BDiroff & 0xFFFF)
-        w16(P.tapptrigoff, p.TappTrigOff & 0xFFFF)
-        w16(P.tappertime, p.TapperTime); w16(P.zeroposen, p.ZeroPosEn)
-        w16(P.gzen, p.GZEn);             w16(P.prepercent, p.PrePercent)
-    end
-
-    local function show_user(p)
-        local U = LW.PU
-        w16(U.dztime, p.DZTime);         w16(U.hj, p.HJ & 0xFFFF)
-        w32(U.rmp, p.RMP);               w16(U.antennatype, p.AntennaType)
-        w16(U.antennadist, p.AntennaDistance & 0xFFFF)
-    end
-
-    local page = {
-        id        = LW.SCREEN.PARAMS,
-        poll_cmds = {},                          -- 快照式: 进页/手动读, 不轮询
-        addrs     = {
-            LW.PF.read, LW.PF.write, LW.PF.pass, LW.PF.unlock,
-            LW.PU.read, LW.PU.write,
-        },
-    }
-
-    function page:on_enter()                     -- 进页读双份快照
-        PROTOCOL.send(FNC.GET_TER_PARA)
-        PROTOCOL.send(FNC.GET_USER_PARA)
-    end
-
-    function page:on_frame(f)
-        local ok, p = pcall(CODEC.terpara.unpack, f.data)
-        if f.fnc == FNC.GET_TER_PARA then
-            if ok then show_ter(p); last_ter = p
-            else wstr(LW.A.log, "terpara unpack err: len=" .. #f.data) end
-        elseif f.fnc == FNC.GET_USER_PARA then
-            local ok2, u = pcall(CODEC.userpara.unpack, f.data)
-            if ok2 then show_user(u)
-            else wstr(LW.A.log, "userpara unpack err: len=" .. #f.data) end
-        end
-    end
-
-    function page:on_update(addr)
-        local P, U = LW.PF, LW.PU
-        if addr == P.read then
-            PROTOCOL.send(FNC.GET_TER_PARA)
-        elseif addr == U.read then
-            PROTOCOL.send(FNC.GET_USER_PARA)
-        elseif addr == P.unlock then
-            local pw = r32(P.pass)
-            if pw == PASSWORD then
-                unlocked = true
-                wstr(LW.A.tip, "√ 厂家参数已解锁")
-            else
-                unlocked = false
-                wstr(LW.A.tip, "× 密码错误")
-            end
-        elseif addr == P.write then
-            if not unlocked then
-                wstr(LW.A.tip, "× 请先输入密码解锁")
-                return
-            end
-            local t = read_ter_form()
-            local bad, msg = check(t, RANGE_T)
-            if bad then wstr(LW.A.tip, "× " .. msg) return end
-            PROTOCOL.send(FNC.SET_TER_PARA, CODEC.terpara.pack(t))
-        elseif addr == U.write then
-            local t = read_user_form()
-            local bad, msg = check(t, RANGE_U)
-            if bad then wstr(LW.A.tip, "× " .. msg) return end
-            PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
-        end
-    end
-
-    return page
-end
-
-]==]
 
 
 _MODS["page_continuous.lua"] = [==[
 --[[
-page_continuous.lua —— 连续播种页: LXBZParaType 表单 -> 0x11 启动 / 0x12 停止
+page_continuous.lua -- 连续播种页(画面2, 2026-09-28重设对齐QT formcontinuoussow)
 ================================================================================
-表单: 密度(i32) 行长(i32) 行距(Hju i16域) 株数(ZhuShu u16域)
-LW 表单控件为 32 位, 下发时按协议域截断(Hju s16 / ZhuShu u16)
-返回 creator(ctx) -> page
+QT口径: 用户只须输入密度即可开始; 行距/行长默认60/500可调(屏端无config.ini,
+以输入控件默认值承载); 株距=行长*10/(密度-1)四舍五入只读显示(QT :116);
+ZhuShu=0自动。运行显示: 排列行程/速度/漏肥漏株各6路(0x21轮询经jobrun常驻
+截获存 last_status, 本页 on_tick 取快照刷新显示)。
+LW: LW.CONT (0x1400区)。
 --]]
 
 return function(ctx)
     local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
+    local JOBRUN = ctx.JOBRUN
     local FNC = PROTOCOL.FNC
-    local r32 = ctx.r32
+    local r32, w16, w32 = ctx.r32, ctx.w16, ctx.w32
 
     local function s32(v)
         v = v & 0xFFFFFFFF
@@ -1297,26 +1125,55 @@ return function(ctx)
     end
 
     local page = {
-        id        = LW.SCREEN.CONTINUOUS,
-        poll_cmds = {},
-        addrs     = { LW.CONT.start, LW.CONT.stop },
+        id = LW.SCREEN.CONTINUOUS,
+        -- 0x21: 应答被 jobrun 常驻订阅截获(更新 jobrun.last_status),
+        -- 连续模式无作业不设 always_poll, 由本页 poll 触发请求
+        poll_cmds = { FNC.GET_BZ_STATUS },
+        addrs = { LW.CONT.start, LW.CONT.stop },
     }
 
-    local function read_form()
-        local C = LW.CONT
-        return {
-            Density = s32(r32(C.density)),
-            CellLen = s32(r32(C.celllen)),
-            Hju     = s16(r32(C.hju)),        -- 协议域 h(s16)
-            ZhuShu  = r32(C.zhushu) & 0xFFFF, -- 协议域 H(u16)
-        }
+    function page:on_enter()
+        w16(LW.CONT.start, 0)
+        w16(LW.CONT.stop, 0)
     end
+
+    function page:on_leave() end
+
+    function page:on_frame() end
 
     function page:on_update(addr)
         if addr == LW.CONT.start then
-            PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack(read_form()))
+            local density = s32(r32(LW.CONT.density))
+            local celllen = s32(r32(LW.CONT.celllen))
+            local hju     = s16(r32(LW.CONT.hju))
+            if density < 2 or celllen < 10 then
+                w16(LW.CONT.start, 0)
+                return                          -- 密度>=2才有株距意义
+            end
+            PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
+                Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
+            })
         elseif addr == LW.CONT.stop then
-            PROTOCOL.send(FNC.CMD_STOP_LXBZ)  -- 空域
+            PROTOCOL.send(FNC.CMD_STOP_LXBZ)    -- 空域
+        end
+    end
+
+    -- 运行显示: 株距计算 + jobrun.last_status 刷新行程/速度/计数
+    page.on_tick = function()
+        local density = s32(r32(LW.CONT.density))
+        local celllen = s32(r32(LW.CONT.celllen))
+        if density > 1 and celllen > 0 then
+            -- QT formcontinuoussow.cpp:116 株距四舍五入
+            w32(LW.CONT.zhuju, (celllen * 10 // (density - 1) + 5) // 10)
+        end
+        local st = JOBRUN and JOBRUN.last_status
+        if st then
+            w32(LW.CONT.offlen, st.OffLen or 0)
+            w32(LW.CONT.speed,  st.Speed or 0)
+            for i = 1, CODEC.ROWS do
+                w32(LW.CONT.loufei1 + (i - 1) * 2, st.LoufeiCnt[i] or 0)
+                w32(LW.CONT.louzh1 + (i - 1) * 2, st.LouZHCnt[i] or 0)
+            end
         end
     end
 
@@ -1328,71 +1185,74 @@ end
 
 _MODS["page_testdiag.lua"] = [==[
 --[[
-page_testdiag.lua —— 测试诊断页: 测试模式切换 / 0x08 位图轮询 / 0x09 点动 / 0x22 调试串
+page_testdiag.lua -- 测试诊断页(画面5, 2026-09-28重设对齐QT formtest)
 ================================================================================
-  轮询  0x08 TestModeStateType -> 编码器/北斗计数, 漏种漏株x行, IO/报警/输出位图
-        (poll_cmds 机制: 仅本页可见时轮询, 离开自动停 —— app.lua 框架保证)
-  按钮  TD.enter 0x1740 -> 0x0E 进入测试模式(空域)
-        TD.exit  0x1741 -> 0x0F 退出(空域)
-        TD.jogtrig 0x1744 -> 0x09 TestCMDType{CtrlNo, State}(4B)
-        TD.debug 0x1745 -> 0x22 读调试信息(空域)
-  应答  0x08 -> LW.TD 区刷新; 0x22 -> ASCII 过滤写 LW.A.log(D5 决策)
-        注: 主页也有 0x22 按钮; 帧按当前页路由, 两页各自处理自己发出的 0x22
-  State 语义: 下位机仅存 TestCMD 由主循环消费(protocool.c:385), 屏端透传不解释
-返回 creator(ctx) -> page
+输入状态: 15盏具名位灯(画面绑 td_input 位0~14, 报警红字绑 td_warning 同位):
+  bit0~3 零位1~4 | bit4 自动供种 | bit5 预留 | bit6/7 钢索1/2 | bit8 压力
+  bit9 风机 | bit10 脚踏板 | bit11 初始化 | bit12 北斗 | bit13/14 零位5/6
+输出控制: 16个一键翻转按钮(阀CtrlNo0~8 + 电机CtrlNo16~22), 点按=读当前
+  CtrlState位取反后0x09下发(QT setValveState(ch,!bit)同款);
+  电机位在0x08应答的CtrlState里位于bit16~22(固件 DJCtrlState<<16 上报)。
+计数: 编码器/北斗 + 漏肥/漏株各6路(随 codec.ROWS 由 0x26 动态切换, 4行残留已修)。
+原 jogno/jogon/jogtrig 点动三件套已删(一键翻转取代)。
 --]]
 
 return function(ctx)
     local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
     local FNC = PROTOCOL.FNC
-    local w16, w32, wstr, r16 = ctx.w16, ctx.w32, ctx.wstr, ctx.r16
+    local w16, w32, wstr = ctx.w16, ctx.w32, ctx.wstr
 
-    local page = {
-        id        = LW.SCREEN.TESTDIAG,
-        poll_cmds = { FNC.GET_TEST_STATUS },         -- 0x08 仅本页可见时轮询
-        addrs     = { LW.TD.enter, LW.TD.exit, LW.TD.jogtrig },
+    local last_ctrl = 0                        -- 最近一帧0x08的CtrlState
+
+    -- 输出按钮地址 -> CtrlNo(一键翻转)
+    local SW = {
+        [LW.TD.sw0] = 0,  [LW.TD.sw1] = 1,  [LW.TD.sw2] = 2,  [LW.TD.sw3] = 3,
+        [LW.TD.sw4] = 4,  [LW.TD.sw5] = 5,  [LW.TD.sw6] = 6,  [LW.TD.sw7] = 7,
+        [LW.TD.sw8] = 8,
+        [LW.TD.m1] = 16, [LW.TD.m2] = 17, [LW.TD.m3] = 18, [LW.TD.m4] = 19,
+        [LW.TD.m5] = 20, [LW.TD.m6] = 21, [LW.TD.m7] = 22,
     }
 
+    local page = {
+        id = LW.SCREEN.TESTDIAG,
+        poll_cmds = { FNC.GET_TEST_STATUS },         -- 0x08 仅本页可见时轮询
+        addrs = { LW.TD.enter, LW.TD.exit },
+    }
+    for a in pairs(SW) do page.addrs[#page.addrs + 1] = a end
+
     function page:on_frame(f)
-        local d = f.data
-        if f.fnc == FNC.GET_TEST_STATUS then        -- 0x08 测试状态
-            local ok, st = pcall(CODEC.teststate.unpack, d)
-            if ok then
-                w32(LW.TD.encodercnt, st.EncoderCnt)
-                w32(LW.TD.bdcnt,      st.BdCnt)
-                for i = 1, CODEC.ROWS do
-                    w32(LW.TD.loufei1 + (i - 1) * 2, st.LoufeiCnt[i])
-                    w32(LW.TD.louzh1 + (i - 1) * 2, st.LouZHCnt[i])
-                end
-                w32(LW.TD.input,   st.InputState)   -- 位指示灯 x32 绑定
-                w32(LW.TD.warning, st.WarningState)
-                w32(LW.TD.ctrl,    st.CtrlState)
-            else
-                wstr(LW.A.log, "teststate unpack err: len=" .. #d)
-            end
-        elseif f.fnc == FNC.RD_DEBUG_INFO then      -- 0x22 (D5: ASCII 过滤)
-            local t = {}
-            for i = 1, #d do
-                local b = string.byte(d, i)
-                if b < 0x80 then t[#t + 1] = string.char(b) end
-            end
-            wstr(LW.A.log, table.concat(t))
+        if f.fnc ~= FNC.GET_TEST_STATUS then return end
+        local ok, st = pcall(CODEC.teststate.unpack, f.data)
+        if not ok then
+            wstr(LW.A.log, "teststate unpack err: len=" .. #f.data)
+            return
         end
+        last_ctrl = st.CtrlState or 0
+        w32(LW.TD.encodercnt, st.EncoderCnt)
+        w32(LW.TD.bdcnt,      st.BdCnt)
+        for i = 1, CODEC.ROWS do
+            w32(LW.TD.loufei1 + (i - 1) * 2, st.LoufeiCnt[i])
+            w32(LW.TD.louzh1 + (i - 1) * 2, st.LouZHCnt[i])
+        end
+        w32(LW.TD.input,   st.InputState)
+        w32(LW.TD.warning, st.WarningState)
+        w32(LW.TD.ctrl,    st.CtrlState)
     end
 
     function page:on_update(addr)
         if addr == LW.TD.enter then
             PROTOCOL.send(FNC.CMD_START_TEST)       -- 空域
         elseif addr == LW.TD.exit then
-            PROTOCOL.send(FNC.CMD_STOP_TEST)        -- 空域
-        elseif addr == LW.TD.jogtrig then
-            local cmd = CODEC.testcmd.pack{
-                CtrlNo = r16(LW.TD.jogno),
-                State  = r16(LW.TD.jogon),
-            }
-            PROTOCOL.send(FNC.CMD_SVCTRL, cmd)
-        elseif addr == LW.TD.debug then
-            PROTOCOL.send(FNC.RD_DEBUG_INFO)        -- 空域
+            PROTOCOL.send(FNC.CMD_STOP_TEST)
+        else
+            local no = SW[addr]
+            if no then
+                -- QT语义: 取反当前位再下发
+                local state = 0
+                if (last_ctrl >> no) & 1 == 0 then state = 1 end
+                PROTOCOL.send(FNC.CMD_SVCTRL,
+                              CODEC.testcmd.pack { CtrlNo = no, State = state })
+            end
         end
     end
 
@@ -2936,6 +2796,17 @@ function jobrun.init(deps)
     RSTR, r16 = deps.rstr, deps.r16
     -- 常驻订阅: 0x21 帧无论当前页都进状态机(作业中切页不丢)
     APP.sub_always(PROTOCOL.FNC.GET_BZ_STATUS, function(f) jobrun._feed(f) end)
+    -- 0x26 全局路由(2026-09-28修4行残留): 按厂家参数行数字段(Resv1=U8Resv2)
+    -- 动态重置 codec 行数变体——此前 codec.init{rows=4} 后无人更新, 测试页
+    -- 计数/密度数组永远按4行解析(用户实测暴露); 处理后转发当前页(参数页回显)
+    APP.sub_always(PROTOCOL.FNC.GET_TER_PARA, function(f)
+        local ok, p = pcall(CODEC.terpara.unpack, f.data)
+        if ok and (p.Resv1 == 4 or p.Resv1 == 6) and p.Resv1 ~= CODEC.ROWS then
+            CODEC.init { rows = p.Resv1 }
+            log("INF", ("行数切换 codec.ROWS=%d"):format(p.Resv1))
+        end
+        if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
+    end)
     -- 0x23 采集应答全局处理: 填 ab_cache 与 LW.AB 显示区(对话框画面22的显示控件
     -- 绑同一地址区)。2026-09-24 起停止不再自动落图, 改由对话框确认保存
     APP.sub_always(PROTOCOL.FNC.STORE_AB, function(f)
@@ -2946,7 +2817,6 @@ function jobrun.init(deps)
         end
         jobrun.ab_cache = p
         jobrun.ab_show(p)
-        wstr(LW.A.tip, "√ AB线已采集")
     end)
     -- AB对话框通知地址(画面22的功能按钮执行通知写LW=1) -> 影子页全局路由
     APP.register({
@@ -3009,7 +2879,6 @@ local function advance()
             local _, _, pct = STORE.task_progress(J.task)
             log("INF", ("本趟完成 下一趟列组=%d 进度%d%% 请停止后掉头再开始")
                 :format(np.column + 1, pct or 0))
-            jobrun._refresh_ui()
         else
             send_node(np.row, J.cur_col)      -- 同趟下一排: QT :469 自动
             -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
@@ -3268,7 +3137,6 @@ function jobrun._ab_dlg_on_update(addr)
         ab_dlg_mode = 0
         pending_ab = nil
         w16(LW.ABP.auto_req, 0)
-        wstr(LW.A.tip, "AB线未保存")
     end
 end
 
@@ -3301,12 +3169,10 @@ function jobrun.ab_dlg_confirm()
     ab_dlg_mode = 0
     w16(LW.ABP.auto_req, 0)
     if not (ab_dlg_map and STORE.maps[ab_dlg_map]) then
-        wstr(LW.A.tip, "× 无目标地图")
         return
     end
     jobrun.ab_cache = jobrun.ab_cache
     if not jobrun.ab_cache then
-        wstr(LW.A.tip, "× AB线采集无应答, 未保存")
         return
     end
     local name = rstr_safe(LW.ABP.name)
@@ -3315,10 +3181,8 @@ function jobrun.ab_dlg_confirm()
     local ok, err = jobrun.ab_bind_map(ab_dlg_map, name, pa)
     if ok then
         jobrun.ab_rw_save()
-        wstr(LW.A.tip, "√ AB线已保存 " .. name)
         log("INF", ("AB线保存 %s -> 地图%s"):format(name, ab_dlg_map))
     else
-        wstr(LW.A.tip, "× " .. tostring(err))
     end
     pending_ab = nil
 end
@@ -3328,13 +3192,8 @@ end
 function jobrun._feed(f)
     local ok, st = pcall(CODEC.bzstatus.unpack, f.data)
     if not ok then return end
+    jobrun.last_status = st      -- 最近一帧0x21快照(连续播种页显示用)
 
-    -- 全局状态区刷新(2026-09-24按画面配置清单收敛): 仅保留画面实际绑定的
-    -- a_runstate(状态栏运行灯); speed/offlen/voff/rownum/bdstate 无控件绑定,
-    -- 对应A区地址与写入已删(清单未列即删, 行程/速度显示待地图画布需求再议)
-    if w16 then
-        w16(LW.A.runstate, st.RunState)
-    end
 
     if not J then return end
     if st.RowNum <= -10000000 then return end        -- 未开播哨兵(QT :399)
@@ -3408,7 +3267,6 @@ function jobrun._feed(f)
         end
     end
     J.cur_read_row = st.RowNum
-    jobrun._refresh_ui()
 end
 
 -- QT :1106 getIndex: path 中找 {row,column} 节点序号
@@ -3426,18 +3284,8 @@ function jobrun._complete()
     J.sow_state = false                            -- 停推进, 不再下发新节点
     if STORE then STORE.task_save(J.task) end
     log("INF", "作业完成(待手动停止) " .. J.task)
-    jobrun._refresh_ui()
 end
 
--- 主页进度文本 LW.A.taskinfo: "任务1 12/24 50%"
-function jobrun._refresh_ui()
-    if not (wstr and J) then return end
-    local d, tot, pct = STORE.task_progress(J.task)
-    local s = ("%s %d/%d %d%%"):format(J.task, d, tot, pct)
-    if J.completed then s = s .. " 已完成"
-    elseif J.trip_wait then s = s .. " 本趟完成" end
-    wstr(LW.A.taskinfo, s)
-end
 
 return jobrun
 
@@ -4127,6 +3975,231 @@ return function(ctx)
             scan_deadline = nil
             wstr(LW.MAP.detail, "扫描无响应(未插U盘?)")
             log("WRN", "list_dir 回调超时(异步无果)")
+        end
+    end
+
+    return page
+end
+]==]
+
+_MODS["page_userparam.lua"] = [==[
+--[[
+page_userparam.lua -- 用户参数页(画面3, 2026-09-28自原参数页拆分)
+================================================================================
+用户参数(UserParaType 16B): 0x28 进页读快照, 0x27 写入+前端校验。
+[厂家参数]按钮 = 画面侧功能按钮(打开对话框画面23, 密码数值输入绑 pf_pass,
+确认=关闭对话框+执行通知写 LW.PWD.confirm=1) -> 本页校验密码(515516, 与
+QT formconfig.cpp:172 同源), 正确则置 PWD.ok 并切换到画面4厂家参数页。
+范围表(下位机强制, hd3005a1/Src/para.c ParaLegalCheck):
+  HJ 10~5000 回落60; DZTime 100~10000 回落1500; RMP 5~70 回落20
+--]]
+
+return function(ctx)
+    local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
+    local FNC = PROTOCOL.FNC
+    local w16, w32, wstr, r16, r32 = ctx.w16, ctx.w32, ctx.wstr, ctx.r16, ctx.r32
+
+    local PASSWORD = 515516
+
+    local RANGE_U = {
+        { "HJ",     10, 5000,  "行间距HJ" },
+        { "DZTime", 100, 10000, "点滞时间" },
+        { "RMP",    5,  70,    "播种盘转速RMP" },
+    }
+
+    local function s16(v)                       -- u16 -> i16 符号扩展
+        v = v & 0xFFFF
+        if v >= 0x8000 then v = v - 0x10000 end
+        return v
+    end
+
+    local function check(t, ranges)
+        for _, r in ipairs(ranges) do
+            local name, lo, hi, cn = r[1], r[2], r[3], r[4]
+            local v = t[name]
+            if lo and v < lo then return name, ("参数%s=%d 低于下限%d"):format(cn, v, lo) end
+            if hi and v > hi then return name, ("参数%s=%d 超过上限%d"):format(cn, v, hi) end
+        end
+        return nil
+    end
+
+    -- 读表单 -> userpara 表
+    local function read_user_form()
+        local U = LW.PU
+        return {
+            DZTime = r16(U.dztime), HJ = s16(r16(U.hj)), RMP = r32(U.rmp),
+            AntennaType = r16(U.antennatype), U8Resv = 0,
+            AntennaDistance = s16(r16(U.antennadist)), CrcCheck = 0,
+        }
+    end
+
+    -- 0x28 应答 -> LW 表单回显
+    local function show_user(p)
+        local U = LW.PU
+        w16(U.dztime, p.DZTime)
+        w16(U.hj, p.HJ & 0xFFFF)
+        w32(U.rmp, p.RMP)
+        w16(U.antennatype, p.AntennaType)
+        w16(U.antennadist, p.AntennaDistance & 0xFFFF)
+    end
+
+    local page = {
+        id = LW.SCREEN.USERPARAM,
+        poll_cmds = {},
+        addrs = { LW.PU.read, LW.PU.write, LW.PWD.confirm, LW.PWD.cancel },
+    }
+
+    function page:on_enter()                     -- 进页读用户参数快照
+        PROTOCOL.send(FNC.GET_USER_PARA)
+    end
+
+    function page:on_leave() end
+
+    function page:on_frame(f)
+        if f.fnc == FNC.GET_USER_PARA then
+            local ok2, u = pcall(CODEC.userpara.unpack, f.data)
+            if ok2 then show_user(u)
+            else wstr(LW.A.log, "userpara unpack err: len=" .. #f.data) end
+        end
+    end
+
+    function page:on_update(addr)
+        if addr == LW.PU.read then
+            PROTOCOL.send(FNC.GET_USER_PARA)
+        elseif addr == LW.PU.write then
+            local t = read_user_form()
+            local bad, msg = check(t, RANGE_U)
+            if bad then wstr(LW.A.log, "× " .. msg) return end
+            PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
+        elseif addr == LW.PWD.confirm then
+            -- 密码对话框确认(关闭对话框按钮执行通知)
+            local pw = r32(LW.PF.pass) or 0
+            if pw == PASSWORD then
+                w16(LW.PWD.ok, 1)
+                wstr(LW.A.log, "√ 密码正确")
+                APP.set_screen(LW.SCREEN.MANUPARAM)
+            else
+                w16(LW.PWD.ok, 0)
+                wstr(LW.A.log, "× 密码错误")
+            end
+        elseif addr == LW.PWD.cancel then
+            w16(LW.PWD.ok, 0)
+        end
+    end
+
+    return page
+end
+]==]
+
+_MODS["page_manuparam.lua"] = [==[
+--[[
+page_manuparam.lua -- 厂家参数页(画面4, 2026-09-28自原参数页拆分)
+================================================================================
+进入条件: 用户参数页密码弹窗校验通过(LW.PWD.ok=1), 未解锁进入则踢回画面3。
+厂家参数(TerParaType 40B): 0x26 进页读快照(jobrun的0x26全局路由转发到本页,
+并按行数字段动态切换codec变体), 0x25 写入+范围校验。
+写时保留固件侧行数字段: Resv1(=U8Resv2 4/6)取自最近0x26快照, 无快照兜底6
+(2026-09-23曾硬编码0下发把行数冲掉, 用户实测暴露)。
+范围表(hd3005a1/Src/para.c ParaLegalCheck, 2026-09核对):
+  GearRatio<2回落10 | HoleNum==0回落9 | EncodeNum==0回落700
+  MicroStepValue>6400回落800 | TapperTime>1000回落60 | PrePercent按[0,100]
+--]]
+
+return function(ctx)
+    local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
+    local FNC = PROTOCOL.FNC
+    local w16, w32, wstr, r16 = ctx.w16, ctx.w32, ctx.wstr, ctx.r16
+
+    local last_ter = nil       -- 最近一次0x26快照(写回保留固件侧字段: 行数Resv1)
+
+    local RANGE_T = {
+        { "GearRatio",      2,     65535, "传动比" },
+        { "HoleNum",        1,     255,   "排种盘孔数" },
+        { "EncodeNum",      1,     65535, "编码器脉冲" },
+        { "MicroStepValue", 0,     6400,  "细分值" },
+        { "TapperTime",     0,     1000,  "打点时间" },
+        { "PrePercent",     0,     100,   "预压比" },
+    }
+
+    local function s16(v)
+        v = v & 0xFFFF
+        if v >= 0x8000 then v = v - 0x10000 end
+        return v
+    end
+
+    local function check(t, ranges)
+        for _, r in ipairs(ranges) do
+            local name, lo, hi, cn = r[1], r[2], r[3], r[4]
+            local v = t[name]
+            if lo and v < lo then return name, ("参数%s=%d 低于下限%d"):format(cn, v, lo) end
+            if hi and v > hi then return name, ("参数%s=%d 超过上限%d"):format(cn, v, hi) end
+        end
+        return nil
+    end
+
+    -- 读表单(LW) -> terpara 表(i16符号扩展, 行数字段保留快照值)
+    local function read_ter_form()
+        local P = LW.PF
+        local rows = last_ter and last_ter.Resv1
+        if rows ~= 4 and rows ~= 6 then rows = 6 end   -- 无快照兜底6行
+        return {
+            A = s16(r16(P.a)), B = s16(r16(P.b)),
+            EncodeNum = r16(P.encodenum), EncoderDir = r16(P.encoderdir),
+            HoleNum = r16(P.holenum), GearRatio = r16(P.gearratio),
+            MicroStepValue = s16(r16(P.microstep)),
+            X1 = s16(r16(P.x1)), BDiroff = s16(r16(P.bdiroff)),
+            TappTrigOff = s16(r16(P.tapptrigoff)), TapperTime = r16(P.tappertime),
+            ZeroPosEn = r16(P.zeroposen), GZEn = r16(P.gzen),
+            PrePercent = r16(P.prepercent),
+            Resv1 = rows, Resv0 = 0, Resv1_ = 0, Resv2 = 0, CrcCheck = 0,
+        }
+    end
+
+    -- 0x26 应答 -> LW 表单回显
+    local function show_ter(p)
+        local P = LW.PF
+        w16(P.a, p.A & 0xFFFF);          w16(P.b, p.B & 0xFFFF)
+        w16(P.encodenum, p.EncodeNum);   w16(P.encoderdir, p.EncoderDir)
+        w16(P.holenum, p.HoleNum);       w16(P.gearratio, p.GearRatio)
+        w16(P.microstep, p.MicroStepValue & 0xFFFF)
+        w16(P.x1, p.X1 & 0xFFFF);        w16(P.bdiroff, p.BDiroff & 0xFFFF)
+        w16(P.tapptrigoff, p.TappTrigOff & 0xFFFF)
+        w16(P.tappertime, p.TapperTime); w16(P.zeroposen, p.ZeroPosEn)
+        w16(P.gzen, p.GZEn);             w16(P.prepercent, p.PrePercent)
+    end
+
+    local page = {
+        id = LW.SCREEN.MANUPARAM,
+        poll_cmds = {},
+        addrs = { LW.PF.read, LW.PF.write },
+    }
+
+    function page:on_enter()
+        if (r16(LW.PWD.ok) or 0) ~= 1 then
+            APP.set_screen(LW.SCREEN.USERPARAM)          -- 未解锁踢回
+            return
+        end
+        PROTOCOL.send(FNC.GET_TER_PARA)
+    end
+
+    function page:on_leave() end
+
+    function page:on_frame(f)
+        if f.fnc == FNC.GET_TER_PARA then
+            local ok, p = pcall(CODEC.terpara.unpack, f.data)
+            if ok then show_ter(p); last_ter = p
+            else wstr(LW.A.log, "terpara unpack err: len=" .. #f.data) end
+        end
+    end
+
+    function page:on_update(addr)
+        if addr == LW.PF.read then
+            PROTOCOL.send(FNC.GET_TER_PARA)
+        elseif addr == LW.PF.write then
+            local t = read_ter_form()
+            local bad, msg = check(t, RANGE_T)
+            if bad then wstr(LW.A.log, "× " .. msg) return end
+            PROTOCOL.send(FNC.SET_TER_PARA, CODEC.terpara.pack(t))
         end
     end
 

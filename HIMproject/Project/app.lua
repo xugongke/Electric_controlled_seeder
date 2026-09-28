@@ -41,15 +41,6 @@ local ACK_CMDS = {
     [0x24]=true, [0x25]=true, [0x27]=true, [0x29]=true, [0x31]=true,
 }
 
--- ack 提示用命令名
-local CMD_NAME = {
-    [0x05]="设置时间", [0x09]="测试控制", [0x0A]="启动小区播种", [0x0B]="停止播种",
-    [0x10]="重启设备", [0x0E]="进入测试模式", [0x0F]="退出测试模式",
-    [0x11]="启动连续播种", [0x12]="停止连续播种", [0x20]="下发小区参数",
-    [0x24]="下发AB线", [0x25]="写厂家参数", [0x27]="写用户参数",
-    [0x29]="清零通道", [0x31]="滚动通道",
-}
-
 --------------------------------------------------------------------
 -- 常驻订阅(B档): 作业状态机(0x21)不随页面切换中断
 --   APP.sub_always(fnc, handler)  注册: 该 fnc 帧优先路由 handler, 不进页面
@@ -87,7 +78,6 @@ local function hb_on_debug(f)
     if not hb.online then
         hb.online = true
         ENV.w16(LW.A.link, 1)
-        ENV.wstr(LW.A.tip, "√ 通信恢复")
         PROTOCOL.send(PROTOCOL.FNC.GET_SOFT_VER)
     end
     -- 调试串显示(2026-09-24): 画面文本控件统一GB2312, 0x22应答本身即GB2312
@@ -159,7 +149,7 @@ function APP.tick()
         if hb.online and (hb.ticks - hb.last_rx) >= hb.period * hb.offline_after then
             hb.online = false
             ENV.w16(LW.A.link, 0)
-            ENV.wstr(LW.A.tip, "× 通信中断")
+            ENV.wstr(LW.A.log, "× 通信中断")
         end
         PROTOCOL.send(PROTOCOL.FNC.RD_DEBUG_INFO)
     end
@@ -177,7 +167,7 @@ end
 
 --------------------------------------------------------------------
 -- 帧分发总线(PROTOCOL.on_frame):
---   1) 命令类 1 字节应答 -> 统一 ack 提示(LW.A.ack + LW.A.tip) + on_ack
+--   1) 命令类 1 字节应答 -> 页面 on_ack (ack/tip提示随状态栏收敛已删)
 --   2) 其余 -> 当前页 on_frame
 --------------------------------------------------------------------
 function APP.feed_frame(f)
@@ -187,9 +177,6 @@ function APP.feed_frame(f)
     if h then h(f) return end
     if #f.data == 1 and ACK_CMDS[f.fnc] then
         local ok = string.byte(f.data, 1)
-        ENV.w16(LW.A.ack, ok)
-        local name = CMD_NAME[f.fnc] or string.format("命令%#x", f.fnc)
-        ENV.wstr(LW.A.tip, (ok == 1 and "√ " or "× ") .. name)
         if APP.cur and APP.cur.on_ack then APP.cur:on_ack(f.fnc, ok) end
         return
     end

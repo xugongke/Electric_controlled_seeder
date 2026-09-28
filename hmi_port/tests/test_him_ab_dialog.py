@@ -168,9 +168,8 @@ end
     jobrun['_ab_dlg_on_update'](ABP['req'])          # 开窗并发0x23
     jobrun['ab_cache'] = None                         # 模拟应答未到即确认
     jobrun['_ab_dlg_on_update'](ABP['confirm'])
-    check(STORE['maps']['demo2']['ab'] is None
-          and '采集无应答'.encode('gb2312') in lstr(lua, A['tip']),
-          '无应答时不误存并提示(bug修复: 保存=先采集后落盘)')
+    check(STORE['maps']['demo2']['ab'] is None,
+          '无应答时不误存(bug修复: 保存=先采集后落盘; tip控件已删)')
     # 应答到达后再确认 -> 成功(重开窗因上次确认已清模式)
     W['writes'][ABP['req']] = 1
     jobrun['_ab_dlg_on_update'](ABP['req'])
@@ -186,8 +185,8 @@ end
     W['writes'][ABP['req']] = 1
     jobrun['_ab_dlg_on_update'](ABP['req'])
     jobrun['_ab_dlg_on_update'](ABP['cancel'])
-    n_before = len([k for k in STORE['saved'].keys()])
-    check('未保存'.encode('gb2312') in lstr(lua, A['tip']), '取消提示未保存')
+    check(len([k for k in STORE['saved'].keys()]) == 2,
+          '取消后不保存(此前仅demo/demo2两处落盘, tip控件已删)')
 
     print()
     if FAIL:
