@@ -8,8 +8,6 @@ a_log,LW1060,字符串 调试串(0x22心跳全局刷新， GB2312直通;
 cont_density,LW1400,i32 输入 密度(株/亩)
 cont_zhuju,LW1404,i32 只读 株距cm(计算显示)
 cont_speed,LW1408,i32 只读 速度mm/s(0x21)
-cont_loufei1,LW140A,u32 x6 只读 漏肥计数(0x140A~0x1415)
-cont_louzh1,LW1416,u32 x6 只读 漏株计数(0x1416~0x1421)
 cont_start,LW1430,按钮 启动连续播种 -> 0x11
 cont_stop,LW1431,按钮 停止连续播种 -> 0x12
 ab_startn,LW1500,字符串 A点纬度  (占0x1500~0x1505 共6字)

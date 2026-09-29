@@ -12,7 +12,7 @@ return function(ctx)
     local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
     local JOBRUN = ctx.JOBRUN
     local FNC = PROTOCOL.FNC
-    local r16, r32, w16, w32 = ctx.r16, ctx.r32, ctx.w16, ctx.w32
+    local r16, r32, w16, w32, wstr = ctx.r16, ctx.r32, ctx.w16, ctx.w32, ctx.wstr
 
     local function s32(v)
         v = v & 0xFFFFFFFF
@@ -54,9 +54,14 @@ return function(ctx)
             local density = s32(r32(LW.CONT.density))
             local hju     = s16(r16(LW.PU.hj) or 60)   -- 行距取用户参数HJ表单
             local celllen = row_len_cm(hju)
-            if density < 2 or hju < 1 then
-                w16(LW.CONT.start, 0)
-                return                          -- 密度>=2才有株距意义
+            if density < 2 then
+                wstr(LW.A.log, ("× 连续播种启动失败: 密度=%d无效(画面输入控件须绑定"
+                                .. "cont_density并启用输入, 设初值如4000)"):format(density))
+                return
+            end
+            if hju < 1 then
+                wstr(LW.A.log, "× 连续播种启动失败: 用户参数HJ行距无效(先在用户参数页设置)")
+                return
             end
             PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
                 Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
@@ -76,11 +81,12 @@ return function(ctx)
         end
         local st = JOBRUN and JOBRUN.last_status
         if st then
-            w32(LW.CONT.offlen, st.OffLen or 0)
+            -- 排/列行程由jobrun常驻写入全局a_offlen/a_voff(两页共用), 此处只刷速度;
+            -- 漏肥/漏株与测试诊断页共用TD区地址(画面绑同一组标签, cont_*已删)
             w32(LW.CONT.speed,  st.Speed or 0)
             for i = 1, CODEC.ROWS do
-                w32(LW.CONT.loufei1 + (i - 1) * 2, st.LoufeiCnt[i] or 0)
-                w32(LW.CONT.louzh1 + (i - 1) * 2, st.LouZHCnt[i] or 0)
+                w32(LW.TD.loufei1 + (i - 1) * 2, st.LoufeiCnt[i] or 0)
+                w32(LW.TD.louzh1 + (i - 1) * 2, st.LouZHCnt[i] or 0)
             end
         end
     end

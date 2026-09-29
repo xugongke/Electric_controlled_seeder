@@ -200,12 +200,11 @@ LW.CONT = {
     -- 2026-09-29农艺语义修正(用户): 行长×行距=1亩(666.67m²) -> 行长非人工
     -- 输入, 由用户参数HJ(行距,pu_hj)折算: 行长cm=6666700/行距cm; 株数数值
     -- =密度(ZhuShu=0固件按1亩面积GetZhuShu恰得密度); 株距=行长*10/(密度-1)
-    -- 四舍五入只读显示。仅密度人工输入(原hju/celllen输入已删)。
+    -- 四舍五入只读显示。仅密度人工输入(原hju/celllen输入已删; 漏肥/漏株计数与测试诊断页共用
+    --   td_loufei1-6/td_louzh1-6, 2026-09-29 cont_loufei*/cont_louzh*已删)。
     density = 0x1400,     -- i32 输入 密度(株/亩)
     zhuju   = 0x1404,     -- i32 只读 株距cm(计算显示)
     speed   = 0x1408,     -- i32 只读 速度mm/s(0x21)
-    loufei1 = 0x140A,     -- u32 x6 只读 漏肥计数(0x140A~0x1415)
-    louzh1  = 0x1416,     -- u32 x6 只读 漏株计数(0x1416~0x1421)
     start   = 0x1430,     -- 按钮 启动连续播种 -> 0x11
     stop    = 0x1431,     -- 按钮 停止连续播种 -> 0x12
 }
@@ -1115,7 +1114,7 @@ return function(ctx)
     local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
     local JOBRUN = ctx.JOBRUN
     local FNC = PROTOCOL.FNC
-    local r16, r32, w16, w32 = ctx.r16, ctx.r32, ctx.w16, ctx.w32
+    local r16, r32, w16, w32, wstr = ctx.r16, ctx.r32, ctx.w16, ctx.w32, ctx.wstr
 
     local function s32(v)
         v = v & 0xFFFFFFFF
@@ -1157,9 +1156,14 @@ return function(ctx)
             local density = s32(r32(LW.CONT.density))
             local hju     = s16(r16(LW.PU.hj) or 60)   -- 行距取用户参数HJ表单
             local celllen = row_len_cm(hju)
-            if density < 2 or hju < 1 then
-                w16(LW.CONT.start, 0)
-                return                          -- 密度>=2才有株距意义
+            if density < 2 then
+                wstr(LW.A.log, ("× 连续播种启动失败: 密度=%d无效(画面输入控件须绑定"
+                                .. "cont_density并启用输入, 设初值如4000)"):format(density))
+                return
+            end
+            if hju < 1 then
+                wstr(LW.A.log, "× 连续播种启动失败: 用户参数HJ行距无效(先在用户参数页设置)")
+                return
             end
             PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
                 Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
@@ -1179,11 +1183,12 @@ return function(ctx)
         end
         local st = JOBRUN and JOBRUN.last_status
         if st then
-            w32(LW.CONT.offlen, st.OffLen or 0)
+            -- 排/列行程由jobrun常驻写入全局a_offlen/a_voff(两页共用), 此处只刷速度;
+            -- 漏肥/漏株与测试诊断页共用TD区地址(画面绑同一组标签, cont_*已删)
             w32(LW.CONT.speed,  st.Speed or 0)
             for i = 1, CODEC.ROWS do
-                w32(LW.CONT.loufei1 + (i - 1) * 2, st.LoufeiCnt[i] or 0)
-                w32(LW.CONT.louzh1 + (i - 1) * 2, st.LouZHCnt[i] or 0)
+                w32(LW.TD.loufei1 + (i - 1) * 2, st.LoufeiCnt[i] or 0)
+                w32(LW.TD.louzh1 + (i - 1) * 2, st.LouZHCnt[i] or 0)
             end
         end
     end
