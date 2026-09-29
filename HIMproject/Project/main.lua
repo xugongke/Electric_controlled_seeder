@@ -169,10 +169,15 @@ LW.SCREEN = {
 --==================== 全局状态区(0x1002~0x102F) ====================
 -- 与 POC 阶段 main.lua 实测可用地址保持一致(勿动已验证地址)
 LW.A = {
+    offlen  = 0x1005, -- i32 排列行程cm(0x21, jobrun常驻写入; 连播页/任务页共用,
+                       --   2026-09-29自QT语义恢复: 两页显示同一数据源)
+    voff    = 0x1007, -- i32 列行程(垂直偏移)cm(0x21; 有AB线时按QT :345-356符号翻转)
     -- 0x1009~0x100F 原主页漏肥/漏株显示区已删除(2026-09-24: 主页纯导航,
     -- 计数显示统一走测试诊断页 td_loufei1-6/td_louzh1-6), 地址释放可复用
     tx_cnt   = 0x1014, -- u16 发帧计数(lua心跳, on_run活着就会动)
     rx_cnt   = 0x1015, -- u16 收帧计数
+    runstate = 0x1019, -- u16 运行状态RunState(0停止/1准备/0x81播种; 2026-09-29
+                       --   恢复: 连播页/任务页运行灯共用)
     link     = 0x1013, -- u16 链路状态 0=通信中断 1=在线(app.lua心跳判定,
                        --   掉线=连续3个1s探测周期无0x22应答; 画面绑指示灯控件)
     -- 注: LW>=0x1000 的存储器地址均可正常读写(早期"0x1016禁写"为误判, 2026-09-23更正)
@@ -198,7 +203,6 @@ LW.CONT = {
     -- 四舍五入只读显示。仅密度人工输入(原hju/celllen输入已删)。
     density = 0x1400,     -- i32 输入 密度(株/亩)
     zhuju   = 0x1404,     -- i32 只读 株距cm(计算显示)
-    offlen  = 0x1406,     -- i32 只读 排列行程cm(0x21)
     speed   = 0x1408,     -- i32 只读 速度mm/s(0x21)
     loufei1 = 0x140A,     -- u32 x6 只读 漏肥计数(0x140A~0x1415)
     louzh1  = 0x1416,     -- u32 x6 只读 漏株计数(0x1416~0x1421)
@@ -3201,6 +3205,25 @@ function jobrun._feed(f)
     if not ok then return end
     jobrun.last_status = st      -- 最近一帧0x21快照(连续播种页显示用)
 
+    -- 排/列行程(2026-09-29恢复): 连播页/任务页共用全局地址, jobrun常驻统一写入;
+    -- QT :345-356 有AB线时 VerticalOff 显示前符号翻转
+    --   (pathType 0/1/2且AB同向取反; 3/4/5且AB反向取反), 无AB线/无作业原值
+    if w16 then
+        w16(LW.A.runstate, st.RunState)
+        if w32 then
+            local voff = st.VerticalOff
+            if J and J.ab and J.ab.has and STORE and STORE.tasks[J.task] then
+                local pt = STORE.tasks[J.task].path_type
+                if pt <= 2 then
+                    if J.ab.dir then voff = -voff end
+                else
+                    if not J.ab.dir then voff = -voff end
+                end
+            end
+            w32(LW.A.offlen, st.OffLen)
+            w32(LW.A.voff, voff)
+        end
+    end
 
     if not J then return end
     if st.RowNum <= -10000000 then return end        -- 未开播哨兵(QT :399)

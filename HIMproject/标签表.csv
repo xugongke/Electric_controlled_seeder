@@ -1,10 +1,12 @@
 标签名称,变量地址,描述说明
+a_offlen,LW1005,i32 排列行程cm(0x21， jobrun常驻写入; 连播页/任务页共用，
+a_voff,LW1007,i32 列行程(垂直偏移)cm(0x21; 有AB线时按QT :345-356符号翻转)
+a_runstate,LW1019,u16 运行状态RunState(0停止/1准备/0x81播种; 2026-09-29
 a_link,LW1013,u16 链路状态 0=通信中断 1=在线(app.lua心跳判定，
 a_ver,LW1024,字符串 下位机版本号(0xA3， 占0x1024~0x102B 共8字;
 a_log,LW1060,字符串 调试串(0x22心跳全局刷新， GB2312直通;
 cont_density,LW1400,i32 输入 密度(株/亩)
 cont_zhuju,LW1404,i32 只读 株距cm(计算显示)
-cont_offlen,LW1406,i32 只读 排列行程cm(0x21)
 cont_speed,LW1408,i32 只读 速度mm/s(0x21)
 cont_loufei1,LW140A,u32 x6 只读 漏肥计数(0x140A~0x1415)
 cont_louzh1,LW1416,u32 x6 只读 漏株计数(0x1416~0x1421)

@@ -450,6 +450,25 @@ function jobrun._feed(f)
     if not ok then return end
     jobrun.last_status = st      -- 最近一帧0x21快照(连续播种页显示用)
 
+    -- 排/列行程(2026-09-29恢复): 连播页/任务页共用全局地址, jobrun常驻统一写入;
+    -- QT :345-356 有AB线时 VerticalOff 显示前符号翻转
+    --   (pathType 0/1/2且AB同向取反; 3/4/5且AB反向取反), 无AB线/无作业原值
+    if w16 then
+        w16(LW.A.runstate, st.RunState)
+        if w32 then
+            local voff = st.VerticalOff
+            if J and J.ab and J.ab.has and STORE and STORE.tasks[J.task] then
+                local pt = STORE.tasks[J.task].path_type
+                if pt <= 2 then
+                    if J.ab.dir then voff = -voff end
+                else
+                    if not J.ab.dir then voff = -voff end
+                end
+            end
+            w32(LW.A.offlen, st.OffLen)
+            w32(LW.A.voff, voff)
+        end
+    end
 
     if not J then return end
     if st.RowNum <= -10000000 then return end        -- 未开播哨兵(QT :399)
