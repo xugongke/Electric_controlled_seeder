@@ -12,7 +12,7 @@ return function(ctx)
     local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
     local JOBRUN = ctx.JOBRUN
     local FNC = PROTOCOL.FNC
-    local r32, w16, w32 = ctx.r32, ctx.w16, ctx.w32
+    local r16, r32, w16, w32 = ctx.r16, ctx.r32, ctx.w16, ctx.w32
 
     local function s32(v)
         v = v & 0xFFFFFFFF
@@ -23,6 +23,13 @@ return function(ctx)
         v = v & 0xFFFF
         if v >= 0x8000 then v = v - 0x10000 end
         return v
+    end
+
+    -- 行长折算(2026-09-29用户农艺语义): 行长×行距=1亩(666.67m²)
+    -- -> 行长cm = 6666700cm² / 行距cm
+    local function row_len_cm(hju)
+        if not hju or hju < 1 then hju = 60 end
+        return 6666700 // hju
     end
 
     local page = {
@@ -45,15 +52,15 @@ return function(ctx)
     function page:on_update(addr)
         if addr == LW.CONT.start then
             local density = s32(r32(LW.CONT.density))
-            local celllen = s32(r32(LW.CONT.celllen))
-            local hju     = s16(r32(LW.CONT.hju))
-            if density < 2 or celllen < 10 then
+            local hju     = s16(r16(LW.PU.hj) or 60)   -- 行距取用户参数HJ表单
+            local celllen = row_len_cm(hju)
+            if density < 2 or hju < 1 then
                 w16(LW.CONT.start, 0)
                 return                          -- 密度>=2才有株距意义
             end
             PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
                 Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
-            })
+            })  -- ZhuShu=0: 固件GetZhuShu按1亩面积(行长×行距)算出株数恰=密度
         elseif addr == LW.CONT.stop then
             PROTOCOL.send(FNC.CMD_STOP_LXBZ)    -- 空域
         end
@@ -62,9 +69,9 @@ return function(ctx)
     -- 运行显示: 株距计算 + jobrun.last_status 刷新行程/速度/计数
     page.on_tick = function()
         local density = s32(r32(LW.CONT.density))
-        local celllen = s32(r32(LW.CONT.celllen))
+        local celllen = row_len_cm(s16(r16(LW.PU.hj) or 60))
         if density > 1 and celllen > 0 then
-            -- QT formcontinuoussow.cpp:116 株距四舍五入
+            -- QT formcontinuoussow.cpp:116 株距四舍五入(行长由1亩面积折算)
             w32(LW.CONT.zhuju, (celllen * 10 // (density - 1) + 5) // 10)
         end
         local st = JOBRUN and JOBRUN.last_status
