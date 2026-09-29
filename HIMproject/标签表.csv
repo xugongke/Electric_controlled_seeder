@@ -21,22 +21,22 @@ ab_startstate,LW1520,u16 StartState
 ab_calcdirflag,LW1521,u16 CalcDirFlag
 ab_offlen,LW1522,u16 OffLen 偏移量
 ab_bdofftime,LW1523,u16 BDOffTime
-pf_a,LW1600,i16 A
-pf_b,LW1601,i16 B
-pf_encodenum,LW1602,u16 EncodeNum 编码器脉冲
-pf_encoderdir,LW1603,u8 开关 EncoderDir
-pf_holenum,LW1604,u8 HoleNum 排种盘孔数
-pf_gearratio,LW1605,u16 GearRatio 传动比
-pf_microstep,LW1606,i16 MicroStepValue 细分
-pf_x1,LW1607,i16 X1
-pf_bdiroff,LW1608,i16 BDiroff 北斗偏移
-pf_tapptrigoff,LW1609,i16 TappTrigOff
-pf_tappertime,LW160A,u16 TapperTime
-pf_zeroposen,LW160B,u8 开关 ZeroPosEn
-pf_gzen,LW160C,u8 开关 GZEn
-pf_prepercent,LW160D,u8 PrePercent 预压比
-pf_read,LW1640,按钮 读厂家参数 -> 0x26
-pf_write,LW1641,按钮 写厂家参数 -> 0x25 (读表单+范围校验)
+pf_a,LW1600,i16 A 下种口距离(LW/协议均cm， 控件2位小数显m)
+pf_b,LW1601,i16 B 种子落地距离(cm， 控件2位小数显m)
+pf_encodenum,LW1602,u16 EncodeNum 编码器变送比(QT叫TransmissionRatio)
+pf_encoderdir,LW1603,u16 EncoderDir 编码器方向 0=正 1=反(QT下拉框)
+pf_holenum,LW1604,u8 HoleNum 播种盘孔数
+pf_gearratio,LW1605,u16 GearRatio 电机减速比
+pf_microstep,LW1606,i16 MicroStepValue 步进电机细分值
+pf_x1,LW1607,i16 X1 天线距离(cm， 2位小数显m; 与PU.antennadist两个字段)
+pf_bdiroff,LW1608,i16 BDiroff 反向距离修订(cm， 2位小数显m)
+pf_tapptrigoff,LW1609,i16 TappTrigOff 打点器到行程开关距离(cm， 2位小数显m)
+pf_tappertime,LW160A,u16 TapperTime 打点时间(LW存0.01s单位， 控件2位小数显s，
+pf_zeroposen,LW160B,u8 开关 ZeroPosEn 零位开关(QT复选框)
+pf_gzen,LW160C,u8 开关 GZEn 刮种(QT复选框ScrapeSeed， global.cpp:72)
+pf_prepercent,LW160D,u8 PrePercent 预充种百分比%
+pf_write,LW1641,按钮 保存 -> 0x25(读表单+范围校验; 0x1640原读按钮已删，
+pf_reset,LW1644,按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:204~221，
 pf_pass,LW1650,u32 密码输入(数值输入， 占2字; Qt端密码同源)
 pu_dztime,LW1620,u16 DZTime 点滞时间
 pu_hj,LW1621,i16 HJ

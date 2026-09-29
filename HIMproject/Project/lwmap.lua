@@ -121,23 +121,26 @@ LW.AB = {
 
 --==================== 页面4 参数页(0x1600~, TerParaType 40B + UserParaType 16B) ====================
 -- 范围/默认值列由 params 任务从 hd3005a1/Src/para.c ParaLegalCheck 核对后固化
-LW.PF = {                  -- 厂家参数(只读展示+授权后可写)
-    a           = 0x1600,  -- i16 A
-    b           = 0x1601,  -- i16 B
-    encodenum   = 0x1602,  -- u16 EncodeNum 编码器脉冲
-    encoderdir  = 0x1603,  -- u8 开关 EncoderDir
-    holenum     = 0x1604,  -- u8 HoleNum 排种盘孔数
-    gearratio   = 0x1605,  -- u16 GearRatio 传动比
-    microstep   = 0x1606,  -- i16 MicroStepValue 细分
-    x1          = 0x1607,  -- i16 X1
-    bdiroff     = 0x1608,  -- i16 BDiroff 北斗偏移
-    tapptrigoff = 0x1609,  -- i16 TappTrigOff
-    tappertime  = 0x160A,  -- u16 TapperTime
-    zeroposen   = 0x160B,  -- u8 开关 ZeroPosEn
-    gzen        = 0x160C,  -- u8 开关 GZEn
-    prepercent  = 0x160D,  -- u8 PrePercent 预压比
-    read        = 0x1640,  -- 按钮 读厂家参数 -> 0x26
-    write       = 0x1641,  -- 按钮 写厂家参数 -> 0x25 (读表单+范围校验)
+LW.PF = {                  -- 厂家参数(2026-09-16对齐QT formconfig.cpp:77~91厂家参数组)
+    a           = 0x1600,  -- i16 A 下种口距离(LW/协议均cm, 控件2位小数显m)
+    b           = 0x1601,  -- i16 B 种子落地距离(cm, 控件2位小数显m)
+    encodenum   = 0x1602,  -- u16 EncodeNum 编码器变送比(QT叫TransmissionRatio)
+    encoderdir  = 0x1603,  -- u16 EncoderDir 编码器方向 0=正 1=反(QT下拉框)
+    holenum     = 0x1604,  -- u8 HoleNum 播种盘孔数
+    gearratio   = 0x1605,  -- u16 GearRatio 电机减速比
+    microstep   = 0x1606,  -- i16 MicroStepValue 步进电机细分值
+    x1          = 0x1607,  -- i16 X1 天线距离(cm, 2位小数显m; 与PU.antennadist两个字段)
+    bdiroff     = 0x1608,  -- i16 BDiroff 反向距离修订(cm, 2位小数显m)
+    tapptrigoff = 0x1609,  -- i16 TappTrigOff 打点器到行程开关距离(cm, 2位小数显m)
+    tappertime  = 0x160A,  -- u16 TapperTime 打点时间(LW存0.01s单位, 控件2位小数显s,
+                           --   pack*10->ms / show四舍五入//10; 协议与QT存储均ms)
+    zeroposen   = 0x160B,  -- u8 开关 ZeroPosEn 零位开关(QT复选框)
+    gzen        = 0x160C,  -- u8 开关 GZEn 刮种(QT复选框ScrapeSeed, global.cpp:72)
+    prepercent  = 0x160D,  -- u8 PrePercent 预充种百分比%
+    write       = 0x1641,  -- 按钮 保存 -> 0x25(读表单+范围校验; 0x1640原读按钮已删,
+                           --   QT无读按钮, 进页自动0x26快照)
+    reset       = 0x1644,  -- 按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:204~221,
+                           --   不下发, 需再点保存; 0x1642/43是PU读写)
     pass        = 0x1650,  -- u32 密码输入(数值输入, 占2字; Qt端密码同源)
                            -- 【勿放0x1651】pass占0x1650~51, 0x1651是其高字, 写密码会误触发
 }

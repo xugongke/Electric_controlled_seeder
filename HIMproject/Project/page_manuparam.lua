@@ -1,22 +1,33 @@
 --[[
-page_manuparam.lua -- 厂家参数页(画面4, 2026-09-28自原参数页拆分)
+page_manuparam.lua -- 厂家参数页(画面4, 2026-09-28自原参数页拆分;
+2026-09-16对齐QT formconfig.cpp厂家参数组布局/控件/默认值)
 ================================================================================
 进入条件: 用户参数页密码弹窗校验通过(LW.PWD.ok=1), 未解锁进入则踢回画面3。
-厂家参数(TerParaType 40B): 0x26 进页读快照(jobrun的0x26全局路由转发到本页,
-并按行数字段动态切换codec变体), 0x25 写入+范围校验。
+厂家参数(TerParaType 40B): 进页自动0x26读快照(QT无读按钮, 对齐), 0x25 保存。
 写时保留固件侧行数字段: Resv1(=U8Resv2 4/6)取自最近0x26快照, 无快照兜底6
 (2026-09-23曾硬编码0下发把行数冲掉, 用户实测暴露)。
+[重置]仅把表单恢复QT默认值(formconfig.cpp:204~221, 不下发, 需再点保存)。
 范围表(hd3005a1/Src/para.c ParaLegalCheck, 2026-09核对):
   GearRatio<2回落10 | HoleNum==0回落9 | EncodeNum==0回落700
   MicroStepValue>6400回落800 | TapperTime>1000回落60 | PrePercent按[0,100]
+LW单位约定: 距离存cm(控件2位小数显m); TapperTime存0.01s(控件2位小数显s),
+pack时*10->ms, show时四舍五入//10(QT formconfig.cpp:88 以s显示/155以ms存储)。
 --]]
 
 return function(ctx)
     local APP, PROTOCOL, CODEC, LW = ctx.APP, ctx.PROTOCOL, ctx.CODEC, ctx.LW
     local FNC = PROTOCOL.FNC
-    local w16, w32, wstr, r16 = ctx.w16, ctx.w32, ctx.wstr, ctx.r16
+    local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
 
     local last_ter = nil       -- 最近一次0x26快照(写回保留固件侧字段: 行数Resv1)
+
+    -- QT重置默认值(formconfig.cpp:204~221; tappertime为LW单位0.01s)
+    local DEFAULTS = {
+        a = 60, b = 90, encodenum = 2000, encoderdir = 0,
+        holenum = 9, gearratio = 5, microstep = 800,
+        x1 = 150, bdiroff = 0, tapptrigoff = 20, tappertime = 10,
+        zeroposen = 1, gzen = 1, prepercent = 70,
+    }
 
     local RANGE_T = {
         { "GearRatio",      2,     65535, "传动比" },
@@ -54,7 +65,8 @@ return function(ctx)
             HoleNum = r16(P.holenum), GearRatio = r16(P.gearratio),
             MicroStepValue = s16(r16(P.microstep)),
             X1 = s16(r16(P.x1)), BDiroff = s16(r16(P.bdiroff)),
-            TappTrigOff = s16(r16(P.tapptrigoff)), TapperTime = r16(P.tappertime),
+            TappTrigOff = s16(r16(P.tapptrigoff)),
+            TapperTime = r16(P.tappertime) * 10,       -- 0.01s单位 -> ms
             ZeroPosEn = r16(P.zeroposen), GZEn = r16(P.gzen),
             PrePercent = r16(P.prepercent),
             Resv1 = rows, Resv0 = 0, Resv1_ = 0, Resv2 = 0, CrcCheck = 0,
@@ -70,14 +82,15 @@ return function(ctx)
         w16(P.microstep, p.MicroStepValue & 0xFFFF)
         w16(P.x1, p.X1 & 0xFFFF);        w16(P.bdiroff, p.BDiroff & 0xFFFF)
         w16(P.tapptrigoff, p.TappTrigOff & 0xFFFF)
-        w16(P.tappertime, p.TapperTime); w16(P.zeroposen, p.ZeroPosEn)
+        w16(P.tappertime, (p.TapperTime + 5) // 10)    -- ms -> 0.01s单位
+        w16(P.zeroposen, p.ZeroPosEn)
         w16(P.gzen, p.GZEn);             w16(P.prepercent, p.PrePercent)
     end
 
     local page = {
         id = LW.SCREEN.MANUPARAM,
         poll_cmds = {},
-        addrs = { LW.PF.read, LW.PF.write },
+        addrs = { LW.PF.write, LW.PF.reset },
     }
 
     function page:on_enter()
@@ -85,7 +98,7 @@ return function(ctx)
             APP.goto_screen(LW.SCREEN.USERPARAM)  -- 物理踢回画面3          -- 未解锁踢回
             return
         end
-        PROTOCOL.send(FNC.GET_TER_PARA)
+        PROTOCOL.send(FNC.GET_TER_PARA)           -- 进页自动读(2026-09-16对齐QT)
     end
 
     function page:on_leave() end
@@ -99,13 +112,16 @@ return function(ctx)
     end
 
     function page:on_update(addr)
-        if addr == LW.PF.read then
-            PROTOCOL.send(FNC.GET_TER_PARA)
-        elseif addr == LW.PF.write then
+        if addr == LW.PF.write then
             local t = read_ter_form()
             local bad, msg = check(t, RANGE_T)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_TER_PARA, CODEC.terpara.pack(t))
+        elseif addr == LW.PF.reset then
+            -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存)
+            local P = LW.PF
+            for k, v in pairs(DEFAULTS) do w16(P[k], v) end
+            wstr(LW.A.log, "√ 已恢复默认值, 保存后生效")
         end
     end
 
