@@ -1039,11 +1039,25 @@ function APP.diag(v)
 end
 
 --------------------------------------------------------------------
--- 页面切换(on_screen_change 调用): 记录当前页 + 触发 on_enter
+-- 页面切换(两个入口, 2026-09-29拆分):
+--   APP.set_screen(sid)  内部状态更新(系统on_screen_change回调专用):
+--                          记录当前页+触发on_enter, 不切物理画面
+--   APP.goto_screen(sid) 主动切画面(密码确认等代码发起): 调用大彩系统API
+--                          set_screen切物理画面 -> 系统回调on_screen_change
+--                          -> 自然走set_screen完成状态同步, 不会双触发
 --------------------------------------------------------------------
 function APP.set_screen(sid)
     APP.cur = APP.pages[sid]
     if APP.cur and APP.cur.on_enter then APP.cur:on_enter() end
+end
+
+function APP.goto_screen(sid)
+    if type(set_screen) == "function" then
+        set_screen(sid)          -- 大彩系统API: 物理切画面, 回调走on_screen_change
+    else
+        print("[HMI] set_screen API unavailable, fallback internal")
+        APP.set_screen(sid)      -- PC测试环境兜底(无系统API)
+    end
 end
 
 --------------------------------------------------------------------
@@ -4129,7 +4143,7 @@ return function(ctx)
             if pw == PASSWORD then
                 w16(LW.PWD.ok, 1)
                 wstr(LW.A.log, "√ 密码正确")
-                APP.set_screen(LW.SCREEN.MANUPARAM)
+                APP.goto_screen(LW.SCREEN.MANUPARAM)   -- 物理切画面4
             else
                 w16(LW.PWD.ok, 0)
                 wstr(LW.A.log, "× 密码错误")
@@ -4228,7 +4242,7 @@ return function(ctx)
 
     function page:on_enter()
         if (r16(LW.PWD.ok) or 0) ~= 1 then
-            APP.set_screen(LW.SCREEN.USERPARAM)          -- 未解锁踢回
+            APP.goto_screen(LW.SCREEN.USERPARAM)  -- 物理踢回画面3          -- 未解锁踢回
             return
         end
         PROTOCOL.send(FNC.GET_TER_PARA)

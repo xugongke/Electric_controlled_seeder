@@ -82,7 +82,7 @@ return function(ctx)
 
     function page:on_enter()
         if (r16(LW.PWD.ok) or 0) ~= 1 then
-            APP.set_screen(LW.SCREEN.USERPARAM)          -- 未解锁踢回
+            APP.goto_screen(LW.SCREEN.USERPARAM)  -- 物理踢回画面3          -- 未解锁踢回
             return
         end
         PROTOCOL.send(FNC.GET_TER_PARA)

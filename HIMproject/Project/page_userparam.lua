@@ -92,7 +92,7 @@ return function(ctx)
             if pw == PASSWORD then
                 w16(LW.PWD.ok, 1)
                 wstr(LW.A.log, "√ 密码正确")
-                APP.set_screen(LW.SCREEN.MANUPARAM)
+                APP.goto_screen(LW.SCREEN.MANUPARAM)   -- 物理切画面4
             else
                 w16(LW.PWD.ok, 0)
                 wstr(LW.A.log, "× 密码错误")
