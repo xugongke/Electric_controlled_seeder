@@ -264,9 +264,6 @@ LW.PU = {                  -- 用户参数
     rmp          = 0x1622, -- u32 RMP (占2字)
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
-    gappoint     = 0x1626, -- u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点,
-                           --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
-                           --   2026-09-30自QT GapPoint搬入, 任务启动发0x31; 存RW)
     read         = 0x1642, -- 按钮 读用户参数 -> 0x28
     write        = 0x1643, -- 按钮 写用户参数 -> 0x27
 }
@@ -345,6 +342,11 @@ LW.TW = {
     ab_clear   = 0x188A, -- 按钮 AB线清除: 解除地图绑定
     btn_start  = 0x188C, -- 按钮 开始作业(任务就绪后启动; 作业中=续趟裸发0x0A)
     btn_stop   = 0x188D, -- 按钮 停止作业(收尾断点+无AB线时弹保存对话框)
+    -- 打点设置(2026-09-30自QT实时任务页搬入: 过道打点三态0x31任务启动自动发,
+    -- 清种打点0x29手动设置; 均存RW掉电, 原用户参数页gappoint已迁此)
+    gappoint   = 0x188E, -- u16 三态 0=关 1=开 2=间隔(隔趟打点,QT:255同式)
+    qzdd       = 0x188F, -- u16 清种打点开关 0=关 1=开
+    qzdd_set   = 0x1890, -- 按钮 [设置打点]: 按qzdd发0x29 + 两开关持久化RW
 }
 
 --==================== 页面9 地图导入(0x1C00~, 2026-09-24新增) ====================
@@ -413,7 +415,8 @@ LW.LOGV = {
 LW.RW = {
     ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
     ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
-    gap_point = 0x001E, -- u16 过道打点开关 0x55AA=开(与ab_data不重叠, 0x001E~0x001F)
+    gap_point = 0x001E, -- u16 过道打点 0/1/2(三态原值)
+    qzdd      = 0x001F, -- u16 清种打点 0/1
 }
 
 return LW
@@ -3489,6 +3492,17 @@ return function(ctx)
         return W.map
     end
 
+    -- 打点设置: 进页从RW恢复两开关到LW(RW存gap:0/1/2, qzdd:0/1)
+    local function dot_rw_load()
+        if ctx.rw16 and LW.RW then
+            local gp = ctx.rw16(LW.RW.gap_point)
+            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+            w16(LW.TW.gappoint, gp)
+            local qz = ctx.rw16(LW.RW.qzdd)
+            w16(LW.TW.qzdd, (qz == 1) and 1 or 0)
+        end
+    end
+
     local function on_ab_btn(addr)
         if addr ~= LW.TW.ab_import and addr ~= LW.TW.ab_clear then return end
         local map_name = ab_target_map()
@@ -3514,6 +3528,23 @@ return function(ctx)
     local function on_btn(addr, val)
         if val ~= 1 then return end
         local ts = r16(LW.TW.tstate) or 1
+
+        if addr == LW.TW.qzdd_set then
+            -- [设置打点](QT:499-501: 清种打点checkbox+设置按钮立即下发0x29;
+            -- 同时把过道打点/清种打点两开关持久化RW, 过道打点0x31由任务启动自动发)
+            local qz = (r16(LW.TW.qzdd) or 0) == 1
+            if ctx.PROTOCOL then
+                ctx.PROTOCOL.send(ctx.PROTOCOL.FNC.QZDD_ENABLE, string.char(qz and 1 or 0))
+            end
+            if ctx.rw16w and LW.RW then
+                local gp = r16(LW.TW.gappoint) or 0
+                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+                ctx.rw16w(LW.RW.gap_point, gp)
+                ctx.rw16w(LW.RW.qzdd, qz and 1 or 0)
+            end
+            wstr(LW.TW.detail, "打点已设置并保存")
+            return
+        end
 
         if addr == LW.TW.btn_sel then
             -- 配置态: 循环选择地图(2026-09-24按画面清单移除上/下移按钮,
@@ -3610,6 +3641,7 @@ return function(ctx)
         id = LW.SCREEN.TASK,
         poll_cmds = {},
         addrs = {
+            LW.TW.qzdd_set,
             LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
@@ -4141,19 +4173,8 @@ return function(ctx)
         addrs = { LW.PU.read, LW.PU.write, LW.PWD.confirm, LW.PWD.cancel },
     }
 
-    local function gappoint_rw_load()
-        -- RW掉电保持三态: 0=关 1=开 2=间隔(非法值按关处理)
-        local v = 0
-        if ctx.rw16 and LW.RW then
-            v = ctx.rw16(LW.RW.gap_point)
-            if v ~= 0 and v ~= 1 and v ~= 2 then v = 0 end
-        end
-        w16(LW.PU.gappoint, v)
-    end
-
     function page:on_enter()                     -- 进页读用户参数快照
         PROTOCOL.send(FNC.GET_USER_PARA)
-        gappoint_rw_load()
     end
 
     function page:on_leave() end
@@ -4161,7 +4182,7 @@ return function(ctx)
     function page:on_frame(f)
         if f.fnc == FNC.GET_USER_PARA then
             local ok2, u = pcall(CODEC.userpara.unpack, f.data)
-            if ok2 then show_user(u); gappoint_rw_load()
+            if ok2 then show_user(u)
             else wstr(LW.A.log, "userpara unpack err: len=" .. #f.data) end
         end
     end
@@ -4170,12 +4191,6 @@ return function(ctx)
         if addr == LW.PU.read then
             PROTOCOL.send(FNC.GET_USER_PARA)
         elseif addr == LW.PU.write then
-            -- 过道打点开关持久化到RW(不进0x27协议, 上位机自身行为)
-            if ctx.rw16w and LW.RW then
-                local gp = r16(LW.PU.gappoint) or 0
-                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-                ctx.rw16w(LW.RW.gap_point, gp)   -- 三态原值存RW(0/1/2)
-            end
             local t = read_user_form()
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end

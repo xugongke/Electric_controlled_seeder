@@ -103,6 +103,17 @@ return function(ctx)
         return W.map
     end
 
+    -- 打点设置: 进页从RW恢复两开关到LW(RW存gap:0/1/2, qzdd:0/1)
+    local function dot_rw_load()
+        if ctx.rw16 and LW.RW then
+            local gp = ctx.rw16(LW.RW.gap_point)
+            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+            w16(LW.TW.gappoint, gp)
+            local qz = ctx.rw16(LW.RW.qzdd)
+            w16(LW.TW.qzdd, (qz == 1) and 1 or 0)
+        end
+    end
+
     local function on_ab_btn(addr)
         if addr ~= LW.TW.ab_import and addr ~= LW.TW.ab_clear then return end
         local map_name = ab_target_map()
@@ -128,6 +139,23 @@ return function(ctx)
     local function on_btn(addr, val)
         if val ~= 1 then return end
         local ts = r16(LW.TW.tstate) or 1
+
+        if addr == LW.TW.qzdd_set then
+            -- [设置打点](QT:499-501: 清种打点checkbox+设置按钮立即下发0x29;
+            -- 同时把过道打点/清种打点两开关持久化RW, 过道打点0x31由任务启动自动发)
+            local qz = (r16(LW.TW.qzdd) or 0) == 1
+            if ctx.PROTOCOL then
+                ctx.PROTOCOL.send(ctx.PROTOCOL.FNC.QZDD_ENABLE, string.char(qz and 1 or 0))
+            end
+            if ctx.rw16w and LW.RW then
+                local gp = r16(LW.TW.gappoint) or 0
+                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+                ctx.rw16w(LW.RW.gap_point, gp)
+                ctx.rw16w(LW.RW.qzdd, qz and 1 or 0)
+            end
+            wstr(LW.TW.detail, "打点已设置并保存")
+            return
+        end
 
         if addr == LW.TW.btn_sel then
             -- 配置态: 循环选择地图(2026-09-24按画面清单移除上/下移按钮,
@@ -224,6 +252,7 @@ return function(ctx)
         id = LW.SCREEN.TASK,
         poll_cmds = {},
         addrs = {
+            LW.TW.qzdd_set,
             LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
