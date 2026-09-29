@@ -69,6 +69,8 @@ LW.A = {
     txfn     = 0x1018, -- u16 发送函数探测 1=uart_send 2=uart_send_data 0=都没有
     ver      = 0x1024, -- 字符串 下位机版本号(0xA3, 占0x1024~0x102B 共8字;
                        --   原0x1020已废, 画面0版本文本控件绑定须改0x1024)
+    appver   = 0x102C, -- 字符串 屏端程序版本"0.5.0(2026.9.30)"(占0x102C~0x1033共8字;
+                       --   对齐QT formconfig.cpp:31-33 版本+日期, main启动时写一次)
     log      = 0x1060, -- 字符串 调试串(0x22心跳全局刷新, GB2312直通;
                        --   占0x1060~0x109F 共64字, 文本控件字数配64)
 }
@@ -141,6 +143,8 @@ LW.PU = {                  -- 用户参数
     rmp          = 0x1622, -- u32 RMP (占2字)
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
+    gappoint     = 0x1626, -- u16 过道打点开关 0=关 1=开(2026-09-30自QT GapPoint
+                           --   搬入, 任务启动时按奇偶趟发0x29/0x31使能; 存RW掉电)
     read         = 0x1642, -- 按钮 读用户参数 -> 0x28
     write        = 0x1643, -- 按钮 写用户参数 -> 0x27
 }
@@ -287,6 +291,7 @@ LW.LOGV = {
 LW.RW = {
     ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
     ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
+    gap_point = 0x001E, -- u16 过道打点开关 0x55AA=开(与ab_data不重叠, 0x001E~0x001F)
 }
 
 return LW

@@ -186,6 +186,8 @@ LW.A = {
     txfn     = 0x1018, -- u16 发送函数探测 1=uart_send 2=uart_send_data 0=都没有
     ver      = 0x1024, -- 字符串 下位机版本号(0xA3, 占0x1024~0x102B 共8字;
                        --   原0x1020已废, 画面0版本文本控件绑定须改0x1024)
+    appver   = 0x102C, -- 字符串 屏端程序版本"0.5.0(2026.9.30)"(占0x102C~0x1033共8字;
+                       --   对齐QT formconfig.cpp:31-33 版本+日期, main启动时写一次)
     log      = 0x1060, -- 字符串 调试串(0x22心跳全局刷新, GB2312直通;
                        --   占0x1060~0x109F 共64字, 文本控件字数配64)
 }
@@ -258,6 +260,8 @@ LW.PU = {                  -- 用户参数
     rmp          = 0x1622, -- u32 RMP (占2字)
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
+    gappoint     = 0x1626, -- u16 过道打点开关 0=关 1=开(2026-09-30自QT GapPoint
+                           --   搬入, 任务启动时按奇偶趟发0x29/0x31使能; 存RW掉电)
     read         = 0x1642, -- 按钮 读用户参数 -> 0x28
     write        = 0x1643, -- 按钮 写用户参数 -> 0x27
 }
@@ -404,6 +408,7 @@ LW.LOGV = {
 LW.RW = {
     ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
     ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
+    gap_point = 0x001E, -- u16 过道打点开关 0x55AA=开(与ab_data不重叠, 0x001E~0x001F)
 }
 
 return LW
@@ -3111,6 +3116,13 @@ function jobrun.start(task_name, opts)
     end
     -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
     -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
+    -- 过道打点使能(2026-09-30自QT GapPoint搬入, QT:251-259 在0x0A前下发0x31;
+    -- 屏端仅开/关两态, "开"=恒使能, 存RW经用户参数页配置)
+    if rw16 and LW.RW and rw16(LW.RW.gap_point) == 0x55AA then
+        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(1))
+    else
+        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(0))
+    end
     PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
     J.sow_state = true
     return true
@@ -4115,8 +4127,18 @@ return function(ctx)
         addrs = { LW.PU.read, LW.PU.write, LW.PWD.confirm, LW.PWD.cancel },
     }
 
+    local function gappoint_rw_load()
+        -- RW掉电保持: 0x55AA=开(与AB线magic同款安全侧约定)
+        if ctx.rw16 and LW.RW and ctx.rw16(LW.RW.gap_point) == 0x55AA then
+            w16(LW.PU.gappoint, 1)
+        else
+            w16(LW.PU.gappoint, 0)
+        end
+    end
+
     function page:on_enter()                     -- 进页读用户参数快照
         PROTOCOL.send(FNC.GET_USER_PARA)
+        gappoint_rw_load()
     end
 
     function page:on_leave() end
@@ -4124,7 +4146,7 @@ return function(ctx)
     function page:on_frame(f)
         if f.fnc == FNC.GET_USER_PARA then
             local ok2, u = pcall(CODEC.userpara.unpack, f.data)
-            if ok2 then show_user(u)
+            if ok2 then show_user(u); gappoint_rw_load()
             else wstr(LW.A.log, "userpara unpack err: len=" .. #f.data) end
         end
     end
@@ -4133,6 +4155,11 @@ return function(ctx)
         if addr == LW.PU.read then
             PROTOCOL.send(FNC.GET_USER_PARA)
         elseif addr == LW.PU.write then
+            -- 过道打点开关持久化到RW(不进0x27协议, 上位机自身行为)
+            if ctx.rw16w and LW.RW then
+                ctx.rw16w(LW.RW.gap_point,
+                          (r16(LW.PU.gappoint) or 0) == 1 and 0x55AA or 0)
+            end
             local t = read_user_form()
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end

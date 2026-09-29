@@ -4,6 +4,7 @@ a_voff,LW1007,i32 列行程(垂直偏移)cm(0x21; 有AB线时按QT :345-356符号翻转)
 a_runstate,LW1019,u16 运行状态RunState(0停止/1准备/0x81播种; 2026-09-29
 a_link,LW1013,u16 链路状态 0=通信中断 1=在线(app.lua心跳判定，
 a_ver,LW1024,字符串 下位机版本号(0xA3， 占0x1024~0x102B 共8字;
+a_appver,LW102C,字符串 屏端程序版本"0.5.0(2026.9.30)"(占0x102C~0x1033共8字;
 a_log,LW1060,字符串 调试串(0x22心跳全局刷新， GB2312直通;
 cont_density,LW1400,i32 输入 密度(株/亩)
 cont_zhuju,LW1404,i32 只读 株距cm(计算显示)
@@ -42,6 +43,7 @@ pu_hj,LW1621,i16 HJ
 pu_rmp,LW1622,u32 RMP (占2字)
 pu_antennatype,LW1624,u8 AntennaType 天线类型
 pu_antennadist,LW1625,i16 AntennaDistance 天线距离
+pu_gappoint,LW1626,u16 过道打点开关 0=关 1=开(2026-09-30自QT GapPoint
 pu_read,LW1642,按钮 读用户参数 -> 0x28
 pu_write,LW1643,按钮 写用户参数 -> 0x27
 td_encodercnt,LW1700,u32 编码器计数(占2字)

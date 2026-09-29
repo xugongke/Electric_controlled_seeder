@@ -320,6 +320,13 @@ function jobrun.start(task_name, opts)
     end
     -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
     -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
+    -- 过道打点使能(2026-09-30自QT GapPoint搬入, QT:251-259 在0x0A前下发0x31;
+    -- 屏端仅开/关两态, "开"=恒使能, 存RW经用户参数页配置)
+    if rw16 and LW.RW and rw16(LW.RW.gap_point) == 0x55AA then
+        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(1))
+    else
+        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(0))
+    end
     PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
     J.sow_state = true
     return true
