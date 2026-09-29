@@ -320,13 +320,22 @@ function jobrun.start(task_name, opts)
     end
     -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
     -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
-    -- 过道打点使能(2026-09-30自QT GapPoint搬入, QT:251-259 在0x0A前下发0x31;
-    -- 屏端仅开/关两态, "开"=恒使能, 存RW经用户参数页配置)
-    if rw16 and LW.RW and rw16(LW.RW.gap_point) == 0x55AA then
-        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(1))
-    else
-        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(0))
+    -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
+    --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
+    --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
+    local gp = 0
+    if rw16 and LW.RW then
+        gp = rw16(LW.RW.gap_point)
+        if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
     end
+    local gp_on = 0
+    if gp == 1 then
+        gp_on = 1
+    elseif gp == 2 then
+        local bet = m and PATHALGO.block_each_trip(m) or 1
+        if (path[start_idx].column // bet) % 2 == 0 then gp_on = 1 end
+    end
+    PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
     PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
     J.sow_state = true
     return true

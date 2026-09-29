@@ -260,8 +260,9 @@ LW.PU = {                  -- 用户参数
     rmp          = 0x1622, -- u32 RMP (占2字)
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
-    gappoint     = 0x1626, -- u16 过道打点开关 0=关 1=开(2026-09-30自QT GapPoint
-                           --   搬入, 任务启动时按奇偶趟发0x29/0x31使能; 存RW掉电)
+    gappoint     = 0x1626, -- u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点,
+                           --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
+                           --   2026-09-30自QT GapPoint搬入, 任务启动发0x31; 存RW)
     read         = 0x1642, -- 按钮 读用户参数 -> 0x28
     write        = 0x1643, -- 按钮 写用户参数 -> 0x27
 }
@@ -3116,13 +3117,22 @@ function jobrun.start(task_name, opts)
     end
     -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
     -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
-    -- 过道打点使能(2026-09-30自QT GapPoint搬入, QT:251-259 在0x0A前下发0x31;
-    -- 屏端仅开/关两态, "开"=恒使能, 存RW经用户参数页配置)
-    if rw16 and LW.RW and rw16(LW.RW.gap_point) == 0x55AA then
-        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(1))
-    else
-        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(0))
+    -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
+    --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
+    --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
+    local gp = 0
+    if rw16 and LW.RW then
+        gp = rw16(LW.RW.gap_point)
+        if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
     end
+    local gp_on = 0
+    if gp == 1 then
+        gp_on = 1
+    elseif gp == 2 then
+        local bet = m and PATHALGO.block_each_trip(m) or 1
+        if (path[start_idx].column // bet) % 2 == 0 then gp_on = 1 end
+    end
+    PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
     PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
     J.sow_state = true
     return true
@@ -4128,12 +4138,13 @@ return function(ctx)
     }
 
     local function gappoint_rw_load()
-        -- RW掉电保持: 0x55AA=开(与AB线magic同款安全侧约定)
-        if ctx.rw16 and LW.RW and ctx.rw16(LW.RW.gap_point) == 0x55AA then
-            w16(LW.PU.gappoint, 1)
-        else
-            w16(LW.PU.gappoint, 0)
+        -- RW掉电保持三态: 0=关 1=开 2=间隔(非法值按关处理)
+        local v = 0
+        if ctx.rw16 and LW.RW then
+            v = ctx.rw16(LW.RW.gap_point)
+            if v ~= 0 and v ~= 1 and v ~= 2 then v = 0 end
         end
+        w16(LW.PU.gappoint, v)
     end
 
     function page:on_enter()                     -- 进页读用户参数快照
@@ -4157,8 +4168,9 @@ return function(ctx)
         elseif addr == LW.PU.write then
             -- 过道打点开关持久化到RW(不进0x27协议, 上位机自身行为)
             if ctx.rw16w and LW.RW then
-                ctx.rw16w(LW.RW.gap_point,
-                          (r16(LW.PU.gappoint) or 0) == 1 and 0x55AA or 0)
+                local gp = r16(LW.PU.gappoint) or 0
+                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+                ctx.rw16w(LW.RW.gap_point, gp)   -- 三态原值存RW(0/1/2)
             end
             local t = read_user_form()
             local bad, msg = check(t, RANGE_U)

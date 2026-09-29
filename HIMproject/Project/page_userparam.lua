@@ -65,12 +65,13 @@ return function(ctx)
     }
 
     local function gappoint_rw_load()
-        -- RW掉电保持: 0x55AA=开(与AB线magic同款安全侧约定)
-        if ctx.rw16 and LW.RW and ctx.rw16(LW.RW.gap_point) == 0x55AA then
-            w16(LW.PU.gappoint, 1)
-        else
-            w16(LW.PU.gappoint, 0)
+        -- RW掉电保持三态: 0=关 1=开 2=间隔(非法值按关处理)
+        local v = 0
+        if ctx.rw16 and LW.RW then
+            v = ctx.rw16(LW.RW.gap_point)
+            if v ~= 0 and v ~= 1 and v ~= 2 then v = 0 end
         end
+        w16(LW.PU.gappoint, v)
     end
 
     function page:on_enter()                     -- 进页读用户参数快照
@@ -94,8 +95,9 @@ return function(ctx)
         elseif addr == LW.PU.write then
             -- 过道打点开关持久化到RW(不进0x27协议, 上位机自身行为)
             if ctx.rw16w and LW.RW then
-                ctx.rw16w(LW.RW.gap_point,
-                          (r16(LW.PU.gappoint) or 0) == 1 and 0x55AA or 0)
+                local gp = r16(LW.PU.gappoint) or 0
+                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+                ctx.rw16w(LW.RW.gap_point, gp)   -- 三态原值存RW(0/1/2)
             end
             local t = read_user_form()
             local bad, msg = check(t, RANGE_U)

@@ -143,8 +143,9 @@ LW.PU = {                  -- 用户参数
     rmp          = 0x1622, -- u32 RMP (占2字)
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
-    gappoint     = 0x1626, -- u16 过道打点开关 0=关 1=开(2026-09-30自QT GapPoint
-                           --   搬入, 任务启动时按奇偶趟发0x29/0x31使能; 存RW掉电)
+    gappoint     = 0x1626, -- u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点,
+                           --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
+                           --   2026-09-30自QT GapPoint搬入, 任务启动发0x31; 存RW)
     read         = 0x1642, -- 按钮 读用户参数 -> 0x28
     write        = 0x1643, -- 按钮 写用户参数 -> 0x27
 }
