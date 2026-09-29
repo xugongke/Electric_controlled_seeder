@@ -64,8 +64,19 @@ return function(ctx)
         addrs = { LW.PU.read, LW.PU.write, LW.PWD.confirm, LW.PWD.cancel },
     }
 
+    local function gappoint_rw_load()
+        -- RW掉电保持三态: 0=关 1=开 2=间隔(非法值按关处理)
+        local v = 0
+        if ctx.rw16 and LW.RW then
+            v = ctx.rw16(LW.RW.gap_point)
+            if v ~= 0 and v ~= 1 and v ~= 2 then v = 0 end
+        end
+        w16(LW.PU.gappoint, v)
+    end
+
     function page:on_enter()                     -- 进页读用户参数快照
         PROTOCOL.send(FNC.GET_USER_PARA)
+        gappoint_rw_load()
     end
 
     function page:on_leave() end
@@ -73,7 +84,7 @@ return function(ctx)
     function page:on_frame(f)
         if f.fnc == FNC.GET_USER_PARA then
             local ok2, u = pcall(CODEC.userpara.unpack, f.data)
-            if ok2 then show_user(u)
+            if ok2 then show_user(u); gappoint_rw_load()
             else wstr(LW.A.log, "userpara unpack err: len=" .. #f.data) end
         end
     end
@@ -82,6 +93,12 @@ return function(ctx)
         if addr == LW.PU.read then
             PROTOCOL.send(FNC.GET_USER_PARA)
         elseif addr == LW.PU.write then
+            -- 过道打点持久化RW(三态原值, 不进0x27协议; QT原设计在用户参数页)
+            if ctx.rw16w and LW.RW then
+                local gp = r16(LW.PU.gappoint) or 0
+                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+                ctx.rw16w(LW.RW.gap_point, gp)
+            end
             local t = read_user_form()
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end

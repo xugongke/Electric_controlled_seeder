@@ -43,6 +43,7 @@ pu_hj,LW1621,i16 HJ
 pu_rmp,LW1622,u32 RMP (占2字)
 pu_antennatype,LW1624,u8 AntennaType 天线类型
 pu_antennadist,LW1625,i16 AntennaDistance 天线距离
+pu_gappoint,LW1626,u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点，
 pu_read,LW1642,按钮 读用户参数 -> 0x28
 pu_write,LW1643,按钮 写用户参数 -> 0x27
 td_encodercnt,LW1700,u32 编码器计数(占2字)
@@ -104,9 +105,6 @@ tw_ab_import,LW1889,按钮 AB线导入: RW缓存绑定到地图(#AB段落盘)
 tw_ab_clear,LW188A,按钮 AB线清除: 解除地图绑定
 tw_btn_start,LW188C,按钮 开始作业(任务就绪后启动; 作业中=续趟裸发0x0A)
 tw_btn_stop,LW188D,按钮 停止作业(收尾断点+无AB线时弹保存对话框)
-tw_gappoint,LW188E,u16 三态 0=关 1=开 2=间隔(隔趟打点，QT:255同式)
-tw_qzdd,LW188F,u16 清种打点开关 0=关 1=开
-tw_qzdd_set,LW1890,按钮 [设置打点]: 按qzdd发0x29 + 两开关持久化RW
 map_count,LW1C00,u16 地图数
 map_selidx,LW1C01,u16 列表选中项(0基)
 map_list,LW1C04,字符串 列表多行文本(占0x1C04~0x1C43， 64字)
