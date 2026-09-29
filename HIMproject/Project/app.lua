@@ -111,6 +111,13 @@ function APP.init(env)
 end
 
 function APP.register(page)
+    -- 2026-09-29防再犯: id为nil(SCREEN表缺键)时明确报错跳过, 不中断后续页面加载
+    -- (曾因lwmap缺USERPARAM键导致pages[nil]抛错, 用户参数页之后所有页面未注册)
+    if type(page.id) ~= "number" then
+        print("[HMI] page register FAILED: id=nil (lwmap.LW.SCREEN missing key)")
+        if ENV then ENV.wstr(LW.A.log, "page id nil: SCREEN表缺键") end
+        return nil
+    end
     APP.pages[page.id] = page
     if page.addrs then
         for _, a in ipairs(page.addrs) do APP.by_addr[a] = page end

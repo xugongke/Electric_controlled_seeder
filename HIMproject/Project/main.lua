@@ -155,8 +155,9 @@ LW.SCREEN = {
     MAP        = 1,   -- 地图导入页(2026-09-24新增, 原画面1小区参数已删, 复用编号:
                       --   U盘导入/列表/删除/AB绑定)
     CONTINUOUS = 2,   -- 连续播种
-    -- 画面3空闲(原AB线页已删, 留作后续扩展)
-    PARAMS     = 4,   -- 厂家/用户参数
+    USERPARAM  = 3,   -- 用户参数页(2026-09-28自原参数页拆分; 含[厂家参数]入口)
+    MANUPARAM  = 4,   -- 厂家参数页(经用户参数页密码弹窗进入)
+    PWDLG      = 23,  -- 密码输入对话框画面(仅作功能按钮弹出内容)
     TESTDIAG   = 5,   -- 测试诊断
     TASK       = 6,   -- 任务作业页(2026-09-24重构: 选地图+参数+创建(不自动开始)
                       --   +开始/停止+作业视图; 原4步向导已删除)
@@ -1006,6 +1007,13 @@ function APP.init(env)
 end
 
 function APP.register(page)
+    -- 2026-09-29防再犯: id为nil(SCREEN表缺键)时明确报错跳过, 不中断后续页面加载
+    -- (曾因lwmap缺USERPARAM键导致pages[nil]抛错, 用户参数页之后所有页面未注册)
+    if type(page.id) ~= "number" then
+        print("[HMI] page register FAILED: id=nil (lwmap.LW.SCREEN missing key)")
+        if ENV then ENV.wstr(LW.A.log, "page id nil: SCREEN表缺键") end
+        return nil
+    end
     APP.pages[page.id] = page
     if page.addrs then
         for _, a in ipairs(page.addrs) do APP.by_addr[a] = page end
