@@ -4456,6 +4456,7 @@ function on_init()
     end
     w16(0x1017, 2)                         -- 诊断码2: 模块OK进入轮询
 
+    wstr(LWMAP.A.appver, "0.5.0(2026.9.30)")  -- screen app version, QT formconfig.cpp:31-33
     set_run_cycle(POLL_MS)                 -- on_run 轮询周期(仅 on_init 设置)
     APP.set_screen(LWMAP.SCREEN.HOME)      -- 初始页: 触发 on_enter(版本查询=链路自检)
 
