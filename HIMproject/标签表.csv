@@ -35,7 +35,8 @@ pf_tappertime,LW160A,u16 TapperTime 打点时间(LW存0.01s单位， 控件2位小数显s，
 pf_zeroposen,LW160B,u8 开关 ZeroPosEn 零位开关(QT复选框)
 pf_gzen,LW160C,u8 开关 GZEn 刮种(QT复选框ScrapeSeed， global.cpp:72)
 pf_prepercent,LW160D,u8 PrePercent 预充种百分比%
-pf_write,LW1641,按钮 保存 -> 0x25(读表单+范围校验; 0x1640原读按钮已删，
+pf_devtype,LW160E,u8 设备类型(=0x25行数字段U8Resv2): 4=4行机 6=6行机;
+pf_write,LW1641,按钮 保存 -> 0x25(读表单+范围校验， Resv1取devtype;
 pf_reset,LW1644,按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:204~221，
 pf_pass,LW1650,u32 密码输入(数值输入， 占2字; Qt端密码同源)
 pu_dztime,LW1620,u16 DZTime 点滞时间
@@ -44,8 +45,8 @@ pu_rmp,LW1622,u32 RMP (占2字)
 pu_antennatype,LW1624,u8 AntennaType 天线类型
 pu_antennadist,LW1625,i16 AntennaDistance 天线距离
 pu_gappoint,LW1626,u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点，
-pu_read,LW1642,按钮 读用户参数 -> 0x28
-pu_write,LW1643,按钮 写用户参数 -> 0x27
+pu_write,LW1643,按钮 保存 -> 0x27(读表单+范围校验+gappoint持久化RW;
+pu_reset,LW1645,按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:187~199，
 td_encodercnt,LW1700,u32 编码器计数(占2字)
 td_bdcnt,LW1702,u32 北斗计数(占2字)
 td_loufei1,LW1704,u32 漏肥计数第1路

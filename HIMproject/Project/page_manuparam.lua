@@ -4,8 +4,9 @@ page_manuparam.lua -- 厂家参数页(画面4, 2026-09-28自原参数页拆分;
 ================================================================================
 进入条件: 用户参数页密码弹窗校验通过(LW.PWD.ok=1), 未解锁进入则踢回画面3。
 厂家参数(TerParaType 40B): 进页自动0x26读快照(QT无读按钮, 对齐), 0x25 保存。
-写时保留固件侧行数字段: Resv1(=U8Resv2 4/6)取自最近0x26快照, 无快照兜底6
-(2026-09-23曾硬编码0下发把行数冲掉, 用户实测暴露)。
+行数字段Resv1(=U8Resv2 4/6)由[设备类型]pf_devtype下拉设置(2026-09-30用户要求:
+结构体字段应可设置; QT global.cpp:78同款下发); 0x26回显固件当前值作初始值,
+控件值非4/6时兜底快照值/6(2026-09-23曾硬编码0下发把行数冲掉, 用户实测暴露)。
 [重置]仅把表单恢复QT默认值(formconfig.cpp:204~221, 不下发, 需再点保存)。
 范围表(hd3005a1/Src/para.c ParaLegalCheck, 2026-09核对):
   GearRatio<2回落10 | HoleNum==0回落9 | EncodeNum==0回落700
@@ -26,7 +27,7 @@ return function(ctx)
         a = 60, b = 90, encodenum = 2000, encoderdir = 0,
         holenum = 9, gearratio = 5, microstep = 800,
         x1 = 150, bdiroff = 0, tapptrigoff = 20, tappertime = 10,
-        zeroposen = 1, gzen = 1, prepercent = 70,
+        zeroposen = 1, gzen = 1, prepercent = 70, devtype = 4,
     }
 
     local RANGE_T = {
@@ -57,8 +58,11 @@ return function(ctx)
     -- 读表单(LW) -> terpara 表(i16符号扩展, 行数字段保留快照值)
     local function read_ter_form()
         local P = LW.PF
-        local rows = last_ter and last_ter.Resv1
-        if rows ~= 4 and rows ~= 6 then rows = 6 end   -- 无快照兜底6行
+        local rows = r16(P.devtype)                    -- 设备类型下拉(0x26回显初值)
+        if rows ~= 4 and rows ~= 6 then                -- 非法值兜底快照/6
+            rows = last_ter and last_ter.Resv1
+            if rows ~= 4 and rows ~= 6 then rows = 6 end
+        end
         return {
             A = s16(r16(P.a)), B = s16(r16(P.b)),
             EncodeNum = r16(P.encodenum), EncoderDir = r16(P.encoderdir),
@@ -85,6 +89,7 @@ return function(ctx)
         w16(P.tappertime, (p.TapperTime + 5) // 10)    -- ms -> 0.01s单位
         w16(P.zeroposen, p.ZeroPosEn)
         w16(P.gzen, p.GZEn);             w16(P.prepercent, p.PrePercent)
+        w16(P.devtype, p.Resv1)                        -- 行数回显到设备类型下拉
     end
 
     local page = {

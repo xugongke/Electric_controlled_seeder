@@ -5,6 +5,7 @@ page_userparam.lua -- 用户参数页(画面3, 2026-09-28自原参数页拆分)
 [厂家参数]按钮 = 画面侧功能按钮(打开对话框画面23, 密码数值输入绑 pf_pass,
 确认=关闭对话框+执行通知写 LW.PWD.confirm=1) -> 本页校验密码(515516, 与
 QT formconfig.cpp:172 同源), 正确则置 PWD.ok 并切换到画面4厂家参数页。
+[重置]仅把表单恢复QT默认值(formconfig.cpp:187~199, 不下发, 需再点保存)。
 范围表(下位机强制, hd3005a1/Src/para.c ParaLegalCheck):
   HJ 10~5000 回落60; DZTime 100~10000 回落1500; RMP 5~70 回落20
 --]]
@@ -20,6 +21,12 @@ return function(ctx)
         { "HJ",     10, 5000,  "行间距HJ" },
         { "DZTime", 100, 10000, "点滞时间" },
         { "RMP",    5,  70,    "播种盘转速RMP" },
+    }
+
+    -- QT重置默认值(formconfig.cpp:187~199): 1.5s/0.6m/36r/单天线/0m/过道开
+    local DEFAULTS_U = {
+        dztime = 1500, hj = 60, rmp = 36,
+        antennatype = 0, antennadist = 0, gappoint = 1,
     }
 
     local function s16(v)                       -- u16 -> i16 符号扩展
@@ -61,7 +68,7 @@ return function(ctx)
     local page = {
         id = LW.SCREEN.USERPARAM,
         poll_cmds = {},
-        addrs = { LW.PU.read, LW.PU.write, LW.PWD.confirm, LW.PWD.cancel },
+        addrs = { LW.PU.write, LW.PU.reset, LW.PWD.confirm, LW.PWD.cancel },
     }
 
     local function gappoint_rw_load()
@@ -90,9 +97,7 @@ return function(ctx)
     end
 
     function page:on_update(addr)
-        if addr == LW.PU.read then
-            PROTOCOL.send(FNC.GET_USER_PARA)
-        elseif addr == LW.PU.write then
+        if addr == LW.PU.write then
             -- 过道打点持久化RW(三态原值, 不进0x27协议; QT原设计在用户参数页)
             if ctx.rw16w and LW.RW then
                 local gp = r16(LW.PU.gappoint) or 0
@@ -103,6 +108,11 @@ return function(ctx)
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
+        elseif addr == LW.PU.reset then
+            -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
+            local U = LW.PU
+            for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
+            wstr(LW.A.log, "√ 已恢复默认值, 保存后生效")
         elseif addr == LW.PWD.confirm then
             -- 密码对话框确认(关闭对话框按钮执行通知)
             local pw = r32(LW.PF.pass) or 0

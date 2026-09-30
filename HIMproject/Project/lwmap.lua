@@ -137,8 +137,11 @@ LW.PF = {                  -- 厂家参数(2026-09-16对齐QT formconfig.cpp:77~91厂家
     zeroposen   = 0x160B,  -- u8 开关 ZeroPosEn 零位开关(QT复选框)
     gzen        = 0x160C,  -- u8 开关 GZEn 刮种(QT复选框ScrapeSeed, global.cpp:72)
     prepercent  = 0x160D,  -- u8 PrePercent 预充种百分比%
-    write       = 0x1641,  -- 按钮 保存 -> 0x25(读表单+范围校验; 0x1640原读按钮已删,
-                           --   QT无读按钮, 进页自动0x26快照)
+    devtype     = 0x160E,  -- u8 设备类型(=0x25行数字段U8Resv2): 4=4行机 6=6行机;
+                           --   0x26回显固件当前值, 可改, 保存时随0x25下发
+                           --   (QT global.cpp:78 DeviceType首字符; 下位机暂未用)
+    write       = 0x1641,  -- 按钮 保存 -> 0x25(读表单+范围校验, Resv1取devtype;
+                           --   0x1640原读按钮已删, 进页自动0x26快照)
     reset       = 0x1644,  -- 按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:204~221,
                            --   不下发, 需再点保存; 0x1642/43是PU读写)
     pass        = 0x1650,  -- u32 密码输入(数值输入, 占2字; Qt端密码同源)
@@ -154,8 +157,10 @@ LW.PU = {                  -- 用户参数
                            --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
                            --   QT原设计在用户参数页(config.ini GapPoint),
                            --   任务启动发0x31; 点[下发参数]持久化RW)
-    read         = 0x1642, -- 按钮 读用户参数 -> 0x28
-    write        = 0x1643, -- 按钮 写用户参数 -> 0x27
+    write        = 0x1643, -- 按钮 保存 -> 0x27(读表单+范围校验+gappoint持久化RW;
+                           --   0x1642原读按钮已删(2026-09-30), 进页自动0x28)
+    reset        = 0x1645, -- 按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:187~199,
+                           --   不下发, 需再点保存)
 }
 
 --==================== 页面5 测试诊断(0x1700~, TestModeStateType 4行52B) ====================

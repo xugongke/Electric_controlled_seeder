@@ -110,6 +110,7 @@ end
     check(T['writes'][PF['tappertime']] == 10, '100ms -> LW=10 (显示0.10s)')
     check(T['writes'][PF['x1']] == 150 and T['writes'][PF['gzen']] == 1,
           '距离cm/开关位原样回显')
+    check(T['writes'][PF['devtype']] == 4, '行数Resv1回显到设备类型下拉=4')
 
     print('4) pf_reset: 表单恢复QT默认值(formconfig.cpp:204~221), 不下发')
     set_form(a=99, tappertime=50)
@@ -118,9 +119,9 @@ end
     defaults = dict(a=60, b=90, encodenum=2000, encoderdir=0, holenum=9,
                     gearratio=5, microstep=800, x1=150, bdiroff=0,
                     tapptrigoff=20, tappertime=10, zeroposen=1, gzen=1,
-                    prepercent=70)
+                    prepercent=70, devtype=4)
     check(all(T['writes'][PF[k]] == v for k, v in defaults.items()),
-          '14字段全部恢复默认(tappertime=10即0.10s)')
+          '15字段全部恢复默认(tappertime=10即0.10s, devtype=4行机)')
     check(ntx() == n0, '重置不触发0x25下发(需再点保存)')
 
     print('5) pf_write: 0x25下发, TapperTime*10->ms, Resv1保留快照行数')
@@ -128,7 +129,10 @@ end
     page['on_update'](page, PF['write'])
     check(ntx() == n0 + 1 and txfnc(ntx()) == FNC['SET_TER_PARA'], '发出0x25')
     check(txfield(ntx(), 'TapperTime') == 130, 'LW=13(0.13s) -> 协议130ms')
-    check(txfield(ntx(), 'Resv1') == 4, '行数字段保留0x26快照值4')
+    check(txfield(ntx(), 'Resv1') == 4, 'Resv1=devtype控件值(0x26回显的4, 未动即原样发回)')
+    T['w16'](PF['devtype'], 6)                  # 用户切6行机
+    page['on_update'](page, PF['write'])
+    check(txfield(ntx(), 'Resv1') == 6, '改设备类型=6 -> 0x25下发Resv1=6')
     check(txfield(ntx(), 'A') == 61 and txfield(ntx(), 'X1') == 151,
           '其余表单值正常带回')
 
@@ -141,7 +145,8 @@ end
     page2['on_enter'](page2)
     set_form(tappertime=5)
     page2['on_update'](page2, PF['write'])
-    check(txfield(ntx(), 'Resv1') == 6, '无快照 -> Resv1=6')
+    check(txfield(ntx(), 'Resv1') == 6,
+          'devtype非法(0)且无快照 -> 兜底Resv1=6')
 
     print('7) 范围校验: 打点时间超限拒绝下发')
     set_form(tappertime=101)                    # 1.01s > 1000ms上限

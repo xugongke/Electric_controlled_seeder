@@ -254,8 +254,11 @@ LW.PF = {                  -- 厂家参数(2026-09-16对齐QT formconfig.cpp:77~91厂家
     zeroposen   = 0x160B,  -- u8 开关 ZeroPosEn 零位开关(QT复选框)
     gzen        = 0x160C,  -- u8 开关 GZEn 刮种(QT复选框ScrapeSeed, global.cpp:72)
     prepercent  = 0x160D,  -- u8 PrePercent 预充种百分比%
-    write       = 0x1641,  -- 按钮 保存 -> 0x25(读表单+范围校验; 0x1640原读按钮已删,
-                           --   QT无读按钮, 进页自动0x26快照)
+    devtype     = 0x160E,  -- u8 设备类型(=0x25行数字段U8Resv2): 4=4行机 6=6行机;
+                           --   0x26回显固件当前值, 可改, 保存时随0x25下发
+                           --   (QT global.cpp:78 DeviceType首字符; 下位机暂未用)
+    write       = 0x1641,  -- 按钮 保存 -> 0x25(读表单+范围校验, Resv1取devtype;
+                           --   0x1640原读按钮已删, 进页自动0x26快照)
     reset       = 0x1644,  -- 按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:204~221,
                            --   不下发, 需再点保存; 0x1642/43是PU读写)
     pass        = 0x1650,  -- u32 密码输入(数值输入, 占2字; Qt端密码同源)
@@ -271,8 +274,10 @@ LW.PU = {                  -- 用户参数
                            --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
                            --   QT原设计在用户参数页(config.ini GapPoint),
                            --   任务启动发0x31; 点[下发参数]持久化RW)
-    read         = 0x1642, -- 按钮 读用户参数 -> 0x28
-    write        = 0x1643, -- 按钮 写用户参数 -> 0x27
+    write        = 0x1643, -- 按钮 保存 -> 0x27(读表单+范围校验+gappoint持久化RW;
+                           --   0x1642原读按钮已删(2026-09-30), 进页自动0x28)
+    reset        = 0x1645, -- 按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:187~199,
+                           --   不下发, 需再点保存)
 }
 
 --==================== 页面5 测试诊断(0x1700~, TestModeStateType 4行52B) ====================
@@ -4115,6 +4120,7 @@ page_userparam.lua -- 用户参数页(画面3, 2026-09-28自原参数页拆分)
 [厂家参数]按钮 = 画面侧功能按钮(打开对话框画面23, 密码数值输入绑 pf_pass,
 确认=关闭对话框+执行通知写 LW.PWD.confirm=1) -> 本页校验密码(515516, 与
 QT formconfig.cpp:172 同源), 正确则置 PWD.ok 并切换到画面4厂家参数页。
+[重置]仅把表单恢复QT默认值(formconfig.cpp:187~199, 不下发, 需再点保存)。
 范围表(下位机强制, hd3005a1/Src/para.c ParaLegalCheck):
   HJ 10~5000 回落60; DZTime 100~10000 回落1500; RMP 5~70 回落20
 --]]
@@ -4130,6 +4136,12 @@ return function(ctx)
         { "HJ",     10, 5000,  "行间距HJ" },
         { "DZTime", 100, 10000, "点滞时间" },
         { "RMP",    5,  70,    "播种盘转速RMP" },
+    }
+
+    -- QT重置默认值(formconfig.cpp:187~199): 1.5s/0.6m/36r/单天线/0m/过道开
+    local DEFAULTS_U = {
+        dztime = 1500, hj = 60, rmp = 36,
+        antennatype = 0, antennadist = 0, gappoint = 1,
     }
 
     local function s16(v)                       -- u16 -> i16 符号扩展
@@ -4171,7 +4183,7 @@ return function(ctx)
     local page = {
         id = LW.SCREEN.USERPARAM,
         poll_cmds = {},
-        addrs = { LW.PU.read, LW.PU.write, LW.PWD.confirm, LW.PWD.cancel },
+        addrs = { LW.PU.write, LW.PU.reset, LW.PWD.confirm, LW.PWD.cancel },
     }
 
     local function gappoint_rw_load()
@@ -4200,9 +4212,7 @@ return function(ctx)
     end
 
     function page:on_update(addr)
-        if addr == LW.PU.read then
-            PROTOCOL.send(FNC.GET_USER_PARA)
-        elseif addr == LW.PU.write then
+        if addr == LW.PU.write then
             -- 过道打点持久化RW(三态原值, 不进0x27协议; QT原设计在用户参数页)
             if ctx.rw16w and LW.RW then
                 local gp = r16(LW.PU.gappoint) or 0
@@ -4213,6 +4223,11 @@ return function(ctx)
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
+        elseif addr == LW.PU.reset then
+            -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
+            local U = LW.PU
+            for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
+            wstr(LW.A.log, "√ 已恢复默认值, 保存后生效")
         elseif addr == LW.PWD.confirm then
             -- 密码对话框确认(关闭对话框按钮执行通知)
             local pw = r32(LW.PF.pass) or 0
@@ -4240,8 +4255,9 @@ page_manuparam.lua -- 厂家参数页(画面4, 2026-09-28自原参数页拆分;
 ================================================================================
 进入条件: 用户参数页密码弹窗校验通过(LW.PWD.ok=1), 未解锁进入则踢回画面3。
 厂家参数(TerParaType 40B): 进页自动0x26读快照(QT无读按钮, 对齐), 0x25 保存。
-写时保留固件侧行数字段: Resv1(=U8Resv2 4/6)取自最近0x26快照, 无快照兜底6
-(2026-09-23曾硬编码0下发把行数冲掉, 用户实测暴露)。
+行数字段Resv1(=U8Resv2 4/6)由[设备类型]pf_devtype下拉设置(2026-09-30用户要求:
+结构体字段应可设置; QT global.cpp:78同款下发); 0x26回显固件当前值作初始值,
+控件值非4/6时兜底快照值/6(2026-09-23曾硬编码0下发把行数冲掉, 用户实测暴露)。
 [重置]仅把表单恢复QT默认值(formconfig.cpp:204~221, 不下发, 需再点保存)。
 范围表(hd3005a1/Src/para.c ParaLegalCheck, 2026-09核对):
   GearRatio<2回落10 | HoleNum==0回落9 | EncodeNum==0回落700
@@ -4262,7 +4278,7 @@ return function(ctx)
         a = 60, b = 90, encodenum = 2000, encoderdir = 0,
         holenum = 9, gearratio = 5, microstep = 800,
         x1 = 150, bdiroff = 0, tapptrigoff = 20, tappertime = 10,
-        zeroposen = 1, gzen = 1, prepercent = 70,
+        zeroposen = 1, gzen = 1, prepercent = 70, devtype = 4,
     }
 
     local RANGE_T = {
@@ -4293,8 +4309,11 @@ return function(ctx)
     -- 读表单(LW) -> terpara 表(i16符号扩展, 行数字段保留快照值)
     local function read_ter_form()
         local P = LW.PF
-        local rows = last_ter and last_ter.Resv1
-        if rows ~= 4 and rows ~= 6 then rows = 6 end   -- 无快照兜底6行
+        local rows = r16(P.devtype)                    -- 设备类型下拉(0x26回显初值)
+        if rows ~= 4 and rows ~= 6 then                -- 非法值兜底快照/6
+            rows = last_ter and last_ter.Resv1
+            if rows ~= 4 and rows ~= 6 then rows = 6 end
+        end
         return {
             A = s16(r16(P.a)), B = s16(r16(P.b)),
             EncodeNum = r16(P.encodenum), EncoderDir = r16(P.encoderdir),
@@ -4321,6 +4340,7 @@ return function(ctx)
         w16(P.tappertime, (p.TapperTime + 5) // 10)    -- ms -> 0.01s单位
         w16(P.zeroposen, p.ZeroPosEn)
         w16(P.gzen, p.GZEn);             w16(P.prepercent, p.PrePercent)
+        w16(P.devtype, p.Resv1)                        -- 行数回显到设备类型下拉
     end
 
     local page = {
