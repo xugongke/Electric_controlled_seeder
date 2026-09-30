@@ -113,7 +113,7 @@ end
           and 'SeedColumnGap=66' in cfg and 'Rpm=41' in cfg
           and 'NavigationAntenna=1' in cfg and 'AntennaDistance=25' in cfg,
           '用户参数键值=协议原值(QT键名)')
-    check('GapPoint=\\x95f4\\x9694' in cfg, 'GapPoint=间隔(\\xXXXX转义, 文件全ASCII)')
+    check('GapPoint=间隔' in cfg, 'GapPoint=UTF-8字节直写(lupa侧解码为中文)')
     check(ps['save_ter']({'A': 61, 'B': 91, 'EncodeNum': 2001, 'EncoderDir': 1,
                           'HoleNum': 8, 'GearRatio': 6, 'MicroStepValue': 801,
                           'X1': 151, 'BDiroff': 1, 'TappTrigOff': 21,
@@ -126,7 +126,7 @@ end
           '厂家参数键值')
     check('ZeroSwitch=0' in cfg and 'ScrapeSeed=1' in cfg,
           '开关=1/0(实际config.ini格式, 非checkState的2)')
-    check('DeviceType=6\\x884c\\x673a' in cfg, 'DeviceType=6行机(转义)')
+    check('DeviceType=6行机' in cfg, 'DeviceType=6行机(UTF-8直写)')
     check('MachineColumnCount=6' in cfg, 'MachineColumnCount跟随DeviceType占位')
     check('[ContinuousSowMode]' in cfg and 'Density=4000' in cfg,
           '连播密度组存在')
@@ -152,7 +152,9 @@ end
     cfg = files['3:config.txt']
     check('SerialPort=COM8' in cfg and 'Alpha=176' in cfg,
           'QT本地键SerialPort/Alpha保留')
-    check('DropSeedTime=1700' in cfg and 'DeviceType=4\\x884c\\x673a' in cfg,
+    bs = chr(92)
+    check('DropSeedTime=1700' in cfg
+          and ('DeviceType=4' + bs + 'x884c' + bs + 'x673a') in cfg,
           '参数键更新, 其他组不动')
     check(ps['load_gap']() == 1, 'QT写的GapPoint=开可读回')
 

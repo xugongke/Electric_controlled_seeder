@@ -27,7 +27,10 @@ local LOGW
 local CFG_PATH = "3:config.txt"   -- Flash区配置文件(QT config.ini兼容)
 local USB_PATH = "2:config.txt"   -- U盘导出目标
 
--- QSettings \xXXXX转义中文(小写hex), 文件全ASCII
+-- 中文值直接写UTF-8字节(file_write字节直写, QT QSettings的utf8 codec
+-- 读原始字节正常还原); 读时兼容QT写的\xXXXX转义文本
+local GAP_UTF = { [0] = "\u{5173}", [1] = "\u{5F00}", [2] = "\u{95F4}\u{9694}" }
+local DEV_UTF = { [4] = "4\u{884C}\u{673A}", [6] = "6\u{884C}\u{673A}" }
 local GAP_ESC = { [0] = [[\x5173]], [1] = [[\x5f00]], [2] = [[\x95f4\x9694]] }
 local DEV_ESC = { [4] = [[4\x884c\x673a]], [6] = [[6\x884c\x673a]] }
 
@@ -109,9 +112,10 @@ local function val_of(ls, group, key)
     end
 end
 
-local function unesc_of(map, s)
+local function unesc2(utf, esc, s)
     if s == nil then return nil end
-    for k, v in pairs(map) do if v == s then return k end end
+    for k, v in pairs(utf) do if v == s then return k end end
+    for k, v in pairs(esc) do if v == s then return k end end
     return nil
 end
 
@@ -161,7 +165,7 @@ function parastore.load_ter()
     t.ZeroPosEn = (n("ZeroSwitch", 0, 1) or 0) > 0 and 1 or 0
     t.GZEn = (n("ScrapeSeed", 0, 1) or 0) > 0 and 1 or 0
     t.PrePercent = n("PrePercent", 0, 255)
-    t.Resv1 = unesc_of(DEV_ESC, val_of(ls, "Device", "DeviceType")) or 4
+    t.Resv1 = unesc2(DEV_UTF, DEV_ESC, val_of(ls, "Device", "DeviceType")) or 4
     if t.A == nil and t.EncodeNum == nil then return nil end
     for k, v in pairs(DEF_TER) do
         if t[k] == nil then t[k] = v end
@@ -179,7 +183,7 @@ end
 function parastore.load_gap()
     local ls = read_lines()
     if not ls then return 0 end
-    return unesc_of(GAP_ESC, val_of(ls, "Application", "GapPoint")) or 0
+    return unesc2(GAP_UTF, GAP_ESC, val_of(ls, "Application", "GapPoint")) or 0
 end
 
 -- 连播密度([ContinuousSowMode]Density)
@@ -206,7 +210,7 @@ function parastore.save_user(u, gp)
         Rpm = tostring(u.RMP),
         NavigationAntenna = tostring(u.AntennaType),
         AntennaDistance = tostring(u.AntennaDistance),
-        GapPoint = GAP_ESC[gp],
+        GapPoint = GAP_UTF[gp],
     }, { "DropSeedTime", "SeedColumnGap", "Rpm", "NavigationAntenna",
          "AntennaDistance", "GapPoint" })
     return write_lines(ls)
@@ -230,7 +234,7 @@ function parastore.save_ter(t)
         PrePercent = tostring(t.PrePercent),
         ZeroSwitch = (t.ZeroPosEn ~= 0) and "1" or "0",
         ScrapeSeed = (t.GZEn ~= 0) and "1" or "0",
-        DeviceType = DEV_ESC[t.Resv1] or DEV_ESC[4],
+        DeviceType = DEV_UTF[t.Resv1] or DEV_UTF[4],
     }, DEV_WRITE)
     -- MachineColumnCount跟随DeviceType(QT建图默认, 兼容性占位)
     edit_group(ls, "Device",
