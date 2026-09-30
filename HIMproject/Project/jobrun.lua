@@ -22,6 +22,7 @@ local jobrun = {}
 
 local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW
 local w16, w32, wstr, NOW, rw16, rw16w, RSTR, r16
+local PSTORE                    -- parastore(启动参数链, 可缺省)
 
 -- 作业现场(单个活动任务)
 local J = nil
@@ -49,6 +50,7 @@ function jobrun.init(deps)
     STORE, PATHALGO, LOGGER, LW = deps.STORE, deps.PATHALGO, deps.LOGGER, deps.LW
     w16, w32, wstr, NOW = deps.w16, deps.w32, deps.wstr, deps.now
     rw16, rw16w = deps.rw16, deps.rw16w
+    PSTORE = deps.parastore
     RSTR, r16 = deps.rstr, deps.r16
     -- 常驻订阅: 0x21 帧无论当前页都进状态机(作业中切页不丢)
     APP.sub_always(PROTOCOL.FNC.GET_BZ_STATUS, function(f) jobrun._feed(f) end)
@@ -302,42 +304,54 @@ function jobrun.start(task_name, opts)
     log("INF", ("作业启动 %s 地图=%s 路径=%d 起点组=%d"):format(
         task_name, m.name, t.path_type, start_idx))
 
-    -- 2026-09-23 对齐QT(dialogrealtimetask.cpp:559-568): 启动先下发AB线——
-    -- 有绑定->存储值(StartState=1); 无绑定->全零(StartState=0, 固件清空BDParam,
-    -- 地头等待行程开关触发设A点后才开播)。此前屏端从不发0x24, 下位机沿用上次
-    -- 持久化的StartState=1, 无AB线任务跳过触发直接开播(用户联调暴露)。
-    jobrun.ab_send_map(m)
+    -- 2026-09-30对齐QT启动参数链(dialogrealtimetask.cpp:569/227-230):
+    -- 先0x27(HJ用地图行距col_gap, 即Map::getUserParameter) -> ACK ->
+    -- 0x25 -> ACK -> 再0x24/首节点/0x31/0x0A。链期间用户点停止则J失效,
+    -- 回调直接放弃; parastore缺省(A档降级)时退化为直发(旧版行为)。
+    local function launch_tail()
+        if not J or J.task ~= task_name then return end
+        -- 2026-09-23 对齐QT(dialogrealtimetask.cpp:559-568): 启动先下发AB线——
+        -- 有绑定->存储值(StartState=1); 无绑定->全零(StartState=0, 固件清空BDParam,
+        -- 地头等待行程开关触发设A点后才开播)。此前屏端从不发0x24, 下位机沿用上次
+        -- 持久化的StartState=1, 无AB线任务跳过触发直接开播(用户联调暴露)。
+        jobrun.ab_send_map(m)
 
-    -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
-    local pn = path[J.next_idx]
-    if (t.sow_exceed == 1) then
-        J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
-        J.enter_map = false
-        send_node(J.cur_read_row, J.cur_col)
+        -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
+        local pn = path[J.next_idx]
+        if (t.sow_exceed == 1) then
+            J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
+            J.enter_map = false
+            send_node(J.cur_read_row, J.cur_col)
+        else
+            J.enter_map = true
+            send_node(pn.row, J.cur_col)
+        end
+        -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
+        -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
+        -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
+        --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
+        --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
+        local gp = 0
+        if rw16 and LW.RW then
+            gp = rw16(LW.RW.gap_point)
+            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+        end
+        local gp_on = 0
+        if gp == 1 then
+            gp_on = 1
+        elseif gp == 2 then
+            local bet = m and PATHALGO.block_each_trip(m) or 1
+            if (path[start_idx].column // bet) % 2 == 0 then gp_on = 1 end
+        end
+        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
+        PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
+        J.sow_state = true
+    end
+    if PSTORE then
+        PSTORE.begin("SOW", { HJ = m.col_gap }, launch_tail)
     else
-        J.enter_map = true
-        send_node(pn.row, J.cur_col)
+        launch_tail()
     end
-    -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
-    -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
-    -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
-    --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
-    --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
-    local gp = 0
-    if rw16 and LW.RW then
-        gp = rw16(LW.RW.gap_point)
-        if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-    end
-    local gp_on = 0
-    if gp == 1 then
-        gp_on = 1
-    elseif gp == 2 then
-        local bet = m and PATHALGO.block_each_trip(m) or 1
-        if (path[start_idx].column // bet) % 2 == 0 then gp_on = 1 end
-    end
-    PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
-    PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
-    J.sow_state = true
     return true
 end
 

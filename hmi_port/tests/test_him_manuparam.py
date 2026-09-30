@@ -70,7 +70,8 @@ end
 
     page = factory({'APP': {'goto_screen': goto_screen},
                     'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
-                    'w16': T['w16'], 'wstr': T['wstr'], 'r16': T['r16']})
+                    'w16': T['w16'], 'wstr': T['wstr'], 'r16': T['r16'],
+                    'PARASTORE': None})
 
     def _lua_dict(t):
         lt = lua.table()
@@ -140,7 +141,8 @@ end
     factory2 = load('page_manuparam.lua')
     page2 = factory2({'APP': {'goto_screen': goto_screen},
                       'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
-                      'w16': T['w16'], 'wstr': T['wstr'], 'r16': T['r16']})
+                      'w16': T['w16'], 'wstr': T['wstr'], 'r16': T['r16'],
+                    'PARASTORE': None})
     T['w16'](lw['PWD']['ok'], 1)
     page2['on_enter'](page2)
     set_form(tappertime=5)

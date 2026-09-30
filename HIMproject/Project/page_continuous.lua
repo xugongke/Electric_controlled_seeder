@@ -63,9 +63,18 @@ return function(ctx)
                 wstr(LW.A.log, "× 连续播种启动失败: 用户参数HJ行距无效(先在用户参数页设置)")
                 return
             end
-            PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
-                Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
-            })  -- ZhuShu=0: 固件GetZhuShu按1亩面积(行长×行距)算出株数恰=密度
+            local start_lxbz = function()
+                PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
+                    Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
+                })  -- ZhuShu=0: 固件GetZhuShu按1亩面积(行长×行距)算出株数恰=密度
+            end
+            -- 2026-09-30对齐QT(formcontinuoussow.cpp:31-38): 先参数链
+            -- 0x27成功->0x25->成功->再0x11; 中止则不启动
+            if ctx.PARASTORE then
+                ctx.PARASTORE.begin("LXBZ", nil, start_lxbz)
+            else
+                start_lxbz()
+            end
         elseif addr == LW.CONT.stop then
             PROTOCOL.send(FNC.CMD_STOP_LXBZ)    -- 空域
         end

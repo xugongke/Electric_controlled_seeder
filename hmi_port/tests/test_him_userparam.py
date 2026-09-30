@@ -75,7 +75,7 @@ end
         return factory({'APP': {'goto_screen': goto_screen},
                         'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
                         'w16': T['w16'], 'w32': T['w32'], 'wstr': T['wstr'],
-                        'r16': T['r16'], 'r32': T['r32'],
+                        'r16': T['r16'], 'r32': T['r32'], 'PARASTORE': None,
                         'rw16': T['rw16'], 'rw16w': T['rw16w']})
 
     page = make_page()

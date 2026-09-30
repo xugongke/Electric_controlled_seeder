@@ -55,7 +55,16 @@ return function(ctx)
 
     function page:on_update(addr)
         if addr == LW.TD.enter then
-            PROTOCOL.send(FNC.CMD_START_TEST)       -- 空域
+            -- 2026-09-30对齐QT(formtest.cpp:43-49): 进测试前先参数链
+            -- 0x27成功->0x25->成功->0x0E; 中止则不进测试
+            local enter_test = function()
+                PROTOCOL.send(FNC.CMD_START_TEST)   -- 空域
+            end
+            if ctx.PARASTORE then
+                ctx.PARASTORE.begin("TEST", nil, enter_test)
+            else
+                enter_test()
+            end
         elseif addr == LW.TD.exit then
             PROTOCOL.send(FNC.CMD_STOP_TEST)
         else

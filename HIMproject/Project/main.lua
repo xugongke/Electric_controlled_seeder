@@ -35,7 +35,7 @@ local MODULES = {
     "page_userparam.lua", "page_manuparam.lua", "page_continuous.lua",
     "page_testdiag.lua",
     -- B档新增: 文件IO/CSV/数据层/路径算法/作业调度/日志/3新页面
-    "fileio.lua", "csv.lua", "store.lua", "pathalgo.lua", "logger.lua", "jobrun.lua",
+    "fileio.lua", "csv.lua", "store.lua", "pathalgo.lua", "logger.lua", "parastore.lua", "jobrun.lua",
     "page_task.lua", "page_history.lua", "page_logview.lua",
     "page_map.lua",                            -- 地图导入页(2026-09-24新增, 画面9)
 }
@@ -423,6 +423,18 @@ LW.RW = {
     ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
     ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
     gap_point = 0x001E, -- u16 过道打点 0/1/2(三态原值)
+    -- 参数副本区(0x0020起, 2026-09-30对齐QT config.ini语义): 固件0x27不掉电
+    -- 保存(hd3005a1/Src/protocol.c:351 纯RAM), 屏端保存参数时写副本,
+    -- 启动链(0x27->0x25->启动)从副本读; 保存为低频人工操作, RW寿命无忧
+    cfg_magic = 0x0020, -- u16 副本有效标志 0x55A5(区别AB的0x55AA)
+    pu_dztime = 0x0021, -- u16 DZTime(ms) 以下均为协议原值
+    pu_hj     = 0x0022, -- i16 HJ(cm)
+    pu_rmp    = 0x0023, -- u32 RMP(占0x0023~24两字)
+    pu_antype = 0x0025, -- u16 AntennaType
+    pu_andist = 0x0026, -- i16 AntennaDistance(cm)
+    ter       = 0x0027, -- 15字连续: a b encodenum encoderdir holenum gearratio
+                        --   microstep x1 bdiroff tapptrigoff tappertime(ms)
+                        --   zeroposen gzen prepercent devtype(0x0027~0x0035)
 }
 
 return LW
@@ -1215,9 +1227,18 @@ return function(ctx)
                 wstr(LW.A.log, "× 连续播种启动失败: 用户参数HJ行距无效(先在用户参数页设置)")
                 return
             end
-            PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
-                Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
-            })  -- ZhuShu=0: 固件GetZhuShu按1亩面积(行长×行距)算出株数恰=密度
+            local start_lxbz = function()
+                PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
+                    Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,
+                })  -- ZhuShu=0: 固件GetZhuShu按1亩面积(行长×行距)算出株数恰=密度
+            end
+            -- 2026-09-30对齐QT(formcontinuoussow.cpp:31-38): 先参数链
+            -- 0x27成功->0x25->成功->再0x11; 中止则不启动
+            if ctx.PARASTORE then
+                ctx.PARASTORE.begin("LXBZ", nil, start_lxbz)
+            else
+                start_lxbz()
+            end
         elseif addr == LW.CONT.stop then
             PROTOCOL.send(FNC.CMD_STOP_LXBZ)    -- 空域
         end
@@ -1307,7 +1328,16 @@ return function(ctx)
 
     function page:on_update(addr)
         if addr == LW.TD.enter then
-            PROTOCOL.send(FNC.CMD_START_TEST)       -- 空域
+            -- 2026-09-30对齐QT(formtest.cpp:43-49): 进测试前先参数链
+            -- 0x27成功->0x25->成功->0x0E; 中止则不进测试
+            local enter_test = function()
+                PROTOCOL.send(FNC.CMD_START_TEST)   -- 空域
+            end
+            if ctx.PARASTORE then
+                ctx.PARASTORE.begin("TEST", nil, enter_test)
+            else
+                enter_test()
+            end
         elseif addr == LW.TD.exit then
             PROTOCOL.send(FNC.CMD_STOP_TEST)
         else
@@ -2832,6 +2862,7 @@ local jobrun = {}
 
 local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW
 local w16, w32, wstr, NOW, rw16, rw16w, RSTR, r16
+local PSTORE                    -- parastore(启动参数链, 可缺省)
 
 -- 作业现场(单个活动任务)
 local J = nil
@@ -2859,6 +2890,7 @@ function jobrun.init(deps)
     STORE, PATHALGO, LOGGER, LW = deps.STORE, deps.PATHALGO, deps.LOGGER, deps.LW
     w16, w32, wstr, NOW = deps.w16, deps.w32, deps.wstr, deps.now
     rw16, rw16w = deps.rw16, deps.rw16w
+    PSTORE = deps.parastore
     RSTR, r16 = deps.rstr, deps.r16
     -- 常驻订阅: 0x21 帧无论当前页都进状态机(作业中切页不丢)
     APP.sub_always(PROTOCOL.FNC.GET_BZ_STATUS, function(f) jobrun._feed(f) end)
@@ -3112,42 +3144,54 @@ function jobrun.start(task_name, opts)
     log("INF", ("作业启动 %s 地图=%s 路径=%d 起点组=%d"):format(
         task_name, m.name, t.path_type, start_idx))
 
-    -- 2026-09-23 对齐QT(dialogrealtimetask.cpp:559-568): 启动先下发AB线——
-    -- 有绑定->存储值(StartState=1); 无绑定->全零(StartState=0, 固件清空BDParam,
-    -- 地头等待行程开关触发设A点后才开播)。此前屏端从不发0x24, 下位机沿用上次
-    -- 持久化的StartState=1, 无AB线任务跳过触发直接开播(用户联调暴露)。
-    jobrun.ab_send_map(m)
+    -- 2026-09-30对齐QT启动参数链(dialogrealtimetask.cpp:569/227-230):
+    -- 先0x27(HJ用地图行距col_gap, 即Map::getUserParameter) -> ACK ->
+    -- 0x25 -> ACK -> 再0x24/首节点/0x31/0x0A。链期间用户点停止则J失效,
+    -- 回调直接放弃; parastore缺省(A档降级)时退化为直发(旧版行为)。
+    local function launch_tail()
+        if not J or J.task ~= task_name then return end
+        -- 2026-09-23 对齐QT(dialogrealtimetask.cpp:559-568): 启动先下发AB线——
+        -- 有绑定->存储值(StartState=1); 无绑定->全零(StartState=0, 固件清空BDParam,
+        -- 地头等待行程开关触发设A点后才开播)。此前屏端从不发0x24, 下位机沿用上次
+        -- 持久化的StartState=1, 无AB线任务跳过触发直接开播(用户联调暴露)。
+        jobrun.ab_send_map(m)
 
-    -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
-    local pn = path[J.next_idx]
-    if (t.sow_exceed == 1) then
-        J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
-        J.enter_map = false
-        send_node(J.cur_read_row, J.cur_col)
+        -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
+        local pn = path[J.next_idx]
+        if (t.sow_exceed == 1) then
+            J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
+            J.enter_map = false
+            send_node(J.cur_read_row, J.cur_col)
+        else
+            J.enter_map = true
+            send_node(pn.row, J.cur_col)
+        end
+        -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
+        -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
+        -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
+        --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
+        --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
+        local gp = 0
+        if rw16 and LW.RW then
+            gp = rw16(LW.RW.gap_point)
+            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+        end
+        local gp_on = 0
+        if gp == 1 then
+            gp_on = 1
+        elseif gp == 2 then
+            local bet = m and PATHALGO.block_each_trip(m) or 1
+            if (path[start_idx].column // bet) % 2 == 0 then gp_on = 1 end
+        end
+        PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
+        PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
+        J.sow_state = true
+    end
+    if PSTORE then
+        PSTORE.begin("SOW", { HJ = m.col_gap }, launch_tail)
     else
-        J.enter_map = true
-        send_node(pn.row, J.cur_col)
+        launch_tail()
     end
-    -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
-    -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
-    -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
-    --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
-    --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
-    local gp = 0
-    if rw16 and LW.RW then
-        gp = rw16(LW.RW.gap_point)
-        if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-    end
-    local gp_on = 0
-    if gp == 1 then
-        gp_on = 1
-    elseif gp == 2 then
-        local bet = m and PATHALGO.block_each_trip(m) or 1
-        if (path[start_idx].column // bet) % 2 == 0 then gp_on = 1 end
-    end
-    PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
-    PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
-    J.sow_state = true
     return true
 end
 
@@ -4223,6 +4267,8 @@ return function(ctx)
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
+            -- 参数副本写RW(2026-09-30对齐QT config.ini语义): 启动链0x27从此读
+            if ctx.PARASTORE then ctx.PARASTORE.save_user(t) end
         elseif addr == LW.PU.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU
@@ -4373,6 +4419,8 @@ return function(ctx)
             local bad, msg = check(t, RANGE_T)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_TER_PARA, CODEC.terpara.pack(t))
+            -- 参数副本写RW(2026-09-30对齐QT config.ini语义): 启动链0x25从此读
+            if ctx.PARASTORE then ctx.PARASTORE.save_ter(t) end
         elseif addr == LW.PF.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存)
             local P = LW.PF
@@ -4423,7 +4471,7 @@ end
 
 --================ 装配 =================
 local APP, PROTOCOL, CODEC, LWMAP
-local FILEIO, CSV, STORE, PATHALGO, LOGGER, JOBRUN
+local FILEIO, CSV, STORE, PATHALGO, LOGGER, PARASTORE, JOBRUN
 local pages = {}
 
 -- 屏端时间源(B档): 平台时间 API 未验证, 退化为开机秒计数 "T+<n>s"
@@ -4447,6 +4495,16 @@ local function setup()
         tx = uart_tx, poll_ms = POLL_MS,
     }
 
+    -- 参数副本+启动链(2026-09-30对齐QT: 固件0x27不掉电保存, 每次进入工作
+    -- 模式前重发0x27->0x25; A档装配, 失败时参数页/启动链退化为直发)
+    PARASTORE = load_mod("parastore.lua")
+    if PARASTORE then
+        PARASTORE.init {
+            APP = APP, PROTOCOL = PROTOCOL, CODEC = CODEC, LW = LWMAP,
+            rw16 = rw16, rw16w = rw16w, wstr = wstr,
+        }
+    end
+
     -- B档数据层(整体 pcall 隔离: 2026-09-08 虚拟屏实测 logger.init 读 3:log.txt
     -- 时 file_open 返回 boolean, 类型比较异常曾炸掉整个 on_init 致串口静默;
     -- 任一环节异常只降级 B 档, 不阻断 A 档页面装配)
@@ -4468,11 +4526,13 @@ local function setup()
             if LOGGER then
                 LOGGER.init { fileio = FILEIO, path = "3:log.txt", cap = 500, now = now_s }
                 LOGGER.log("SYS", "屏端启动")
+                if PARASTORE then PARASTORE.set_logger(LOGGER) end
             end
             JOBRUN   = STORE and load_mod("jobrun.lua") or nil
             if JOBRUN then
                 JOBRUN.init {
                     APP = APP, PROTOCOL = PROTOCOL, CODEC = CODEC,
+                    parastore = PARASTORE,
                     STORE = STORE, PATHALGO = PATHALGO, LOGGER = LOGGER,
                     LW = LWMAP, w16 = w16, w32 = w32, wstr = wstr, now = now_s,
                     rw16 = rw16, rw16w = rw16w,     -- AB线RW持久化(2026-09-23自page_abline迁入)
@@ -4496,6 +4556,7 @@ local function setup()
         w16 = w16, w32 = w32, wstr = wstr, r16 = r16, r32 = r32,
         rw16 = rw16, rw16w = rw16w,
         FILEIO = FILEIO, STORE = STORE, JOBRUN = JOBRUN,
+        PARASTORE = PARASTORE,
         LOGGER = LOGGER, PATHALGO = PATHALGO, now = now_s,
     }
     for _, name in ipairs(MODULES) do
@@ -4551,6 +4612,7 @@ end
 function on_run(screen)
     tick_cnt = tick_cnt + 1
     if APP then APP.tick() end             -- 心跳+当前页轮询(节流在 APP)
+    if PARASTORE then PARASTORE.tick() end -- 启动参数链超时保护(2026-09-30)
     if FILEIO then FILEIO.pump() end       -- list_dir 条目流泵(静默超时收割)
 end
 

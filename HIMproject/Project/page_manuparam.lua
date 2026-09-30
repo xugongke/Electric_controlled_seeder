@@ -122,6 +122,8 @@ return function(ctx)
             local bad, msg = check(t, RANGE_T)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_TER_PARA, CODEC.terpara.pack(t))
+            -- 参数副本写RW(2026-09-30对齐QT config.ini语义): 启动链0x25从此读
+            if ctx.PARASTORE then ctx.PARASTORE.save_ter(t) end
         elseif addr == LW.PF.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存)
             local P = LW.PF

@@ -108,6 +108,8 @@ return function(ctx)
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end
             PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
+            -- 参数副本写RW(2026-09-30对齐QT config.ini语义): 启动链0x27从此读
+            if ctx.PARASTORE then ctx.PARASTORE.save_user(t) end
         elseif addr == LW.PU.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU
