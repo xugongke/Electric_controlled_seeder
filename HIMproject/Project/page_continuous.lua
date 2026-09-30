@@ -43,6 +43,11 @@ return function(ctx)
     function page:on_enter()
         w16(LW.CONT.start, 0)
         w16(LW.CONT.stop, 0)
+        -- 密度持久化(2026-09-30): 从config.txt预填, 启动时写回(QT同款)
+        if ctx.PARASTORE then
+            local d = ctx.PARASTORE.load_density()
+            if d and d >= 2 then w32(LW.CONT.density, d) end
+        end
     end
 
     function page:on_leave() end
@@ -63,6 +68,7 @@ return function(ctx)
                 wstr(LW.A.log, "× 连续播种启动失败: 用户参数HJ行距无效(先在用户参数页设置)")
                 return
             end
+            if ctx.PARASTORE then ctx.PARASTORE.save_density(density) end
             local start_lxbz = function()
                 PROTOCOL.send(FNC.CMD_START_LXBZ, CODEC.lxbz.pack {
                     Density = density, CellLen = celllen, Hju = hju, ZhuShu = 0,

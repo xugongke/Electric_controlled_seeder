@@ -1,7 +1,9 @@
 --[[
 page_userparam.lua -- 用户参数页(画面3, 2026-09-28自原参数页拆分)
 ================================================================================
-用户参数(UserParaType 16B): 0x28 进页读快照, 0x27 写入+前端校验。
+用户参数: QT模式(2026-09-30) —— 表单从3:config.txt读(不从下位机回显,
+QT同款: formconfig.cpp只读ini, getUserParameter()声明未用), [保存]只写
+config.txt+RW过道打点(启动任务/测试/连播时由参数链统一下发0x27/0x25)。
 [厂家参数]按钮 = 画面侧功能按钮(打开对话框画面23, 密码数值输入绑 pf_pass,
 确认=关闭对话框+执行通知写 LW.PWD.confirm=1) -> 本页校验密码(515516, 与
 QT formconfig.cpp:172 同源), 正确则置 PWD.ok 并切换到画面4厂家参数页。
@@ -72,13 +74,10 @@ return function(ctx)
                  LW.PWD.confirm, LW.PWD.cancel },
     }
 
-    local function gappoint_rw_load()
-        -- RW掉电保持三态: 0=关 1=开 2=间隔(非法值按关处理)
-        local v = 0
-        if ctx.rw16 and LW.RW then
-            v = ctx.rw16(LW.RW.gap_point)
-            if v ~= 0 and v ~= 1 and v ~= 2 then v = 0 end
-        end
+    local function gappoint_load()
+        -- 过道打点三态: 0=关 1=开 2=间隔(存config.txt [Application]GapPoint)
+        local v = ctx.PARASTORE and ctx.PARASTORE.load_gap() or 0
+        if v ~= 0 and v ~= 1 and v ~= 2 then v = 0 end
         w16(LW.PU.gappoint, v)
     end
 
@@ -96,8 +95,8 @@ return function(ctx)
                 w16(U0.antennadist, sv.AntennaDistance & 0xFFFF)
             end
         end
-        PROTOCOL.send(FNC.GET_USER_PARA)
-        gappoint_rw_load()
+        -- QT模式: 不向下位机读取(0x28能力保留在协议层但页面不使用)
+        gappoint_load()
     end
 
     function page:on_leave() end
@@ -105,25 +104,24 @@ return function(ctx)
     function page:on_frame(f)
         if f.fnc == FNC.GET_USER_PARA then
             local ok2, u = pcall(CODEC.userpara.unpack, f.data)
-            if ok2 then show_user(u); gappoint_rw_load()
+            if ok2 then show_user(u); gappoint_load()
             else wstr(LW.A.log, "userpara unpack err: len=" .. #f.data) end
         end
     end
 
     function page:on_update(addr)
         if addr == LW.PU.write then
-            -- 过道打点持久化RW(三态原值, 不进0x27协议; QT原设计在用户参数页)
-            if ctx.rw16w and LW.RW then
-                local gp = r16(LW.PU.gappoint) or 0
-                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-                ctx.rw16w(LW.RW.gap_point, gp)
-            end
             local t = read_user_form()
             local bad, msg = check(t, RANGE_U)
             if bad then wstr(LW.A.log, "× " .. msg) return end
-            PROTOCOL.send(FNC.SET_USER_PARA, CODEC.userpara.pack(t))
-            -- 参数副本写RW(2026-09-30对齐QT config.ini语义): 启动链0x27从此读
-            if ctx.PARASTORE then ctx.PARASTORE.save_user(t) end
+            -- QT模式: [保存]只写config.txt(启动任务/测试/连播时参数链统一下发)
+            local gp = r16(LW.PU.gappoint) or 0
+            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
+            if ctx.PARASTORE and ctx.PARASTORE.save_user(t, gp) then
+                wstr(LW.A.log, "√ 已保存(作业/测试启动时下发)")
+            elseif ctx.PARASTORE then
+                wstr(LW.A.log, "× 配置写入失败")
+            end
         elseif addr == LW.PU.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU

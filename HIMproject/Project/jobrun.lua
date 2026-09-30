@@ -330,10 +330,11 @@ function jobrun.start(task_name, opts)
         -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
         -- 过道打点使能(2026-09-30三态, 对齐QT:251-259 在0x0A前下发0x31):
         --   0=关(恒0) 1=开(恒1) 2=间隔(隔趟: 本趟列组序号%2==0才打点,
-        --   outsetColumn/bet%2==0 与QT:255同式; 存RW经用户参数页配置)
+        --   outsetColumn/bet%2==0 与QT:255同式; 存config.txt经用户参数页配置)
+        -- 过道打点三态从config.txt读(2026-09-30, RW副本已撤)
         local gp = 0
-        if rw16 and LW.RW then
-            gp = rw16(LW.RW.gap_point)
+        if PSTORE then
+            gp = PSTORE.load_gap()
             if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
         end
         local gp_on = 0

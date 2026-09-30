@@ -307,19 +307,8 @@ LW.LOGV = {
 LW.RW = {
     ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
     ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
-    gap_point = 0x001E, -- u16 过道打点 0/1/2(三态原值)
-    -- 参数副本区(0x0020起, 2026-09-30对齐QT config.ini语义): 固件0x27不掉电
-    -- 保存(hd3005a1/Src/protocol.c:351 纯RAM), 屏端保存参数时写副本,
-    -- 启动链(0x27->0x25->启动)从副本读; 保存为低频人工操作, RW寿命无忧
-    cfg_magic = 0x0020, -- u16 副本有效标志 0x55A5(区别AB的0x55AA)
-    pu_dztime = 0x0021, -- u16 DZTime(ms) 以下均为协议原值
-    pu_hj     = 0x0022, -- i16 HJ(cm)
-    pu_rmp    = 0x0023, -- u32 RMP(占0x0023~24两字)
-    pu_antype = 0x0025, -- u16 AntennaType
-    pu_andist = 0x0026, -- i16 AntennaDistance(cm)
-    ter       = 0x0027, -- 15字连续: a b encodenum encoderdir holenum gearratio
-                        --   microstep x1 bdiroff tapptrigoff tappertime(ms)
-                        --   zeroposen gzen prepercent devtype(0x0027~0x0035)
+    -- 参数配置已迁3:config.txt单轨(2026-09-30, QT模式); gap_point随迁,
+    -- 参数副本区(0x0020起)整体撤销, RW仅存AB线
 }
 
 return LW

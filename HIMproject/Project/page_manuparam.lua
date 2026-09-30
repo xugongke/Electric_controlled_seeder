@@ -121,7 +121,7 @@ return function(ctx)
                 w16(P0.devtype, sv.Resv1)
             end
         end
-        PROTOCOL.send(FNC.GET_TER_PARA)           -- 进页自动读(2026-09-16对齐QT)
+        -- QT模式: 不向下位机读取(0x26能力保留在协议层但页面不使用)
     end
 
     function page:on_leave() end
@@ -139,9 +139,12 @@ return function(ctx)
             local t = read_ter_form()
             local bad, msg = check(t, RANGE_T)
             if bad then wstr(LW.A.log, "× " .. msg) return end
-            PROTOCOL.send(FNC.SET_TER_PARA, CODEC.terpara.pack(t))
-            -- 参数副本写RW(2026-09-30对齐QT config.ini语义): 启动链0x25从此读
-            if ctx.PARASTORE then ctx.PARASTORE.save_ter(t) end
+            -- QT模式: [保存]只写config.txt(启动任务/测试/连播时参数链统一下发)
+            if ctx.PARASTORE and ctx.PARASTORE.save_ter(t) then
+                wstr(LW.A.log, "× 已保存(作业/测试启动时下发)")
+            elseif ctx.PARASTORE then
+                wstr(LW.A.log, "× 配置写入失败")
+            end
         elseif addr == LW.PF.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存)
             local P = LW.PF

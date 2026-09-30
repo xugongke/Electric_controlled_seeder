@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""用户参数页(画面3)回归: 2026-09-30删pu_read加pu_reset引入的逻辑。
+r"""用户参数页(画面3)回归: 2026-09-30 QT模式单轨(config.txt)。
 
-被测: HIMproject/Project/page_userparam.lua + codec.userpara
-  1. 进页自动0x28快照(对齐QT无读按钮)
-  2. pu_reset 重置默认值 = QT formconfig.cpp:187~199 (不下发)
-  3. pu_write: 0x27下发+范围校验+过道打点gappoint三态持久化RW
-  4. 密码对话框确认: 515516正确->PWD.ok=1+切画面4; 错误->ok=0
-  5. RW非法gappoint值(3)按0=关处理
+被测: HIMproject/Project/page_userparam.lua
+  1. QT模式: 进页不发0x28(显示只从本地配置读, QT同款getUserParameter未用)
+  2. 表单预填来自config(parastore桩)
+  3. pu_write: 只写config不下发0x27(启动链统一下发)+范围校验
+  4. pu_reset 恢复QT默认值(不下发不写文件)
+  5. 密码对话框确认: 515516正确->PWD.ok=1+切画面4; 错误->ok=0
+  6. 过道打点三态随[保存]写入config
 
 运行: python hmi_port/tests/test_him_userparam.py
 """
@@ -41,103 +42,99 @@ def main():
     lw = load('lwmap.lua')
     codec = load('codec.lua')
     factory = load('page_userparam.lua')
-    lua.globals().__CODEC = codec
 
     lua.execute(r'''
-__T = { writes = {}, txs = {}, rw = {}, gotos = {} }
+__T = { writes = {}, txs = {}, gotos = {} }
 function __T.w16(a, v) __T.writes[a] = v end
 function __T.w32(a, v) __T.writes[a] = v end
 function __T.wstr(a, v) __T.writes[a] = v end
 function __T.r16(a) return __T.writes[a] or 0 end
 function __T.r32(a) return __T.writes[a] or 0 end
-function __T.rw16(a) return __T.rw[a] end
-function __T.rw16w(a, v) __T.rw[a] = v end
-function __T.send(fnc, data) __T.txs[#__T.txs + 1] = { fnc = fnc, data = data } end
-function __T.goto_screen(id) __T.gotos[#__T.gotos + 1] = id end
+function __T.send(fnc, data) __T.txs[#__T.txs + 1] = fnc end
 function __T.ntx() return #__T.txs end
-function __T.txfnc(i) return __T.txs[i].fnc end
-function __T.txfield(i, name) return __CODEC.userpara.unpack(__T.txs[i].data)[name] end
-function __T.feed_user(page, fnc, lt)
-    page:on_frame({ fnc = fnc, data = __CODEC.userpara.pack(lt) })
-end
+function __T.goto_screen(id) __T.gotos[#__T.gotos + 1] = id end
 ''')
     T = lua.globals().__T
     prot['send'] = T['send']
     PU, SCREEN = lw['PU'], lw['SCREEN']
-    PWD, RW = lw['PWD'], lw['RW']
-    FNC = prot['FNC']
+    PWD = lw['PWD']
     gotos = []
 
     def goto_screen(sid):
         gotos.append(sid)
 
-    def make_page():
-        return factory({'APP': {'goto_screen': goto_screen},
-                        'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
-                        'w16': T['w16'], 'w32': T['w32'], 'wstr': T['wstr'],
-                        'r16': T['r16'], 'r32': T['r32'], 'PARASTORE': None,
-                        'rw16': T['rw16'], 'rw16w': T['rw16w']})
+    saved = {}                      # parastore桩: 记录save调用
+    stub_user = {'DZTime': 1600, 'HJ': 70, 'RMP': 40, 'AntennaType': 1,
+                 'AntennaDistance': 25}
+    stub_gap = [2]
 
-    page = make_page()
+    class PS:
+        @staticmethod
+        def load_user():
+            return stub_user
 
-    def lua_user(**kw):
-        t = dict(DZTime=1600, HJ=70, RMP=40, AntennaType=1,
-                 AntennaDistance=25, CrcCheck=0)
-        # userpara布局含U8Resv, lua侧unpack会带回; pack需含
-        t['U8Resv'] = 0
-        t.update(kw)
-        lt = lua.table()
-        for k, v in t.items():
-            lt[k] = v
-        return lt
+        @staticmethod
+        def load_gap():
+            return stub_gap[0]
+
+        @staticmethod
+        def save_user(u, gp):
+            saved['user'] = dict(u)
+            saved['gp'] = gp
+            return True
+
+    page = factory({'APP': {'goto_screen': goto_screen},
+                    'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
+                    'PARASTORE': PS,
+                    'w16': T['w16'], 'w32': T['w32'], 'wstr': T['wstr'],
+                    'r16': T['r16'], 'r32': T['r32']})
 
     def set_form(**over):
-        base = dict(dztime=1600, hj=70, rmp=40, antennatype=1,
-                    antennadist=25, gappoint=2)
+        base = dict(dztime=1600, hj=70, antennatype=1, antennadist=25,
+                    gappoint=2)
         base.update(over)
         for k, v in base.items():
             T['w16'](PU[k], v)
-        T['w32'](PU['rmp'], base['rmp'])
+        T['w32'](PU['rmp'], 40)
 
-    ntx, txfnc, txfield = T['ntx'], T['txfnc'], T['txfield']
+    ntx = T['ntx']
 
-    print('1) 进页自动0x28快照(对齐QT无读按钮)')
+    print('1) QT模式进页: 不发0x28, 表单从config预填')
     page['on_enter'](page)
-    check(ntx() == 1 and txfnc(1) == FNC['GET_USER_PARA'], 'on_enter自动发0x28')
+    check(ntx() == 0, '进页零发送(0x28能力保留在协议层但页面不用)')
+    check(T['writes'][PU['dztime']] == 1600 and T['writes'][PU['hj']] == 70
+          and T['writes'][PU['rmp']] == 40
+          and T['writes'][PU['antennatype']] == 1,
+          'config值预填表单')
+    check(T['writes'][PU['gappoint']] == 2, '过道打点从config预填=2(间隔)')
 
-    print('2) 0x28应答回显')
-    T['feed_user'](page, FNC['GET_USER_PARA'], lua_user())
-    check(T['writes'][PU['dztime']] == 1600 and T['writes'][PU['hj']] == 70,
-          'DZTime/HJ回显')
-
-    print('3) pu_write: 0x27下发 + gappoint持久化RW')
-    set_form(gappoint=2)
-    n0 = ntx()
+    print('2) pu_write: 只写config不下发0x27')
+    set_form(dztime=1700, gappoint=1)
     page['on_update'](page, PU['write'])
-    check(ntx() == n0 + 1 and txfnc(ntx()) == FNC['SET_USER_PARA'], '发出0x27')
-    check(txfield(ntx(), 'DZTime') == 1600 and txfield(ntx(), 'RMP') == 40
-          and txfield(ntx(), 'AntennaType') == 1, '表单值进报文')
-    check(T['rw'][RW['gap_point']] == 2, '过道打点=2(间隔)写入RW掉电区')
+    check(ntx() == 0, '不发0x27(启动链统一下发)')
+    check(saved.get('user', {}).get('DZTime') == 1700
+          and saved.get('user', {}).get('HJ') == 70,
+          '表单值写入config')
+    check(saved.get('gp') == 1, '过道打点=1随保存写入')
 
-    print('4) pu_reset: 表单恢复QT默认值(formconfig.cpp:187~199), 不下发')
-    set_form(dztime=999, hj=99, rmp=9)
-    n0 = ntx()
+    print('3) pu_reset: 恢复QT默认值(不下发不写文件)')
+    set_form(dztime=999, hj=99, gappoint=0)
+    saved.clear()
     page['on_update'](page, PU['reset'])
     defaults = dict(dztime=1500, hj=60, antennatype=0, antennadist=0,
                     gappoint=1)
     check(all(T['writes'][PU[k]] == v for k, v in defaults.items()),
           '倒种1.5s/行间距60cm/单天线/天线间距0/过道开')
     check(T['writes'][PU['rmp']] == 36, '转速36')
-    check(ntx() == n0 and T['rw'][RW['gap_point']] == 2,
-          '重置不发0x27且不立即改RW(仍为第3节的2, 随下次保存)')
+    check(ntx() == 0 and 'user' not in saved, '重置不发帧不写文件(需再点保存)')
 
-    print('5) 范围校验: HJ低于下限拒绝下发')
+    print('4) 范围校验: HJ低于下限拒绝写')
     set_form(hj=5)
-    n0 = ntx()
+    saved.clear()
     page['on_update'](page, PU['write'])
-    check(ntx() == n0, 'HJ=5<10 不发0x27')
+    check('user' not in saved, 'HJ=5<10 不写config')
 
-    print('6) 密码对话框确认')
+    print('5) 密码对话框确认')
     T['w32'](lw['PF']['pass'], 515516)
     page['on_update'](page, PWD['confirm'])
     check(T['writes'][PWD['ok']] == 1 and gotos == [SCREEN['MANUPARAM']],
@@ -147,10 +144,10 @@ end
     check(T['writes'][PWD['ok']] == 0 and gotos == [SCREEN['MANUPARAM']],
           '密码错误 -> PWD.ok=0 不切画面')
 
-    print('7) RW非法gappoint按关处理')
-    T['rw'][RW['gap_point']] = 3
+    print('6) config缺失时gappoint按关处理')
+    stub_gap[0] = 7                  # 非法值
     page['on_enter'](page)
-    check(T['writes'][PU['gappoint']] == 0, 'RW=3(非法) -> 显示0=关')
+    check(T['writes'][PU['gappoint']] == 0, '非法gap -> 显示0=关')
 
     print()
     if FAIL:
