@@ -19,9 +19,20 @@ PROJ = os.path.join(HERE, 'Project')
 MAIN = os.path.join(PROJ, 'main.lua')
 
 MODULES = ['lwmap', 'protocol', 'codec', 'csv', 'fileio', 'store', 'app',
-           'pathalgo', 'jobrun', 'logger', 'page_task', 'page_map',
-           'page_userparam', 'page_manuparam', 'page_continuous',
+           'pathalgo', 'jobrun', 'logger', 'parastore', 'page_task',
+           'page_map', 'page_userparam', 'page_manuparam', 'page_continuous',
            'page_testdiag', 'page_history', 'page_logview']
+
+# 防再犯(2026-09-30): main.lua加载列表的模块必须在上面清单里, 否则
+# _MODS兜底区缺源码 -> 真机/虚拟屏load_mod失败 -> 功能静默降级为旧行为
+# (本次parastore未嵌入即此因, 用户实测虚拟屏进测试不发0x27暴露)
+def _crosscheck():
+    import re
+    mt = open(os.path.join(PROJ, 'main.lua'), 'rb').read().decode('gb18030')
+    loaded = set(re.findall(r'"(\w+\.lua)"', mt[:6000]))
+    missing = [n for n in sorted(loaded) if n[:-4] not in MODULES]
+    if missing:
+        raise SystemExit('[sync_mods] 清单缺模块(将导致内嵌缺失): %s' % missing)
 
 
 def crlf(b):

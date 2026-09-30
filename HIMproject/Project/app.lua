@@ -61,7 +61,20 @@ function APP.set_always_poll(fnc) APP.always_poll = fnc end
 --      LW.A.link=0 + "× 通信中断"提示; 0x21等常驻轮询照发(链路恢复即自动续上)
 --   3) 掉线期间维持 0x22 探测; 收到 0x22 应答 -> 恢复在线(LW.A.link=1),
 --      并补发一次 0xA3 读版本(覆盖"下位机固件升级后立即取新版本号"场景);
---      平时不轮询 0xA3(仅开机与重连各一次)
+--      平时不轮询 0xA3(仅开机与重连各一次)--------------------------------------------------------------------
+-- 页面回调异常防护(2026-09-30): 任何 on_enter/on_frame/on_update/on_tick
+-- 抛错只降级为log, 不炸穿系统回调(虚拟屏RW抛错曾中断parastore启动链)
+--------------------------------------------------------------------
+local function safe_call(name, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        print("[HMI] " .. name .. " err: " .. tostring(err))
+        if ENV then ENV.wstr(LW.A.log, "× " .. name .. "异常") end
+    end
+    return ok
+end
+
+
 --------------------------------------------------------------------
 APP.hb = {
     online = false,   -- 上电视为离线, 首个0x22应答即转在线(并触发一次0xA3)
@@ -83,12 +96,12 @@ local function hb_on_debug(f)
     -- 调试串显示(2026-09-24): 画面文本控件统一GB2312, 0x22应答本身即GB2312
     -- 字节流, 直通写入 LW.A.log 正确显示中文(原ASCII过滤已删, GB2312转码待办完结)
     ENV.wstr(LW.A.log, f.data)
-    if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end   -- 页面显示照旧
+    if APP.cur and APP.cur.on_frame then safe_call("on_frame", APP.cur.on_frame, APP.cur, f) end   -- 页面显示照旧
 end
 
 local function hb_on_ver(f)
     ENV.wstr(LW.A.ver, f.data)              -- 任意页面都更新版本显示
-    if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
+    if APP.cur and APP.cur.on_frame then safe_call("on_frame", APP.cur.on_frame, APP.cur, f) end
 end
 
 --------------------------------------------------------------------
@@ -143,7 +156,7 @@ end
 --------------------------------------------------------------------
 function APP.set_screen(sid)
     APP.cur = APP.pages[sid]
-    if APP.cur and APP.cur.on_enter then APP.cur:on_enter() end
+    if APP.cur and APP.cur.on_enter then safe_call("on_enter", APP.cur.on_enter, APP.cur) end
 end
 
 function APP.goto_screen(sid)
@@ -154,6 +167,7 @@ function APP.goto_screen(sid)
         APP.set_screen(sid)      -- PC测试环境兜底(无系统API)
     end
 end
+
 
 --------------------------------------------------------------------
 -- 周期心跳(on_run 调用): 心跳计数 + 仅对可见页发 poll_cmds(轮询节流)
@@ -183,7 +197,7 @@ function APP.tick()
         end
     end
     -- 页面 tick 钩子(B档): 0x21 被常驻订阅截获后, 页面级轻刷新走这里
-    if APP.cur and APP.cur.on_tick then APP.cur:on_tick() end
+    if APP.cur and APP.cur.on_tick then safe_call("on_tick", APP.cur.on_tick, APP.cur) end
 end
 
 --------------------------------------------------------------------
@@ -195,13 +209,13 @@ function APP.feed_frame(f)
     APP.stat.rx = APP.stat.rx + 1
     ENV.w16(LW.A.rx_cnt, APP.stat.rx)
     local h = APP.always[f.fnc]                 -- 常驻订阅优先(作业0x21不随页面中断)
-    if h then h(f) return end
+    if h then safe_call("always_0x" .. string.format("%02X", f.fnc), h, f) return end
     if #f.data == 1 and ACK_CMDS[f.fnc] then
         local ok = string.byte(f.data, 1)
         if APP.cur and APP.cur.on_ack then APP.cur:on_ack(f.fnc, ok) end
         return
     end
-    if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
+    if APP.cur and APP.cur.on_frame then safe_call("on_frame", APP.cur.on_frame, APP.cur, f) end
 end
 
 --------------------------------------------------------------------
@@ -213,7 +227,7 @@ function APP.on_button(addr)
     local page = APP.by_addr[addr]
     if not page then return false end
     APP.diag(5)
-    if page.on_update then page:on_update(addr, 1) end
+    if page.on_update then safe_call("on_update", page.on_update, page, addr, 1) end
     ENV.w16(addr, 0)                    -- 复位按钮
     return true
 end

@@ -226,6 +226,52 @@ __PATHALGO = {
           '0x25 ACK后原启动段完整执行 0x24/0x20/0x31/0x0A: %s'
           % [hex(f) for f in seq[2:]])
 
+    print('8) 虚拟屏离线复现: RW访问抛错+无下位机, 进测试仍应发0x27')
+    lua2 = lupa_lua.LuaRuntime(unpack_returned_tuples=True)
+    g = lua2.globals()
+    g.__MAINP = HIM.replace(chr(92), '/') + '/main.lua'
+    # 平台桩: VT_RW读抛错(复现虚拟屏), LW返回预设, 无文件API(B档降级)
+    lua2.execute(r'''
+__SIM = { lw = {}, txs = {} }
+VT_LW, VT_RW = 0, 2
+function get_uint16(vt, addr)
+    if vt == VT_RW then error("virtual screen: RW unsupported") end
+    return __SIM.lw[addr] or 0
+end
+function set_uint16(vt, addr, v)
+    if vt == VT_RW then error("virtual screen: RW unsupported") end
+    __SIM.lw[addr] = v
+end
+function set_string(vt, addr, s) __SIM.lw[addr] = s end
+function get_string(vt, addr) return __SIM.lw[addr] or "" end
+function uart_send(ch, bytes)
+    local s = ""
+    for i = 0, #bytes do if bytes[i] then s = s .. string.char(bytes[i]) end end
+    __SIM.txs[#__SIM.txs + 1] = s
+end
+uart_send_data = uart_send
+function print(...) end          -- 静音装载日志
+function set_run_cycle(ms) end   -- 平台轮询设置桩
+function uart_set_timeout(ch, ms) end
+''')
+    lua2.execute('dofile(__MAINP)')      # main.lua顶层定义全局回调, 无返回值
+    lua2.execute('on_init()')
+    # 模拟切到画面5后按[进入测试]: LW.TD.enter 写1 -> on_update
+    SIM = g.__SIM
+    SCREEN_TEST, TD_ENTER = 5, 0x1740      # lwmap: SCREEN.TESTDIAG / TD.enter
+    lua2.execute('on_screen_change(%d)' % SCREEN_TEST)
+    SIM['lw'][TD_ENTER] = 1
+    lua2.execute('on_update(0, VT_LW, %d)' % TD_ENTER)
+    lua2.execute('__FNC2 = {} '
+                 'for i = 1, #__SIM.txs do __FNC2[i] = string.byte(__SIM.txs[i], 2) end')
+    n2 = lua2.eval('#__SIM.txs')
+    fncs2 = [lua2.globals().__FNC2[i] for i in range(1, n2 + 1)]
+    check(FNC['SET_USER_PARA'] in fncs2,
+          'RW抛错下进测试仍发0x27(修复前整个回调被吞): %s'
+          % [hex(f) for f in fncs2])
+    check(FNC['CMD_START_TEST'] not in fncs2,
+          'ACK未回 -> 不发0x0E(链等待中)')
+
     print()
     if FAIL:
         print('参数链: %d项失败' % FAIL)
