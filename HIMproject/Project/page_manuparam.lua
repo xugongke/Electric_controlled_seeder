@@ -103,6 +103,24 @@ return function(ctx)
             APP.goto_screen(LW.SCREEN.USERPARAM)  -- 物理踢回画面3          -- 未解锁踢回
             return
         end
+        -- 副本预填(2026-09-30): 下位机离线/屏重启后表单不显示0;
+        -- 在线时随后被0x26应答覆盖; tappertime按LW单位0.01s换算
+        if ctx.PARASTORE then
+            local sv = ctx.PARASTORE.load_ter()
+            if sv then
+                local P0 = LW.PF
+                w16(P0.a, sv.A & 0xFFFF);         w16(P0.b, sv.B & 0xFFFF)
+                w16(P0.encodenum, sv.EncodeNum);  w16(P0.encoderdir, sv.EncoderDir)
+                w16(P0.holenum, sv.HoleNum);      w16(P0.gearratio, sv.GearRatio)
+                w16(P0.microstep, sv.MicroStepValue & 0xFFFF)
+                w16(P0.x1, sv.X1 & 0xFFFF);       w16(P0.bdiroff, sv.BDiroff & 0xFFFF)
+                w16(P0.tapptrigoff, sv.TappTrigOff & 0xFFFF)
+                w16(P0.tappertime, ((sv.TapperTime or 0) + 5) // 10)
+                w16(P0.zeroposen, sv.ZeroPosEn);  w16(P0.gzen, sv.GZEn)
+                w16(P0.prepercent, sv.PrePercent)
+                w16(P0.devtype, sv.Resv1)
+            end
+        end
         PROTOCOL.send(FNC.GET_TER_PARA)           -- 进页自动读(2026-09-16对齐QT)
     end
 

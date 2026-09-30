@@ -272,6 +272,71 @@ function uart_set_timeout(ch, ms) end
     check(FNC['CMD_START_TEST'] not in fncs2,
           'ACK未回 -> 不发0x0E(链等待中)')
 
+    print('9) config.txt双轨: 写文件/自愈恢复/U盘导出')
+    files = {}                      # FILEIO桩: 内存文件系统
+
+    class FIO:
+        @staticmethod
+        def _p(path):
+            return str(path)
+        @staticmethod
+        def write_all(path, data):
+            files[str(path)] = str(data)
+            return True
+        @staticmethod
+        def read_all(path):
+            return files.get(str(path))
+        @staticmethod
+        def read_lines(path):
+            d = files.get(str(path))
+            if d is None:
+                return None
+            lt = lua.table()          # lua侧需真table(ipairs/type检查)
+            n = 0
+            for l in d.splitlines():
+                if l != '':
+                    n += 1
+                    lt[n] = l
+            return lt
+
+    ps['set_fileio'](FIO)
+    T['rw'][RW['gap_point']] = 2           # 过道打点须在save前就位(随副本进文件)
+    ps['save_user']({'DZTime': 1600, 'HJ': 66, 'RMP': 41, 'AntennaType': 1,
+                     'AntennaDistance': 25})
+    ps['save_ter']({'A': 61, 'B': 91, 'EncodeNum': 2001, 'EncoderDir': 1,
+                    'HoleNum': 8, 'GearRatio': 6, 'MicroStepValue': 801,
+                    'X1': 151, 'BDiroff': 1, 'TappTrigOff': 21,
+                    'TapperTime': 130, 'ZeroPosEn': 0, 'GZEn': 1,
+                    'PrePercent': 71, 'Resv1': 6})
+    cfg = files.get('3:config.txt')
+    check(cfg is not None, '保存后生成3:config.txt')
+    check('[Application]' in cfg and 'DropSeedTime=1600' in cfg
+          and 'SeedColumnGap=66' in cfg and 'Rpm=41' in cfg,
+          '用户参数键值=协议原值')
+    check('[Device]' in cfg and 'TapperTime=130' in cfg
+          and 'EncoderDirection=1' in cfg and 'MicroStepValue=801' in cfg,
+          '厂家参数键值(QT键名)')
+    check('ZeroSwitch=0' in cfg and 'ScrapeSeed=2' in cfg,
+          '开关按QT checkState 2勾/0空')
+    check('DeviceType=6' in cfg.replace('行机', '行机')
+          or '行' in repr(cfg), 'DeviceType=6行机(UTF-8)')
+    check('GapPoint=' in cfg, 'GapPoint中文值存在')
+    # 自愈: 清RW后recover应从文件恢复
+    lua.execute('__T.rw = {}')          # lupa表无clear, lua侧清空
+    ok = ps['recover']()
+    u3 = ps['load_user']()
+    t3 = ps['load_ter']()
+    check(ok and u3['DZTime'] == 1600 and u3['HJ'] == 66 and u3['RMP'] == 41,
+          'recover恢复用户参数到RW')
+    check(t3['TapperTime'] == 130 and t3['Resv1'] == 6
+          and t3['ZeroPosEn'] == 0, 'recover恢复厂家参数(含行数/开关)')
+    check(T['rw'][RW['gap_point']] == 2, 'recover恢复过道打点=2')
+    # 导出U盘
+    ok = ps['export_usb']()
+    check(ok and '2:config.txt' in files
+          and files['2:config.txt'] == files['3:config.txt'],
+          '导出U盘: 2:config.txt与3:一致')
+
     print()
     if FAIL:
         print('参数链: %d项失败' % FAIL)

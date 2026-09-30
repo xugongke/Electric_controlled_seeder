@@ -47,6 +47,7 @@ pu_antennadist,LW1625,i16 AntennaDistance 天线距离
 pu_gappoint,LW1626,u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点，
 pu_write,LW1643,按钮 保存 -> 0x27(读表单+范围校验+gappoint持久化RW;
 pu_reset,LW1645,按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:187~199，
+pu_cfgexp,LW1646,按钮 导出配置 -> 3:config.txt 拷贝到 2:U盘
 td_encodercnt,LW1700,u32 编码器计数(占2字)
 td_bdcnt,LW1702,u32 北斗计数(占2字)
 td_loufei1,LW1704,u32 漏肥计数第1路

@@ -68,7 +68,8 @@ return function(ctx)
     local page = {
         id = LW.SCREEN.USERPARAM,
         poll_cmds = {},
-        addrs = { LW.PU.write, LW.PU.reset, LW.PWD.confirm, LW.PWD.cancel },
+        addrs = { LW.PU.write, LW.PU.reset, LW.PU.cfgexp,
+                 LW.PWD.confirm, LW.PWD.cancel },
     }
 
     local function gappoint_rw_load()
@@ -82,6 +83,19 @@ return function(ctx)
     end
 
     function page:on_enter()                     -- 进页读用户参数快照
+        -- 副本预填(2026-09-30): 下位机离线/屏重启后表单不显示0;
+        -- 在线时随后被0x28应答覆盖为固件当前值
+        if ctx.PARASTORE then
+            local sv = ctx.PARASTORE.load_user()
+            if sv then
+                local U0 = LW.PU
+                w16(U0.dztime, sv.DZTime)
+                w16(U0.hj, sv.HJ & 0xFFFF)
+                w32(U0.rmp, sv.RMP)
+                w16(U0.antennatype, sv.AntennaType)
+                w16(U0.antennadist, sv.AntennaDistance & 0xFFFF)
+            end
+        end
         PROTOCOL.send(FNC.GET_USER_PARA)
         gappoint_rw_load()
     end
@@ -115,6 +129,14 @@ return function(ctx)
             local U = LW.PU
             for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
             wstr(LW.A.log, "√ 已恢复默认值, 保存后生效")
+        elseif addr == LW.PU.cfgexp then
+            -- 导出配置到U盘(3:config.txt -> 2:config.txt)
+            if ctx.PARASTORE then
+                local ok = ctx.PARASTORE.export_usb()
+                if not ok then wstr(LW.A.log, "× 导出失败(插U盘?已保存?)") end
+            else
+                wstr(LW.A.log, "× 导出不可用")
+            end
         elseif addr == LW.PWD.confirm then
             -- 密码对话框确认(关闭对话框按钮执行通知)
             local pw = r32(LW.PF.pass) or 0

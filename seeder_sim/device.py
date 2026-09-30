@@ -2,7 +2,8 @@
 """虚拟设备参数与持久化(模拟 EEPROM)。
 
 - 参数默认值对齐 hd3005a1/Src/para.c ParaInit()/ParaLegalCheck()
-- 0x25/0x27 设置参数后应用相同合法化检查并保存到 JSON 文件
+- 0x25 设置厂家参数后合法化检查并保存到 JSON 文件(对齐固件 WriteTerPara 落 EEPROM)
+- 0x27 设置用户参数仅写 RAM 不落盘(对齐固件 protocol.c:351, 掉电即丢)
 - 行数(4/6)由 0x25 厂家参数偏移23的 U8Resv2 通知(上位机 config.ini 的 DeviceType)
 """
 
