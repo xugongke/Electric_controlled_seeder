@@ -42,10 +42,11 @@ local MODULES = {
 
 --================ 平台适配层 =================
 local function w16(addr, v)
-    if set_uint16 and v then set_uint16(VT_LW, addr, v & 0xFFFF) end
+    -- addr/v双守卫(nil地址曾以set_uint16 arg2=nil炸穿回调, 2026-10-08)
+    if set_uint16 and v and addr then set_uint16(VT_LW, addr, v & 0xFFFF) end
 end
 local function w32(addr, v)
-    if set_int32 and v then set_int32(VT_LW, addr, v) end
+    if set_int32 and v and addr then set_int32(VT_LW, addr, v) end
 end
 local function wstr(addr, s)
     if set_string and s then pcall(set_string, VT_LW, addr, s) end
@@ -1174,11 +1175,14 @@ end
 --   路由到声明该地址的页面, 处理后复位按钮(允许重复触发)
 --   【根因教训】复位只对按钮地址写0, 绝不波及其他 LW(2026-08-28 事故)
 --------------------------------------------------------------------
-function APP.on_button(addr)
+function APP.on_button(addr, v)
     local page = APP.by_addr[addr]
     if not page then return false end
     APP.diag(5)
-    if page.on_update then safe_call("on_update", page.on_update, page, addr, 1) end
+    -- v默认1(按钮写1); ABP.req等功能通知可携带模式值(2=查看),
+    -- 页面on_update按需读r16获取(2026-10-08: 查看AB线曾被v~=1过滤丢弃)
+    v = v or 1
+    if page.on_update then safe_call("on_update", page.on_update, page, addr, v) end
     ENV.w16(addr, 0)                    -- 复位按钮
     return true
 end
@@ -5212,8 +5216,8 @@ function on_update(slave, vtype, addr)
     if vtype ~= VT_LW then return end
     if not APP then return end
     local v = r16(addr)
-    if v ~= 1 then return end              -- 只响应写1
-    APP.on_button(addr)                    -- 路由到页面(内部复位按钮)
+    if v == 0 then return end              -- 0=复位态不响应
+    APP.on_button(addr, v)                 -- 路由到页面(v随addr传, ABP.req=2查看)
 end
 
 function on_screen_change(screen)

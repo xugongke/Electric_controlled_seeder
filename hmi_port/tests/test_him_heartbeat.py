@@ -143,6 +143,11 @@ function __PG2:on_update(a) self.hits = self.hits + 1 end
     hit2 = app['on_button'](7777)
     check(hit2 and lua.globals().__PG2['hits'] == 1,
           'addrs含nil项不再截断后续地址注册(page_task按钮无反应根因)')
+    # v=2(查看AB线等功能通知值)也路由(2026-10-08: 曾被v~=1过滤丢弃)
+    lua.globals().__PG2['hits'] = 0
+    hit3 = app['on_button'](7777, 2)
+    check(hit3 and lua.globals().__PG2['hits'] == 1,
+          'on_button携带模式值2路由(查看AB线不再丢事件)')
 
     print()
     if FAIL:

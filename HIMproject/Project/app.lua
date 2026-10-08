@@ -228,11 +228,14 @@ end
 --   路由到声明该地址的页面, 处理后复位按钮(允许重复触发)
 --   【根因教训】复位只对按钮地址写0, 绝不波及其他 LW(2026-08-28 事故)
 --------------------------------------------------------------------
-function APP.on_button(addr)
+function APP.on_button(addr, v)
     local page = APP.by_addr[addr]
     if not page then return false end
     APP.diag(5)
-    if page.on_update then safe_call("on_update", page.on_update, page, addr, 1) end
+    -- v默认1(按钮写1); ABP.req等功能通知可携带模式值(2=查看),
+    -- 页面on_update按需读r16获取(2026-10-08: 查看AB线曾被v~=1过滤丢弃)
+    v = v or 1
+    if page.on_update then safe_call("on_update", page.on_update, page, addr, v) end
     ENV.w16(addr, 0)                    -- 复位按钮
     return true
 end
