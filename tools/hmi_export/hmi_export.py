@@ -113,54 +113,72 @@ def fmt_num(v):
 # ---------------------------------------------------------------- 渲染(与csv.lua render_map一致)
 
 def render_map_csv(m):
-    L = [
-        '; 组态屏地图文件 (Electric Seeder HMI, 由hmi_export从QT上位机数据导出)',
-        '; 编码GB2312, 以";"开头的注释行导入时自动忽略',
-        '; #MAP,地图显示名',
-        '; #DIM,排数,列数,机器行数,行间距cm[,小区行数]',
-        '; #ROWLEN,行长cm: 每排一条, 共排数条',
-        '; #AISLE,过道cm: 排间过道, 共排数+1条',
-        '; #AB,线名,A点纬度,A点经度,B点纬度,B点经度,起始方向角,计算方向角,'
-        'A点排,方向(0反向/1同向),起始状态,方向标志,偏移长度cm,偏移时间ms '
-        ': 地图绑定的AB线, 无则整段省略',
-        '; #BLOCKS 小区矩阵(1基): 排,列,编号,密度(株/亩),是否播种',
-        '#MAP,%s' % m.name,
-    ]
-    if (m.block_col or 1) > 1:
-        L.append('#DIM,%d,%d,%d,%s,%d' % (m.rows, m.cols, m.machine_cols,
-                                          fmt_num(m.col_gap), m.block_col))
-    else:
-        L.append('#DIM,%d,%d,%d,%s' % (m.rows, m.cols, m.machine_cols,
-                                       fmt_num(m.col_gap)))
-    for r in range(m.rows):
-        L.append('#ROWLEN,%s' % fmt_num(m.rowlen[r]))
-    for i in range(m.rows + 1):
-        L.append('#AISLE,%s' % fmt_num(m.aisle[i]))
+    """区块式布局(2026-10-08, 与QT上位机xlsx导出同款; csv.lua.parse_map_grid解析)"""
+    L = []
+    row = lambda *cells: L.append(','.join(str(c) for c in cells))
+    row('信息', '', '', '')
+    row('名称', m.name)
+    row('类型', '播种', '排长(cm)', '过道长(cm)')
+    labels = ['创建时间', '修改时间', '备注', '排', '列',
+              '小区行数', '机器行数', '行间距(cm)']
+    meta_rows = max(8, m.rows + 1)
+    for i in range(1, meta_rows + 1):
+        lab = labels[i - 1] if i <= len(labels) else ''
+        b = ''
+        if lab == '排':
+            b = m.rows
+        elif lab == '列':
+            b = m.cols
+        elif lab == '小区行数':
+            b = m.block_col or 1
+        elif lab == '机器行数':
+            b = m.machine_cols
+        elif lab == '行间距(cm)':
+            b = fmt_num(m.col_gap)
+        c = fmt_num(m.rowlen[i - 1]) if i <= m.rows else ''
+        d = fmt_num(m.aisle[i - 1]) if i <= m.rows + 1 else ''
+        row(lab, b, c, d)
+    row('', '', '', '')
     if m.ab:
         ab = m.ab
-        L.append('#AB,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d' % (
-            ab['name'], fmt_num(ab['sn']), fmt_num(ab['se']), fmt_num(ab['en']),
-            fmt_num(ab['ee']), fmt_num(ab['sdir']), fmt_num(ab['cdir']),
-            ab['a_row'], ab['abdir'],
-            ab.get('startstate', 1), ab.get('calcdirflag', 1),
-            ab.get('offlen', 0), ab.get('bdofftime', 100)))
-    L.append('#BLOCKS')
+        row('AB线', '', '', '')
+        for k in ('sn', 'se', 'en', 'ee', 'sdir', 'cdir'):
+            pass
+        row('StartN', fmt_num(ab['sn']))
+        row('StartE', fmt_num(ab['se']))
+        row('EndBN', fmt_num(ab['en']))
+        row('EndBE', fmt_num(ab['ee']))
+        row('StartDir', fmt_num(ab['sdir']))
+        row('CalcDir', fmt_num(ab['cdir']))
+        row('StartState', ab.get('startstate', 1))
+        row('CalcDirFlag', ab.get('calcdirflag', 1))
+        row('OffLen', ab.get('offlen', 0))
+        row('BDOffTime', ab.get('bdofftime', 100))
+        row('Resv', 0)
+        row('CrcCheck', 0)
+        row('A点排', ab['a_row'])
+        row('A点列', ab.get('a_col', 0))
+        row('方向', 'TRUE' if ab['abdir'] else 'FALSE')
+        row('名称', ab['name'])
+        row('', '', '', '')
+    hd = [''] + ['%d列' % (c + 1) for c in range(m.cols)]
+
+    def matrix(title, get):
+        row(title, '', '', '')
+        L.append(','.join(hd))
+        for r in range(m.rows, 0, -1):
+            vals = ['%d排' % r]
+            for c in range(m.cols):
+                b = m.blocks[r - 1][c]
+                vals.append(get(b))
+            L.append(','.join(str(v) for v in vals))
+        row('', '', '', '')
+
+    matrix('编号', lambda b: b.num)
+    matrix('密度', lambda b: b.density)
+    matrix('是否播种', lambda b: 1 if b.sow else 0)
     warn_nonnum = []
-    for r in range(m.rows):
-        for c in range(m.cols):
-            b = m.blocks[r][c]
-            num = b.num
-            try:
-                num_i = int(float(num))
-            except (TypeError, ValueError):
-                num_i = r * m.cols + c + 1          # 非数字编号 -> 顺位替代
-                warn_nonnum.append('(%d,%d)%s' % (r + 1, c + 1, num))
-            L.append('%d,%d,%d,%d,%d' % (r + 1, c + 1, num_i, b.density,
-                                         1 if b.sow else 0))
     return '\r\n'.join(L) + '\r\n', warn_nonnum
-
-
-# ---------------------------------------------------------------- 读取: SQLite
 
 def read_maps_from_db(db_path):
     con = sqlite3.connect(db_path)
@@ -204,6 +222,7 @@ def read_maps_from_db(db_path):
                             'en': abr['EndBN'], 'ee': abr['EndBE'],
                             'sdir': abr['StartDir'], 'cdir': abr['CalcDir'],
                             'a_row': r['ARow'] or 0,
+                            'a_col': r['AColumn'] or 0,
                             'abdir': 1 if r['ABLineDirection'] else 0,
                             'startstate': abr['StartState'],
                             'calcdirflag': abr['CalcDirFlag'],
@@ -251,6 +270,7 @@ def read_map_from_xlsx(path):
                 'en': vals.get('EndBN', 0.0), 'ee': vals.get('EndBE', 0.0),
                 'sdir': vals.get('StartDir', 0.0), 'cdir': vals.get('CalcDir', 0.0),
                 'a_row': int(vals.get('A点排', 0) or 0),
+                'a_col': int(vals.get('A点列', 0) or 0),
                 'abdir': 1 if vals.get('方向') else 0,
                 'startstate': vals.get('StartState'),
                 'calcdirflag': vals.get('CalcDirFlag'),
@@ -530,7 +550,8 @@ def selftest():
           % ('通过' if ok0 else '失败'))
 
     text, warns = render_map_csv(m)
-    assert '#MAP,对照田' in text and '#DIM,5,2,6,60' in text
+    assert '信息' in text.splitlines()[0] and '行间距(cm),60' in text
+    assert 'A点排,0' in text and 'A点列,0' in text and '方向,TRUE' in text
     print('  [通过] 渲染: #MAP/#DIM 头部正确%s' % (' 警告:' + warns if warns else ''))
 
     print('2) HIM工程 csv.lua 真实解析器回读')
@@ -544,14 +565,23 @@ def selftest():
                                         '..', '..', 'HIMproject', 'Project'))
     lua.globals().__P = os.path.join(him, 'csv.lua').replace('\\', '/')
     csv = lua.execute('local f = assert(loadfile(__P)); return f()')
-    pm, msgs = csv['parse_map'](text)
+    # 屏端按GB2312字节比较中文段名(信息/类型/名称), 须传字节而非UTF-8串
+    pm, msgs = csv['parse_map'](text.encode('gb2312'))
+    lua.globals().__PMX = pm
+    name_hex = lua.execute(
+        'return (__PMX.name or ""):gsub(".", function(c) '
+        'return string.format("%02x", string.byte(c)) end)')
+    if isinstance(name_hex, tuple):
+        name_hex = name_hex[0]          # gsub返回(串, 次数)
+    name_cn = bytes.fromhex(name_hex).decode('gb2312') if name_hex else ''
     ok2 = (pm is not None
-           and pm['name'] == '对照田' and pm['rows'] == 5 and pm['cols'] == 2
+           and name_cn == '对照田' and pm['rows'] == 5 and pm['cols'] == 2
            and pm['machine_cols'] == 6
            and pm['blocks'][4][1]['density'] == 4000
            and pm['blocks'][0][0]['sow'] == 1
            and pm['ab'] is not None and pm['ab']['a_row'] == 0
            and pm['ab']['abdir'] == 1
+           and pm['ab']['a_col'] == 0
            and pm['ab']['startstate'] == 1 and pm['ab']['calcdirflag'] == 0
            and pm['ab']['offlen'] == 60 and pm['ab']['bdofftime'] == 100)
     print('  [%s] parse_map回读: 名称/维度/密度/播种/AB 全部正确%s' % (

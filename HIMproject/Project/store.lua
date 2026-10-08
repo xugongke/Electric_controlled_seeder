@@ -100,6 +100,7 @@ function store.map_import_text(name, text)
         return nil, "地图名非法"
     end
     local m, msgs = C.parse_map(text)
+    if not m.name then m.name = name end   -- 区块式无"名称"行: 用导入名(2026-10-08)
     if not m then
         return nil, "地图解析失败: " .. (msgs[1] or "?")
     end

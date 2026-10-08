@@ -221,7 +221,9 @@ function jobrun.ab_bind_map(map_name, name, pa)
              a_row = a_row, abdir = abdir, has = true,
              -- BDPara下发参数随线保存(2026-10-08, 0x24/查看用存储真值)
              startstate = p.StartState or 1, calcdirflag = p.CalcDirFlag or 1,
-             offlen = p.OffLen or 0, bdofftime = p.BDOffTime or 100 }
+             offlen = p.OffLen or 0, bdofftime = p.BDOffTime or 100,
+             -- A点列(QT aColumn: 农机图标列定位输入, 2026-10-08随格式补)
+             a_col = (J and J.cur_col) or 0 }
     if STORE.map_save and not STORE.map_save(map_name) then
         return nil, "地图落盘失败"
     end
@@ -460,6 +462,9 @@ function jobrun.ab_dlg_open(mode)
                              CalcDirFlag = m.ab.calcdirflag or 1,
                              OffLen = m.ab.offlen or 0,
                              BDOffTime = m.ab.bdofftime or 100 })
+            -- A点排/方向为地图本地属性(0x23应答无), 查看时显示绑定值
+            w16(LW.AB.arow, m.ab.a_row or 0)
+            w16(LW.AB.abdir, m.ab.abdir or 0)
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()

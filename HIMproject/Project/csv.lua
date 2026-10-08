@@ -111,11 +111,153 @@ local function fmt_num(v)
     return trim_zeros(string.format("%.8f", v))  -- 8位小数=GPS毫米级, 去尾零
 end
 
+-------------------------------------------------------------------- 区块式解析(2026-10-08)
+-- 布局=QT上位机xlsx导出同款(用户样例), 单文件五区块:
+--   信息(键值+排长/过道序列藏C/D列) / AB线(BDPara全字段+A点排/A点列/
+--   方向/名称) / 编号 / 密度 / 是否播种(矩阵, 行倒序N排在上, 列从B列1基)
+-- "; "注释行忽略; 编号区允许空(顺位补), 密度/播种区必须完整
+function csv.parse_map_grid(text)
+    local msgs = {}
+    local m = { name = nil, rows = nil, cols = nil, machine_cols = nil,
+                col_gap = nil, rowlen = {}, aisle = {}, block_col = 1,
+                blocks = {}, ab = nil, block_cnt = 0 }
+    local section = nil
+    local rowlen_seq, aisle_seq = {}, {}
+    local abf = {}
+    local head_pending = {}
+
+    for line in csv.iter_lines(text) do
+        if line ~= "" and line:sub(1, 1) ~= ";" then
+            local f = csv.split(line)
+            local a1 = f[1] or ""
+            if a1 == "信息" or a1 == "AB线" or a1 == "编号"
+               or a1 == "密度" or a1 == "是否播种" then
+                section = a1
+                head_pending[section] = true
+            elseif section == "信息" then
+                if a1 ~= "类型" then              -- 表头行(排长cm/过道长cm)
+                    if a1 == "名称" then m.name = f[2]   -- 地图显示名(hmi_export)
+                    elseif a1 == "排" then m.rows = num(f[2])
+                    elseif a1 == "列" then m.cols = num(f[2])
+                    elseif a1 == "小区行数" then m.block_col = num(f[2]) or 1
+                    elseif a1 == "机器行数" then m.machine_cols = num(f[2])
+                    elseif a1 == "行间距(cm)" then m.col_gap = num(f[2])
+                    end
+                    local cl, ai = num(f[3]), num(f[4])
+                    if cl then rowlen_seq[#rowlen_seq + 1] = cl end
+                    if ai then aisle_seq[#aisle_seq + 1] = ai end
+                end
+            elseif section == "AB线" then
+                if a1 ~= "" then abf[a1] = f[2] end
+            elseif section == "编号" or section == "密度"
+                or section == "是否播种" then
+                if head_pending[section] and a1 == "" then
+                    head_pending[section] = false  -- ",1列,2列"表头行
+                else
+                    local rr = a1:match("^(%d+)排$")
+                    local r = rr and tonumber(rr)
+                    if r and m.rows and r >= 1 and r <= m.rows then
+                        local r0 = r - 1
+                        if not m.blocks[r0] then m.blocks[r0] = {} end
+                        for c = 2, #f do
+                            local c0 = c - 2
+                            if m.cols and c0 >= 0 and c0 < m.cols then
+                                local cur = m.blocks[r0][c0]
+                                           or { num = r0 * m.cols + c0 + 1,
+                                                density = 0, sow = 1 }
+                                local v = num(f[c])
+                                if section == "编号" then
+                                    if v ~= nil then cur.num = v end
+                                elseif section == "密度" then
+                                    cur.density = v or 0
+                                else
+                                    if v ~= nil then
+                                        cur.sow = (v ~= 0) and 1 or 0
+                                    end
+                                end
+                                m.blocks[r0][c0] = cur
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 校验与组装(对齐 legacy 口径)
+    if not (m.rows and m.cols and m.machine_cols and m.col_gap) then
+        msgs[#msgs + 1] = "E:信息区缺排/列/机器行数/行间距"
+        return m, msgs
+    end
+    if #rowlen_seq ~= m.rows then
+        msgs[#msgs + 1] = ("E:排长需%d条实有%d"):format(m.rows, #rowlen_seq)
+    else
+        m.rowlen = rowlen_seq
+    end
+    if #aisle_seq ~= m.rows + 1 then
+        msgs[#msgs + 1] = ("E:过道需%d条实有%d"):format(m.rows + 1, #aisle_seq)
+    else
+        m.aisle = aisle_seq
+    end
+    local want = m.rows * m.cols
+    local got = 0
+    for r = 0, m.rows - 1 do
+        for c = 0, m.cols - 1 do
+            if m.blocks[r] and m.blocks[r][c] then got = got + 1 end
+        end
+    end
+    if got ~= want then
+        msgs[#msgs + 1] = ("E:密度矩阵需%d块实有%d"):format(want, got)
+    end
+    m.block_cnt = got
+    -- 地图名: 信息区"名称"行(hmi_export生成); 缺省由store用导入文件名兜底
+
+    if abf["StartN"] ~= nil then
+        m.ab = { name = abf["名称"] or "ab",
+                 sn = tonumber(abf["StartN"]), se = tonumber(abf["StartE"]),
+                 en = tonumber(abf["EndBN"]), ee = tonumber(abf["EndBE"]),
+                 sdir = tonumber(abf["StartDir"]),
+                 cdir = tonumber(abf["CalcDir"]),
+                 a_row = tonumber(abf["A点排"]) or 0,
+                 a_col = tonumber(abf["A点列"]) or 0,
+                 abdir = (abf["方向"] == "TRUE"
+                          or abf["方向"] == "1") and 1 or 0,
+                 startstate = tonumber(abf["StartState"]) or 1,
+                 calcdirflag = tonumber(abf["CalcDirFlag"]) or 1,
+                 offlen = tonumber(abf["OffLen"]) or 0,
+                 bdofftime = tonumber(abf["BDOffTime"]) or 100,
+                 has = true }
+        if m.ab.sn == nil or m.ab.se == nil or m.ab.en == nil
+            or m.ab.ee == nil or m.ab.sdir == nil or m.ab.cdir == nil then
+            m.ab = nil
+            msgs[#msgs + 1] = "E:AB线字段数值非法"
+        end
+    end
+    return m, msgs
+end
+
+-- 双格式分派: 首个有效行首字段="信息" -> 区块式; 否则旧#段式
+function csv.parse_map(text)
+    for line in csv.iter_lines(text) do
+        if line ~= "" and line:sub(1, 1) ~= ";" then
+            local f = csv.split(line)
+            if (f[1] or "") == "信息" then
+                local m1, m2 = csv.parse_map_grid(text)
+                return m1, m2
+            end
+            break
+        end
+    end
+    -- (局部中转: 避免出现模块尾return字面, 兼容测试的patch注入点)
+    local m1, m2 = csv.parse_map_legacy(text)
+    return m1, m2
+end
+
 -------------------------------------------------------------------- 地图解析
 -- #DIM 校验界限
 local ROWS_MAX, COLS_MAX, MC_MAX = 200, 200, 16
 
-function csv.parse_map(text)
+function csv.parse_map_legacy(text)  -- 旧#段式(2026-10-08前)
     local msgs = {}
     local m = { name = nil, rows = nil, cols = nil, machine_cols = nil,
                 col_gap = nil, rowlen = {}, aisle = {},
@@ -245,32 +387,71 @@ end
 
 -------------------------------------------------------------------- 地图序列化
 function csv.render_map(m)
+    -- 区块式(2026-10-08, QT xlsx导出同款布局); 旧#段式文件保存后自动升级
     local L = {}
-    L[#L + 1] = ("#MAP,%s"):format(m.name)
-    if (m.block_col or 1) > 1 then
-        L[#L + 1] = ("#DIM,%d,%d,%d,%s,%d"):format(
-            m.rows, m.cols, m.machine_cols, fmt_num(m.col_gap), m.block_col)
-    else
-        L[#L + 1] = ("#DIM,%d,%d,%d,%s"):format(
-            m.rows, m.cols, m.machine_cols, fmt_num(m.col_gap))
+    local function row(...)
+        local t = {}
+        for i = 1, select("#", ...) do t[i] = tostring(select(i, ...)) end
+        L[#L + 1] = table.concat(t, ",")
     end
-    for r = 1, m.rows do L[#L + 1] = ("#ROWLEN,%s"):format(fmt_num(m.rowlen[r] or 0)) end
-    for i = 1, m.rows + 1 do L[#L + 1] = ("#AISLE,%s"):format(fmt_num(m.aisle[i] or 0)) end
+    row("信息", "", "", "")
+    row("类型", "播种", "排长(cm)", "过道长(cm)")
+    -- 信息区: C列=排长(rows条), D列=过道(rows+1条), 标签行固定8个不够留空
+    local labels = { "创建时间", "修改时间", "备注", "排", "列",
+                     "小区行数", "机器行数", "行间距(cm)" }
+    local meta_rows = math.max(8, (m.rows or 0) + 1)
+    for i = 1, meta_rows do
+        local lab = labels[i] or ""
+        local b = ""
+        if lab == "排" then b = m.rows or 0
+        elseif lab == "列" then b = m.cols or 0
+        elseif lab == "小区行数" then b = m.block_col or 1
+        elseif lab == "机器行数" then b = m.machine_cols or 6
+        elseif lab == "行间距(cm)" then b = fmt_num(m.col_gap or 60) end
+        local c = ""
+        if i <= (m.rows or 0) then c = fmt_num(m.rowlen[i] or 0) end
+        row(lab, b, c, fmt_num(m.aisle[i] or 0))
+    end
+    row("", "", "", "")
     if m.ab then
-        L[#L + 1] = ("#AB,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d"):format(
-        m.ab.name, fmt_num(m.ab.sn), fmt_num(m.ab.se), fmt_num(m.ab.en),
-        fmt_num(m.ab.ee), fmt_num(m.ab.sdir), fmt_num(m.ab.cdir),
-        m.ab.a_row or 0, m.ab.abdir or 1,
-        m.ab.startstate or 1, m.ab.calcdirflag or 1,
-        m.ab.offlen or 0, m.ab.bdofftime or 100)
+        row("AB线", "", "", "")
+        row("StartN", fmt_num(m.ab.sn or 0))
+        row("StartE", fmt_num(m.ab.se or 0))
+        row("EndBN", fmt_num(m.ab.en or 0))
+        row("EndBE", fmt_num(m.ab.ee or 0))
+        row("StartDir", fmt_num(m.ab.sdir or 0))
+        row("CalcDir", fmt_num(m.ab.cdir or 0))
+        row("StartState", m.ab.startstate or 1)
+        row("CalcDirFlag", m.ab.calcdirflag or 1)
+        row("OffLen", m.ab.offlen or 0)
+        row("BDOffTime", m.ab.bdofftime or 100)
+        row("Resv", 0)
+        row("CrcCheck", 0)
+        row("A点排", m.ab.a_row or 0)
+        row("A点列", m.ab.a_col or 0)
+        row("方向", (m.ab.abdir or 0) == 1 and "TRUE" or "FALSE")
+        row("名称", m.ab.name or "")
+        row("", "", "", "")
     end
-    L[#L + 1] = "#BLOCKS"
-    for r = 0, m.rows - 1 do
-        for c = 0, m.cols - 1 do
-            local b = (m.blocks[r] or {})[c] or { num = 0, density = 0, sow = 0 }
-            L[#L + 1] = ("%d,%d,%d,%d,%d"):format(r + 1, c + 1, b.num, b.density, b.sow)
+    local function matrix(title, get)
+        row(title, "", "", "")
+        local hd = { "" }
+        for c = 1, m.cols do hd[c + 1] = c .. "列" end
+        L[#L + 1] = table.concat(hd, ",")
+        for r = m.rows, 1, -1 do
+            local vals = { r .. "排" }
+            for c = 1, m.cols do
+                local b = (m.blocks[r - 1] or {})[c - 1]
+                           or { num = 0, density = 0, sow = 1 }
+                vals[c + 1] = get(b)
+            end
+            L[#L + 1] = table.concat(vals, ",")
         end
+        row("", "", "", "")
     end
+    matrix("编号", function(b) return b.num end)
+    matrix("密度", function(b) return b.density end)
+    matrix("是否播种", function(b) return b.sow end)
     return table.concat(L, "\r\n") .. "\r\n"
 end
 

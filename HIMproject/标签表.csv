@@ -21,6 +21,8 @@ ab_startstate,LW1520,u16 StartState
 ab_calcdirflag,LW1521,u16 CalcDirFlag
 ab_offlen,LW1522,u16 OffLen 偏移量
 ab_bdofftime,LW1523,u16 BDOffTime
+ab_arow,LW1524,u16 A点排(0基， 地图本地属性; 0x23应答无此字段，
+ab_abdir,LW1525,u16 方向 0=反向/1=同向(查看模式填地图绑定值)
 pf_a,LW1600,i16 A 下种口距离(LW/协议均cm， 控件2位小数显m)
 pf_b,LW1601,i16 B 种子落地距离(cm， 控件2位小数显m)
 pf_encodenum,LW1602,u16 EncodeNum 编码器变送比(QT叫TransmissionRatio)
