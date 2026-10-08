@@ -218,7 +218,10 @@ function jobrun.ab_bind_map(map_name, name, pa)
     m.ab = { name = (name and name ~= "") and name or map_name,
              sn = p.StartN, se = p.StartE,
              en = p.EndBN, ee = p.EndBE, sdir = p.StartDir, cdir = p.CalcDir,
-             a_row = a_row, abdir = abdir, has = true }
+             a_row = a_row, abdir = abdir, has = true,
+             -- BDPara下发参数随线保存(2026-10-08, 0x24/查看用存储真值)
+             startstate = p.StartState or 1, calcdirflag = p.CalcDirFlag or 1,
+             offlen = p.OffLen or 0, bdofftime = p.BDOffTime or 100 }
     if STORE.map_save and not STORE.map_save(map_name) then
         return nil, "地图落盘失败"
     end
@@ -242,7 +245,10 @@ function jobrun.ab_send_map(m)
     if m and m.ab and m.ab.has then
         t = { StartN = m.ab.sn, StartE = m.ab.se, EndBN = m.ab.en, EndBE = m.ab.ee,
               StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
-              StartState = 1, CalcDirFlag = 1, OffLen = 0, BDOffTime = 100 }
+              StartState = m.ab.startstate or 1,
+              CalcDirFlag = m.ab.calcdirflag or 1,
+              OffLen = m.ab.offlen or 0,
+              BDOffTime = m.ab.bdofftime or 100 }
     else
         -- QT communication.cpp:591 setEmptyABLine: 全零, StartState=0
         -- -> 固件 protocol.c:284 清空BDParam, 地头行程开关触发后才设A点开播
@@ -450,8 +456,10 @@ function jobrun.ab_dlg_open(mode)
             jobrun.ab_show({ StartN = m.ab.sn, StartE = m.ab.se,
                              EndBN = m.ab.en, EndBE = m.ab.ee,
                              StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
-                             StartState = 1, CalcDirFlag = 1,
-                             OffLen = 0, BDOffTime = 100 })
+                             StartState = m.ab.startstate or 1,
+                             CalcDirFlag = m.ab.calcdirflag or 1,
+                             OffLen = m.ab.offlen or 0,
+                             BDOffTime = m.ab.bdofftime or 100 })
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()

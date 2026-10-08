@@ -45,7 +45,10 @@ class MapDef:
         self.col_gap = 60      # QT SeedColumnGap 行间距cm
         self.rowlen = []       # 每排行长cm
         self.aisle = []        # rows+1 条过道cm
-        self.ab = None         # {name,sn,se,en,ee,sdir,cdir,a_row,abdir}
+        # AB线完整字段(QT ABLine表14字段语义, 2026-10-08):
+        #   startstate/calcdirflag/offlen/bdofftime 缺省=屏端下发语义
+        self.ab = None         # {name,sn,se,en,ee,sdir,cdir,a_row,abdir,
+                              #  startstate,calcdirflag,offlen,bdofftime}
         self.blocks = []       # [[Block]]
 
     def validate(self):
@@ -66,8 +69,12 @@ class MapDef:
         if self.ab:
             ab = self.ab
             for k in ('sn', 'se', 'en', 'ee', 'sdir', 'cdir'):
-                if not isinstance(ab[k], (int, float)):
+                if not isinstance(ab.get(k), (int, float)):
                     errs.append('#AB字段%s非数值' % k)
+            for k, dft in (('startstate', 1), ('calcdirflag', 1),
+                           ('offlen', 0), ('bdofftime', 100)):
+                if k not in ab or ab[k] is None:
+                    ab[k] = dft
         return errs
 
 
@@ -106,7 +113,19 @@ def fmt_num(v):
 # ---------------------------------------------------------------- 渲染(与csv.lua render_map一致)
 
 def render_map_csv(m):
-    L = ['#MAP,%s' % m.name]
+    L = [
+        '; 组态屏地图文件 (Electric Seeder HMI, 由hmi_export从QT上位机数据导出)',
+        '; 编码GB2312, 以";"开头的注释行导入时自动忽略',
+        '; #MAP,地图显示名',
+        '; #DIM,排数,列数,机器行数,行间距cm[,小区行数]',
+        '; #ROWLEN,行长cm: 每排一条, 共排数条',
+        '; #AISLE,过道cm: 排间过道, 共排数+1条',
+        '; #AB,线名,A点纬度,A点经度,B点纬度,B点经度,起始方向角,计算方向角,'
+        'A点排,方向(0反向/1同向),起始状态,方向标志,偏移长度cm,偏移时间ms '
+        ': 地图绑定的AB线, 无则整段省略',
+        '; #BLOCKS 小区矩阵(1基): 排,列,编号,密度(株/亩),是否播种',
+        '#MAP,%s' % m.name,
+    ]
     if (m.block_col or 1) > 1:
         L.append('#DIM,%d,%d,%d,%s,%d' % (m.rows, m.cols, m.machine_cols,
                                           fmt_num(m.col_gap), m.block_col))
@@ -119,10 +138,12 @@ def render_map_csv(m):
         L.append('#AISLE,%s' % fmt_num(m.aisle[i]))
     if m.ab:
         ab = m.ab
-        L.append('#AB,%s,%s,%s,%s,%s,%s,%s,%d,%d' % (
+        L.append('#AB,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d' % (
             ab['name'], fmt_num(ab['sn']), fmt_num(ab['se']), fmt_num(ab['en']),
             fmt_num(ab['ee']), fmt_num(ab['sdir']), fmt_num(ab['cdir']),
-            ab['a_row'], ab['abdir']))
+            ab['a_row'], ab['abdir'],
+            ab.get('startstate', 1), ab.get('calcdirflag', 1),
+            ab.get('offlen', 0), ab.get('bdofftime', 100)))
     L.append('#BLOCKS')
     warn_nonnum = []
     for r in range(m.rows):
@@ -183,7 +204,11 @@ def read_maps_from_db(db_path):
                             'en': abr['EndBN'], 'ee': abr['EndBE'],
                             'sdir': abr['StartDir'], 'cdir': abr['CalcDir'],
                             'a_row': r['ARow'] or 0,
-                            'abdir': 1 if r['ABLineDirection'] else 0}
+                            'abdir': 1 if r['ABLineDirection'] else 0,
+                            'startstate': abr['StartState'],
+                            'calcdirflag': abr['CalcDirFlag'],
+                            'offlen': abr['OffLen'],
+                            'bdofftime': abr['BDOffTime']}
             maps.append(m)
         return maps
     finally:
@@ -226,7 +251,11 @@ def read_map_from_xlsx(path):
                 'en': vals.get('EndBN', 0.0), 'ee': vals.get('EndBE', 0.0),
                 'sdir': vals.get('StartDir', 0.0), 'cdir': vals.get('CalcDir', 0.0),
                 'a_row': int(vals.get('A点排', 0) or 0),
-                'abdir': 1 if vals.get('方向') else 0}
+                'abdir': 1 if vals.get('方向') else 0,
+                'startstate': vals.get('StartState'),
+                'calcdirflag': vals.get('CalcDirFlag'),
+                'offlen': vals.get('OffLen'),
+                'bdofftime': vals.get('BDOffTime')}
 
     def grid(sheet, conv):
         # QXlsx write(i+2,j+2) 为1基 -> 数据始于B2(头行/头列是标签),
@@ -522,7 +551,9 @@ def selftest():
            and pm['blocks'][4][1]['density'] == 4000
            and pm['blocks'][0][0]['sow'] == 1
            and pm['ab'] is not None and pm['ab']['a_row'] == 0
-           and pm['ab']['abdir'] == 1)
+           and pm['ab']['abdir'] == 1
+           and pm['ab']['startstate'] == 1 and pm['ab']['calcdirflag'] == 0
+           and pm['ab']['offlen'] == 60 and pm['ab']['bdofftime'] == 100)
     print('  [%s] parse_map回读: 名称/维度/密度/播种/AB 全部正确%s' % (
         '通过' if ok2 else '失败',
         '' if pm is not None else ' msgs=%s' % msgs))

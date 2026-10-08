@@ -1822,7 +1822,7 @@ function csv.parse_map(text)
     local seen = {}
 
     for line in csv.iter_lines(text) do
-        if line ~= "" then
+        if line ~= "" and line:sub(1, 1) ~= ";" then   -- ";"=中文注解行(hmi_export)
             local f = csv.split(line)
             local tag = f[1]
             if tag == "#BLOCKS" then
@@ -1880,6 +1880,8 @@ function csv.parse_map(text)
                     -- 第9字段: AB参考排(QT Map.ARow 0基), 缺省0
                     -- 第10字段: AB方向bool(QT Map.ABLineDirection, 1=同向/A在排上沿)
                     --   旧文件缺省由 a_row 反推(formmap.cpp:353 aRow=dir?0:rows-1)
+                    -- 第11~14字段(2026-10-08, QT ABLine表): 起始状态/方向标志/
+                    --   偏移长度cm/偏移时间ms; 旧文件缺省=屏端下发语义(1/1/0/100)
                     m.ab = { name = f[2],
                              sn = num(f[3]), se = num(f[4]),
                              en = num(f[5]), ee = num(f[6]),
@@ -1887,6 +1889,10 @@ function csv.parse_map(text)
                              a_row = num(f[9]) or 0,
                              abdir = num(f[10])
                                  or ((num(f[9]) or 0) == 0 and 1 or 0),
+                             startstate = num(f[11]) or 1,
+                             calcdirflag = num(f[12]) or 1,
+                             offlen = num(f[13]) or 0,
+                             bdofftime = num(f[14]) or 100,
                              has = true }
                     local bad = (m.ab.sn == nil or m.ab.se == nil or m.ab.en == nil
                                  or m.ab.ee == nil or m.ab.sdir == nil or m.ab.cdir == nil)
@@ -1949,10 +1955,12 @@ function csv.render_map(m)
     for r = 1, m.rows do L[#L + 1] = ("#ROWLEN,%s"):format(fmt_num(m.rowlen[r] or 0)) end
     for i = 1, m.rows + 1 do L[#L + 1] = ("#AISLE,%s"):format(fmt_num(m.aisle[i] or 0)) end
     if m.ab then
-        L[#L + 1] = ("#AB,%s,%s,%s,%s,%s,%s,%s,%d,%d"):format(
-            m.ab.name, fmt_num(m.ab.sn), fmt_num(m.ab.se), fmt_num(m.ab.en),
-            fmt_num(m.ab.ee), fmt_num(m.ab.sdir), fmt_num(m.ab.cdir),
-            m.ab.a_row or 0, m.ab.abdir or 1)
+        L[#L + 1] = ("#AB,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d"):format(
+        m.ab.name, fmt_num(m.ab.sn), fmt_num(m.ab.se), fmt_num(m.ab.en),
+        fmt_num(m.ab.ee), fmt_num(m.ab.sdir), fmt_num(m.ab.cdir),
+        m.ab.a_row or 0, m.ab.abdir or 1,
+        m.ab.startstate or 1, m.ab.calcdirflag or 1,
+        m.ab.offlen or 0, m.ab.bdofftime or 100)
     end
     L[#L + 1] = "#BLOCKS"
     for r = 0, m.rows - 1 do
@@ -3097,7 +3105,10 @@ function jobrun.ab_bind_map(map_name, name, pa)
     m.ab = { name = (name and name ~= "") and name or map_name,
              sn = p.StartN, se = p.StartE,
              en = p.EndBN, ee = p.EndBE, sdir = p.StartDir, cdir = p.CalcDir,
-             a_row = a_row, abdir = abdir, has = true }
+             a_row = a_row, abdir = abdir, has = true,
+             -- BDPara下发参数随线保存(2026-10-08, 0x24/查看用存储真值)
+             startstate = p.StartState or 1, calcdirflag = p.CalcDirFlag or 1,
+             offlen = p.OffLen or 0, bdofftime = p.BDOffTime or 100 }
     if STORE.map_save and not STORE.map_save(map_name) then
         return nil, "地图落盘失败"
     end
@@ -3121,7 +3132,10 @@ function jobrun.ab_send_map(m)
     if m and m.ab and m.ab.has then
         t = { StartN = m.ab.sn, StartE = m.ab.se, EndBN = m.ab.en, EndBE = m.ab.ee,
               StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
-              StartState = 1, CalcDirFlag = 1, OffLen = 0, BDOffTime = 100 }
+              StartState = m.ab.startstate or 1,
+              CalcDirFlag = m.ab.calcdirflag or 1,
+              OffLen = m.ab.offlen or 0,
+              BDOffTime = m.ab.bdofftime or 100 }
     else
         -- QT communication.cpp:591 setEmptyABLine: 全零, StartState=0
         -- -> 固件 protocol.c:284 清空BDParam, 地头行程开关触发后才设A点开播
@@ -3329,8 +3343,10 @@ function jobrun.ab_dlg_open(mode)
             jobrun.ab_show({ StartN = m.ab.sn, StartE = m.ab.se,
                              EndBN = m.ab.en, EndBE = m.ab.ee,
                              StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
-                             StartState = 1, CalcDirFlag = 1,
-                             OffLen = 0, BDOffTime = 100 })
+                             StartState = m.ab.startstate or 1,
+                             CalcDirFlag = m.ab.calcdirflag or 1,
+                             OffLen = m.ab.offlen or 0,
+                             BDOffTime = m.ab.bdofftime or 100 })
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()
