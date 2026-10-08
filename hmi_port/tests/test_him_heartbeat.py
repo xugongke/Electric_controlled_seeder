@@ -134,6 +134,16 @@ function __PAGE:on_frame(f) self.hits = self.hits + 1 end
     check(FNC['GET_SOFT_VER'] not in fncs(),
           '在线稳定后0xA3零发送(仅开机/重连各一次)')
 
+    print('7) register防nil截断(2026-10-08回归)')
+    lua.execute('''
+__PG2 = { id = 98, addrs = { nil, 7777 }, hits = 0 }
+function __PG2:on_update(a) self.hits = self.hits + 1 end
+''')
+    app['register'](lua.globals().__PG2)
+    hit2 = app['on_button'](7777)
+    check(hit2 and lua.globals().__PG2['hits'] == 1,
+          'addrs含nil项不再截断后续地址注册(page_task按钮无反应根因)')
+
     print()
     if FAIL:
         print('心跳子系统: %d项失败' % FAIL)

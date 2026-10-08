@@ -1079,7 +1079,12 @@ function APP.register(page)
     end
     APP.pages[page.id] = page
     if page.addrs then
-        for _, a in ipairs(page.addrs) do APP.by_addr[a] = page end
+        -- (2026-10-08防再犯: ipairs遇nil截断会漏注册其后全部地址
+        --  -- page_task曾因addrs首项引用已删键致按钮全无反应)
+        for i = 1, #page.addrs do
+            local a = page.addrs[i]
+            if type(a) == "number" then APP.by_addr[a] = page end
+        end
     end
     return page
 end
@@ -3577,17 +3582,6 @@ return function(ctx)
         return W.map
     end
 
-    -- 打点设置: 进页从RW恢复两开关到LW(RW存gap:0/1/2, qzdd:0/1)
-    local function dot_rw_load()
-        if ctx.rw16 and LW.RW then
-            local gp = ctx.rw16(LW.RW.gap_point)
-            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-            w16(LW.TW.gappoint, gp)
-            local qz = ctx.rw16(LW.RW.qzdd)
-            w16(LW.TW.qzdd, (qz == 1) and 1 or 0)
-        end
-    end
-
     local function on_ab_btn(addr)
         if addr ~= LW.TW.ab_import and addr ~= LW.TW.ab_clear then return end
         local map_name = ab_target_map()
@@ -3613,23 +3607,6 @@ return function(ctx)
     local function on_btn(addr, val)
         if val ~= 1 then return end
         local ts = r16(LW.TW.tstate) or 1
-
-        if addr == LW.TW.qzdd_set then
-            -- [设置打点](QT:499-501: 清种打点checkbox+设置按钮立即下发0x29;
-            -- 同时把过道打点/清种打点两开关持久化RW, 过道打点0x31由任务启动自动发)
-            local qz = (r16(LW.TW.qzdd) or 0) == 1
-            if ctx.PROTOCOL then
-                ctx.PROTOCOL.send(ctx.PROTOCOL.FNC.QZDD_ENABLE, string.char(qz and 1 or 0))
-            end
-            if ctx.rw16w and LW.RW then
-                local gp = r16(LW.TW.gappoint) or 0
-                if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-                ctx.rw16w(LW.RW.gap_point, gp)
-                ctx.rw16w(LW.RW.qzdd, qz and 1 or 0)
-            end
-            wstr(LW.TW.detail, "打点已设置并保存")
-            return
-        end
 
         if addr == LW.TW.btn_sel then
             -- 配置态: 循环选择地图(2026-09-24按画面清单移除上/下移按钮,
@@ -3726,7 +3703,8 @@ return function(ctx)
         id = LW.SCREEN.TASK,
         poll_cmds = {},
         addrs = {
-            LW.TW.qzdd_set,
+            -- (2026-10-08修复: qzdd_set引用已删键=nil,
+            --  ipairs首项截断导致本页按钮地址全未注册 -> 按钮无反应)
             LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
@@ -4346,7 +4324,11 @@ return function(ctx)
         elseif addr == LW.PU.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU
-            for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
+            -- rmp是u32占两字(LW0x1622~23), w16只写低字会残留高字
+            -- (2026-10-08实测重置后显示2359326=高36低30), 必须w32整写
+            for k, v in pairs(DEFAULTS_U) do
+                if k == 'rmp' then w32(U.rmp, v) else w16(U[k], v) end
+            end
             for i = 1, 5 do               -- 微调全不启用, 指定密度=原密度
                 w16(FT_D[i], ({ 4000, 4500, 5000, 5500, 6000 })[i])
                 w16(FT_E[i], 0)

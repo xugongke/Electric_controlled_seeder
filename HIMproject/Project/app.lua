@@ -133,7 +133,12 @@ function APP.register(page)
     end
     APP.pages[page.id] = page
     if page.addrs then
-        for _, a in ipairs(page.addrs) do APP.by_addr[a] = page end
+        -- (2026-10-08防再犯: ipairs遇nil截断会漏注册其后全部地址
+        --  -- page_task曾因addrs首项引用已删键致按钮全无反应)
+        for i = 1, #page.addrs do
+            local a = page.addrs[i]
+            if type(a) == "number" then APP.by_addr[a] = page end
+        end
     end
     return page
 end

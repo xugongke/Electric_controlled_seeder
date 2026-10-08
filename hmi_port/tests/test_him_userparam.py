@@ -46,10 +46,10 @@ def main():
     lua.execute(r'''
 __T = { writes = {}, txs = {}, gotos = {} }
 function __T.w16(a, v) __T.writes[a] = v end
-function __T.w32(a, v) __T.writes[a] = v end
+function __T.w32(a, v) __T.writes[a] = v & 0xFFFF __T.writes[a + 1] = v >> 16 end
 function __T.wstr(a, v) __T.writes[a] = v end
 function __T.r16(a) return __T.writes[a] or 0 end
-function __T.r32(a) return __T.writes[a] or 0 end
+function __T.r32(a) return (__T.writes[a + 1] or 0) * 0x10000 + (__T.writes[a] or 0) end
 function __T.send(fnc, data) __T.txs[#__T.txs + 1] = fnc end
 function __T.ntx() return #__T.txs end
 function __T.goto_screen(id) __T.gotos[#__T.gotos + 1] = id end
@@ -142,13 +142,15 @@ function __T.goto_screen(id) __T.gotos[#__T.gotos + 1] = id end
 
     print('3) pu_reset: 恢复QT默认值(不下发不写文件)')
     set_form(dztime=999, hj=99, gappoint=0)
+    lua.execute('__T.writes[0x1623] = 35')   # 模拟u32高字残留(旧bug现场)
     saved.clear()
     page['on_update'](page, PU['reset'])
     defaults = dict(dztime=1500, hj=60, antennatype=0, antennadist=0,
                     gappoint=1)
     check(all(T['writes'][PU[k]] == v for k, v in defaults.items()),
           '倒种1.5s/行间距60cm/单天线/天线间距0/过道开')
-    check(T['writes'][PU['rmp']] == 36, '转速36')
+    check(T['writes'][PU['rmp']] == 36 and T['writes'][PU['rmp'] + 1] == 0,
+          '转速36(u32双字: 高字清零, 2026-10-08修复前残留旧值显示2359326)')
     check(ntx() == 0 and 'user' not in saved, '重置不发帧不写文件(需再点保存)')
 
     print('4) 范围校验: HJ低于下限拒绝写')

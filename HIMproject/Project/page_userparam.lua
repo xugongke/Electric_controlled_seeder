@@ -152,7 +152,11 @@ return function(ctx)
         elseif addr == LW.PU.reset then
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU
-            for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
+            -- rmp是u32占两字(LW0x1622~23), w16只写低字会残留高字
+            -- (2026-10-08实测重置后显示2359326=高36低30), 必须w32整写
+            for k, v in pairs(DEFAULTS_U) do
+                if k == 'rmp' then w32(U.rmp, v) else w16(U[k], v) end
+            end
             for i = 1, 5 do               -- 微调全不启用, 指定密度=原密度
                 w16(FT_D[i], ({ 4000, 4500, 5000, 5500, 6000 })[i])
                 w16(FT_E[i], 0)
