@@ -81,6 +81,29 @@ return function(ctx)
         w16(LW.PU.gappoint, v)
     end
 
+    -- 株距微调表5档(QT SeedGapFineTuning; 原密度固定, 只收specified/enabled)
+    local FT_D = { LW.PU.ft_d1, LW.PU.ft_d2, LW.PU.ft_d3,
+                   LW.PU.ft_d4, LW.PU.ft_d5 }
+    local FT_E = { LW.PU.ft_e1, LW.PU.ft_e2, LW.PU.ft_e3,
+                   LW.PU.ft_e4, LW.PU.ft_e5 }
+
+    local function fine_show()
+        local t = ctx.PARASTORE and ctx.PARASTORE.load_fine()
+        if not t then return end
+        for i = 1, 5 do
+            w16(FT_D[i], t[i].specified)
+            w16(FT_E[i], t[i].enabled)
+        end
+    end
+
+    local function fine_read()
+        local t = {}
+        for i = 1, 5 do
+            t[i] = { specified = r16(FT_D[i]), enabled = r16(FT_E[i]) }
+        end
+        return t
+    end
+
     function page:on_enter()                     -- 进页读用户参数快照
         -- 副本预填(2026-09-30): 下位机离线/屏重启后表单不显示0;
         -- 在线时随后被0x28应答覆盖为固件当前值
@@ -97,6 +120,7 @@ return function(ctx)
         end
         -- QT模式: 不向下位机读取(0x28能力保留在协议层但页面不使用)
         gappoint_load()
+        fine_show()
     end
 
     function page:on_leave() end
@@ -117,7 +141,10 @@ return function(ctx)
             -- QT模式: [保存]只写config.txt(启动任务/测试/连播时参数链统一下发)
             local gp = r16(LW.PU.gappoint) or 0
             if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-            if ctx.PARASTORE and ctx.PARASTORE.save_user(t, gp) then
+            local okc = ctx.PARASTORE
+                and ctx.PARASTORE.save_user(t, gp)
+                and ctx.PARASTORE.save_fine(fine_read())
+            if okc then
                 wstr(LW.A.log, "√ 已保存(作业/测试启动时下发)")
             elseif ctx.PARASTORE then
                 wstr(LW.A.log, "× 配置写入失败")
@@ -126,6 +153,10 @@ return function(ctx)
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU
             for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
+            for i = 1, 5 do               -- 微调全不启用, 指定密度=原密度
+                w16(FT_D[i], ({ 4000, 4500, 5000, 5500, 6000 })[i])
+                w16(FT_E[i], 0)
+            end
             wstr(LW.A.log, "√ 已恢复默认值, 保存后生效")
         elseif addr == LW.PU.cfgexp then
             -- 导出配置到U盘(3:config.txt -> 2:config.txt)

@@ -68,10 +68,33 @@ function __T.goto_screen(id) __T.gotos[#__T.gotos + 1] = id end
                  'AntennaDistance': 25}
     stub_gap = [2]
 
+    stub_fine = [{'origin': 4000, 'specified': 4000, 'enabled': 0},
+                 {'origin': 4500, 'specified': 4600, 'enabled': 1},
+                 {'origin': 5000, 'specified': 5000, 'enabled': 0},
+                 {'origin': 5500, 'specified': 5500, 'enabled': 0},
+                 {'origin': 6000, 'specified': 6000, 'enabled': 0}]
+    saved_fine = []
+
     class PS:
         @staticmethod
         def load_user():
             return stub_user
+
+        @staticmethod
+        def load_fine():
+            lt = lua.table()
+            for i, ft in enumerate(stub_fine):
+                e = lua.table()
+                e['origin'] = ft['origin']
+                e['specified'] = ft['specified']
+                e['enabled'] = ft['enabled']
+                lt[i + 1] = e
+            return lt
+
+        @staticmethod
+        def save_fine(t):
+            saved_fine.append(t)
+            return True
 
         @staticmethod
         def load_gap():
@@ -133,6 +156,26 @@ function __T.goto_screen(id) __T.gotos[#__T.gotos + 1] = id end
     saved.clear()
     page['on_update'](page, PU['write'])
     check('user' not in saved, 'HJ=5<10 不写config')
+
+    print("4b) 株距微调表: 预填/保存/重置")
+    page['on_enter'](page)
+    check(T['writes'][PU['ft_d2']] == 4600 and T['writes'][PU['ft_e2']] == 1,
+          '档2预填4600+启用')
+    check(T['writes'][PU['ft_d1']] == 4000 and T['writes'][PU['ft_e1']] == 0,
+          '档1预填恒等未启用')
+    T['w16'](PU['ft_d3'], 5300)
+    T['w16'](PU['ft_e3'], 1)
+    set_form()                      # 其余参数合法
+    saved_fine.clear()              # 节2的保存也写过fine, 只看本次
+    page['on_update'](page, PU['write'])
+    check(len(saved_fine) == 1, '保存写入微调表')
+    sf = saved_fine[0]
+    check(sf[3]['specified'] == 5300 and sf[3]['enabled'] == 1,
+          '档3=5300启用进config')
+    check(sf[2]['specified'] == 4600, '档2保持4600')
+    page['on_update'](page, PU['reset'])
+    check(T['writes'][PU['ft_d2']] == 4500 and T['writes'][PU['ft_e2']] == 0,
+          '重置: 微调=原密度+全不启用(QT formconfig:188-193)')
 
     print('5) 密码对话框确认')
     T['w32'](lw['PF']['pass'], 515516)

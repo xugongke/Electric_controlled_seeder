@@ -154,6 +154,18 @@ LW.PU = {                  -- 用户参数
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
     gappoint     = 0x1626, -- u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点,
+    -- 株距微调表5档(2026-10-08, QT SeedGapFineTuning; 原密度固定4000~6000
+    -- 画面静态文本显示, 不占地址; d=微调后密度输入, e=启用开关)
+    ft_d1       = 0x1627, -- u16 档1(4000) SpecifiedDensity
+    ft_d2       = 0x1628, -- u16 档2(4500)
+    ft_d3       = 0x1629, -- u16 档3(5000)
+    ft_d4       = 0x162A, -- u16 档4(5500)
+    ft_d5       = 0x162B, -- u16 档5(6000)
+    ft_e1       = 0x162C, -- u16 开关 档1启用 0/1
+    ft_e2       = 0x162D, -- u16 开关 档2
+    ft_e3       = 0x162E, -- u16 开关 档3
+    ft_e4       = 0x162F, -- u16 开关 档4
+    ft_e5       = 0x1630, -- u16 开关 档5
                            --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
                            --   QT原设计在用户参数页(config.ini GapPoint),
                            --   任务启动发0x31; 点[下发参数]持久化RW)

@@ -278,6 +278,18 @@ LW.PU = {                  -- 用户参数
     antennatype  = 0x1624, -- u8 AntennaType 天线类型
     antennadist  = 0x1625, -- i16 AntennaDistance 天线距离
     gappoint     = 0x1626, -- u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点,
+    -- 株距微调表5档(2026-10-08, QT SeedGapFineTuning; 原密度固定4000~6000
+    -- 画面静态文本显示, 不占地址; d=微调后密度输入, e=启用开关)
+    ft_d1       = 0x1627, -- u16 档1(4000) SpecifiedDensity
+    ft_d2       = 0x1628, -- u16 档2(4500)
+    ft_d3       = 0x1629, -- u16 档3(5000)
+    ft_d4       = 0x162A, -- u16 档4(5500)
+    ft_d5       = 0x162B, -- u16 档5(6000)
+    ft_e1       = 0x162C, -- u16 开关 档1启用 0/1
+    ft_e2       = 0x162D, -- u16 开关 档2
+    ft_e3       = 0x162E, -- u16 开关 档3
+    ft_e4       = 0x162F, -- u16 开关 档4
+    ft_e5       = 0x1630, -- u16 开关 档5
                            --   奇数趟不打偶数趟打, QT:255 outsetColumn/bet%2==0;
                            --   QT原设计在用户参数页(config.ini GapPoint),
                            --   任务启动发0x31; 点[下发参数]持久化RW)
@@ -3154,7 +3166,11 @@ function jobrun.start(task_name, opts)
         task = task_name, m = m, path = path, ab = ab,
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
-        temp_idx = start_idx, fine = STORE.cfg and STORE.cfg.fine_tune or nil,
+        temp_idx = start_idx,
+        -- 株距微调从config.txt实时读(2026-10-08; 恒五档表,
+        -- pathalgo.density按enabled过滤, 全不启用=恒等, 同QT)
+        fine = PSTORE and PSTORE.load_fine()
+               or (STORE.cfg and STORE.cfg.fine_tune) or nil,
     }
 
     -- 状态展示: 主页 taskinfo / TW 页
@@ -4259,6 +4275,29 @@ return function(ctx)
         w16(LW.PU.gappoint, v)
     end
 
+    -- 株距微调表5档(QT SeedGapFineTuning; 原密度固定, 只收specified/enabled)
+    local FT_D = { LW.PU.ft_d1, LW.PU.ft_d2, LW.PU.ft_d3,
+                   LW.PU.ft_d4, LW.PU.ft_d5 }
+    local FT_E = { LW.PU.ft_e1, LW.PU.ft_e2, LW.PU.ft_e3,
+                   LW.PU.ft_e4, LW.PU.ft_e5 }
+
+    local function fine_show()
+        local t = ctx.PARASTORE and ctx.PARASTORE.load_fine()
+        if not t then return end
+        for i = 1, 5 do
+            w16(FT_D[i], t[i].specified)
+            w16(FT_E[i], t[i].enabled)
+        end
+    end
+
+    local function fine_read()
+        local t = {}
+        for i = 1, 5 do
+            t[i] = { specified = r16(FT_D[i]), enabled = r16(FT_E[i]) }
+        end
+        return t
+    end
+
     function page:on_enter()                     -- 进页读用户参数快照
         -- 副本预填(2026-09-30): 下位机离线/屏重启后表单不显示0;
         -- 在线时随后被0x28应答覆盖为固件当前值
@@ -4275,6 +4314,7 @@ return function(ctx)
         end
         -- QT模式: 不向下位机读取(0x28能力保留在协议层但页面不使用)
         gappoint_load()
+        fine_show()
     end
 
     function page:on_leave() end
@@ -4295,7 +4335,10 @@ return function(ctx)
             -- QT模式: [保存]只写config.txt(启动任务/测试/连播时参数链统一下发)
             local gp = r16(LW.PU.gappoint) or 0
             if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
-            if ctx.PARASTORE and ctx.PARASTORE.save_user(t, gp) then
+            local okc = ctx.PARASTORE
+                and ctx.PARASTORE.save_user(t, gp)
+                and ctx.PARASTORE.save_fine(fine_read())
+            if okc then
                 wstr(LW.A.log, "√ 已保存(作业/测试启动时下发)")
             elseif ctx.PARASTORE then
                 wstr(LW.A.log, "× 配置写入失败")
@@ -4304,6 +4347,10 @@ return function(ctx)
             -- 重置: 仅恢复表单QT默认值, 不下发(需再点保存; gappoint随下次保存持久化RW)
             local U = LW.PU
             for k, v in pairs(DEFAULTS_U) do w16(U[k], v) end
+            for i = 1, 5 do               -- 微调全不启用, 指定密度=原密度
+                w16(FT_D[i], ({ 4000, 4500, 5000, 5500, 6000 })[i])
+                w16(FT_E[i], 0)
+            end
             wstr(LW.A.log, "√ 已恢复默认值, 保存后生效")
         elseif addr == LW.PU.cfgexp then
             -- 导出配置到U盘(3:config.txt -> 2:config.txt)
@@ -4508,6 +4555,7 @@ parastore.lua -- 配置文件(3:config.txt) + 启动参数链状态机
     - 中文值\xXXXX转义(GapPoint=\x5f00"开"), 文件全ASCII
     - 开关ZeroSwitch/ScrapeSeed=1/0(实际config.ini同)
     - [ContinuousSowMode]Density 连播密度持久化
+    - SeedGapFineTuning数组 株距微调(QSettings数组键\N\子键)
     - [Application]SerialPort/Alpha/SeedGapFineTuning等QT本地键不写
       (QT读缺省自愈); [TestWarning]告警屏蔽屏端无UI不写
   U盘导出: pu_cfgexp按钮 -> 2:config.txt (QT改名config.ini即可用)
@@ -4533,6 +4581,9 @@ local DEV_ESC = { [4] = [[4\x884c\x673a]], [6] = [[6\x884c\x673a]] }
 -- QT默认值(formconfig.cpp:187~199/204~221)
 local DEF_USER = { DZTime = 1500, HJ = 60, RMP = 36,
                    AntennaType = 0, AntennaDistance = 0 }
+-- 株距微调五档(global.cpp:13 SeedGapFineTuningDensityList, 固定不可改)
+local FINE_ORIGINS = { 4000, 4500, 5000, 5500, 6000 }
+
 local DEF_TER = { A = 60, B = 90, EncodeNum = 2000, EncoderDir = 0,
                   HoleNum = 9, GearRatio = 5, MicroStepValue = 800,
                   X1 = 150, BDiroff = 0, TappTrigOff = 20, TapperTime = 100,
@@ -4585,7 +4636,7 @@ local function edit_group(ls, group, kv, keys)
         if val ~= nil then
             local hit = nil
             for i = gstart + 1, gend - 1 do
-                if ls[i]:match("^" .. key .. "=") then hit = i break end
+                if ls[i]:sub(1, #key + 1) == key .. "=" then hit = i break end
             end
             if hit then
                 ls[hit] = key .. "=" .. val
@@ -4603,7 +4654,7 @@ local function val_of(ls, group, key)
     for _, ln in ipairs(ls) do
         local g = ln:match("^%[(%w+)%]")
         if g then cur = g end
-        local k, v = ln:match("^(%w+)=(.-)%s*$")
+        local k, v = ln:match("^([%w\\]+)=(.-)%s*$")
         if cur == group and k == key then return v end
     end
 end
@@ -4744,6 +4795,86 @@ function parastore.save_density(d)
     if not ls then return false end
     edit_group(ls, "ContinuousSowMode", { Density = tostring(d) },
                { "Density" })
+    return write_lines(ls)
+end
+
+---------------------------------------------------------------- 株距微调表
+-- config.txt格式(与QT QSettings数组一致):
+--   SeedGapFineTuning\\1\\OriginDensity=4000 (反斜杠子键路径)
+-- 五档原密度固定, 用户只改 SpecifiedDensity/Enabled
+-- -> { {origin,specified,enabled}, ... } 恒五元素(pathalgo.density直接用)
+function parastore.load_fine()
+    local ls = read_lines()
+    local out = {}
+    for i, org in ipairs(FINE_ORIGINS) do
+        local spec, en = org, 0
+        if ls then
+            local p = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+            local v1 = tonumber(val_of(ls, "Application", p .. "SpecifiedDensity") or "")
+            local v2 = tonumber(val_of(ls, "Application", p .. "Enabled") or "")
+            if v1 and v1 > 0 and v1 <= 65535 then spec = v1 end
+            if v2 == 1 then en = 1 end
+        end
+        out[i] = { origin = org, specified = spec, enabled = en }
+    end
+    return out
+end
+
+function parastore.save_fine(t)
+    local ls = ensure_lines()
+    for i, org in ipairs(FINE_ORIGINS) do
+        local ft = t and t[i] or nil
+        local spec = ft and tonumber(ft.specified) or org
+        if not spec or spec < 0 or spec > 65535 then spec = org end
+        local en = (ft and ft.enabled == 1) and 1 or 0
+        local ka = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+        edit_group(ls, "Application", {
+            [ka .. "OriginDensity"] = tostring(org),
+            [ka .. "SpecifiedDensity"] = tostring(spec),
+            [ka .. "Enabled"] = tostring(en),
+        }, { ka .. "OriginDensity", ka .. "SpecifiedDensity",
+            ka .. "Enabled" })
+    end
+    return write_lines(ls)
+end
+
+---------------------------------------------------------------- 株距微调表
+-- config.txt格式(与QT QSettings数组一致):
+--   SeedGapFineTuning\\1\\OriginDensity=4000 (反斜杠子键路径)
+-- 五档原密度固定, 用户只改 SpecifiedDensity/Enabled
+-- -> { {origin,specified,enabled}, ... } 恒五元素(pathalgo.density直接用)
+function parastore.load_fine()
+    local ls = read_lines()
+    local out = {}
+    for i, org in ipairs(FINE_ORIGINS) do
+        local spec, en = org, 0
+        if ls then
+            local p = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+            local v1 = tonumber(val_of(ls, "Application", p .. "SpecifiedDensity") or "")
+            local v2 = tonumber(val_of(ls, "Application", p .. "Enabled") or "")
+            if v1 and v1 > 0 and v1 <= 65535 then spec = v1 end
+            if v2 == 1 then en = 1 end
+        end
+        out[i] = { origin = org, specified = spec, enabled = en }
+    end
+    return out
+end
+
+function parastore.save_fine(t)
+    local ls = ensure_lines()
+    for i, org in ipairs(FINE_ORIGINS) do
+        local ft = t and t[i] or nil
+        local spec = ft and tonumber(ft.specified) or org
+        if not spec or spec < 0 or spec > 65535 then spec = org end
+        local en = (ft and ft.enabled == 1) and 1 or 0
+        local ka = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+        edit_group(ls, "Application", {
+            [ka .. "OriginDensity"] = tostring(org),
+            [ka .. "SpecifiedDensity"] = tostring(spec),
+            [ka .. "Enabled"] = tostring(en),
+        }, { ka .. "OriginDensity", ka .. "SpecifiedDensity",
+            ka .. "Enabled" })
+    end
     return write_lines(ls)
 end
 

@@ -296,7 +296,11 @@ function jobrun.start(task_name, opts)
         task = task_name, m = m, path = path, ab = ab,
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
-        temp_idx = start_idx, fine = STORE.cfg and STORE.cfg.fine_tune or nil,
+        temp_idx = start_idx,
+        -- 株距微调从config.txt实时读(2026-10-08; 恒五档表,
+        -- pathalgo.density按enabled过滤, 全不启用=恒等, 同QT)
+        fine = PSTORE and PSTORE.load_fine()
+               or (STORE.cfg and STORE.cfg.fine_tune) or nil,
     }
 
     -- 状态展示: 主页 taskinfo / TW 页

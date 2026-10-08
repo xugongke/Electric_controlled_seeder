@@ -162,6 +162,69 @@ end
     check(ps['save_density'](5200), 'save_density')
     check(ps['load_density']() == 5200, 'load_density读回')
 
+    print("4b) 株距微调表: QSettings数组键格式")
+    fine = lua.table()
+    for i, org in enumerate([4000, 4500, 5000, 5500, 6000]):
+        ft = lua.table()
+        ft['origin'] = org
+        ft['specified'] = org + 100 if i == 1 else org
+        ft['enabled'] = 1 if i == 1 else 0
+        fine[i + 1] = ft
+    check(ps['save_fine'](fine), 'save_fine')
+    cfg = files['3:config.txt']
+    bs = chr(92)
+    check(('SeedGapFineTuning' + bs + '2' + bs + 'OriginDensity=4500') in cfg
+          and ('SeedGapFineTuning' + bs + '2' + bs + 'SpecifiedDensity=4600') in cfg
+          and ('SeedGapFineTuning' + bs + '2' + bs + 'Enabled=1') in cfg,
+          'QT QSettings数组键格式(反斜杠子键)')
+    lf = ps['load_fine']()
+    check(len(lf) == 5 and lf[2]['specified'] == 4600 and lf[2]['enabled'] == 1,
+          'load_fine读回档2=4600启用')
+    check(lf[1]['specified'] == 4000 and lf[1]['enabled'] == 0,
+          '未启用档恒等')
+    files['3:config.txt'] = (
+        '[Application]' + chr(13) + chr(10)
+        + 'SeedGapFineTuning' + bs + '3' + bs + 'OriginDensity=5000' + chr(13) + chr(10)
+        + 'SeedGapFineTuning' + bs + '3' + bs + 'SpecifiedDensity=5300' + chr(13) + chr(10)
+        + 'SeedGapFineTuning' + bs + '3' + bs + 'Enabled=1' + chr(13) + chr(10))
+    lf2 = ps['load_fine']()
+    check(lf2[3]['specified'] == 5300 and lf2[3]['enabled'] == 1,
+          'QT写的微调数组可读回')
+    # pathalgo.density微调生效(end-to-end)
+    lua.globals().__P2 = HIM.replace(chr(92), '/') + '/pathalgo.lua'
+    lua.globals().__M2 = lua.table()
+    lua.globals().__M2['blocks'] = lua.table()
+    lua.globals().__M2['blocks'][0] = lua.table()
+    lua.globals().__M2['blocks'][0][1] = {'density': 4500}
+    lua.globals().__M2['rows'] = 1
+    lua.globals().__M2['cols'] = 1
+    lua.globals().__M2['machine_cols'] = 1
+    tsk = lua.table()
+    tsk['blocks'] = lua.table()
+    tsk['blocks'][0] = lua.table()
+    tb = lua.table()
+    tb['sow'] = 1
+    tb['state'] = 0
+    tsk['blocks'][0][1] = tb
+    lua.globals().__TSK = tsk
+    lua.globals().__FT = ps['load_fine']()
+    dens = lua.execute(
+        "local f = assert(loadfile(__P2)); "
+        "local pa = f(); "
+        "return pa.density(__TSK, __M2, 0, 1, true, __FT)")
+    check(dens == 4500, 'QT文件版fine(仅档3启用): 4500未启用档恒等')
+    lua.globals().__M2['blocks'][0][1] = {'density': 5000}
+    dens2 = lua.execute(
+        "local f = assert(loadfile(__P2)); "
+        "local pa = f(); "
+        "return pa.density(__TSK, __M2, 0, 1, true, __FT)")
+    check(dens2 == 5300, '5000命中QT启用档3 -> 5300(微调生效)')
+    dens0 = lua.execute(
+        "local f = assert(loadfile(__P2)); "
+        "local pa = f(); "
+        "return pa.density(__TSK, __M2, 0, 1, true, nil)")
+    check(dens0 == 5000, '无微调表 -> 原密度5000')
+
     print('5) 启动链: 0x27(HJ覆盖) -> ACK -> 0x25 -> ACK -> 回调')
     done = []
 

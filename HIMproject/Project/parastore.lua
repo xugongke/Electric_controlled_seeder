@@ -12,6 +12,7 @@ parastore.lua -- 配置文件(3:config.txt) + 启动参数链状态机
     - 中文值\xXXXX转义(GapPoint=\x5f00"开"), 文件全ASCII
     - 开关ZeroSwitch/ScrapeSeed=1/0(实际config.ini同)
     - [ContinuousSowMode]Density 连播密度持久化
+    - SeedGapFineTuning数组 株距微调(QSettings数组键\N\子键)
     - [Application]SerialPort/Alpha/SeedGapFineTuning等QT本地键不写
       (QT读缺省自愈); [TestWarning]告警屏蔽屏端无UI不写
   U盘导出: pu_cfgexp按钮 -> 2:config.txt (QT改名config.ini即可用)
@@ -37,6 +38,9 @@ local DEV_ESC = { [4] = [[4\x884c\x673a]], [6] = [[6\x884c\x673a]] }
 -- QT默认值(formconfig.cpp:187~199/204~221)
 local DEF_USER = { DZTime = 1500, HJ = 60, RMP = 36,
                    AntennaType = 0, AntennaDistance = 0 }
+-- 株距微调五档(global.cpp:13 SeedGapFineTuningDensityList, 固定不可改)
+local FINE_ORIGINS = { 4000, 4500, 5000, 5500, 6000 }
+
 local DEF_TER = { A = 60, B = 90, EncodeNum = 2000, EncoderDir = 0,
                   HoleNum = 9, GearRatio = 5, MicroStepValue = 800,
                   X1 = 150, BDiroff = 0, TappTrigOff = 20, TapperTime = 100,
@@ -89,7 +93,7 @@ local function edit_group(ls, group, kv, keys)
         if val ~= nil then
             local hit = nil
             for i = gstart + 1, gend - 1 do
-                if ls[i]:match("^" .. key .. "=") then hit = i break end
+                if ls[i]:sub(1, #key + 1) == key .. "=" then hit = i break end
             end
             if hit then
                 ls[hit] = key .. "=" .. val
@@ -107,7 +111,7 @@ local function val_of(ls, group, key)
     for _, ln in ipairs(ls) do
         local g = ln:match("^%[(%w+)%]")
         if g then cur = g end
-        local k, v = ln:match("^(%w+)=(.-)%s*$")
+        local k, v = ln:match("^([%w\\]+)=(.-)%s*$")
         if cur == group and k == key then return v end
     end
 end
@@ -248,6 +252,86 @@ function parastore.save_density(d)
     if not ls then return false end
     edit_group(ls, "ContinuousSowMode", { Density = tostring(d) },
                { "Density" })
+    return write_lines(ls)
+end
+
+---------------------------------------------------------------- 株距微调表
+-- config.txt格式(与QT QSettings数组一致):
+--   SeedGapFineTuning\\1\\OriginDensity=4000 (反斜杠子键路径)
+-- 五档原密度固定, 用户只改 SpecifiedDensity/Enabled
+-- -> { {origin,specified,enabled}, ... } 恒五元素(pathalgo.density直接用)
+function parastore.load_fine()
+    local ls = read_lines()
+    local out = {}
+    for i, org in ipairs(FINE_ORIGINS) do
+        local spec, en = org, 0
+        if ls then
+            local p = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+            local v1 = tonumber(val_of(ls, "Application", p .. "SpecifiedDensity") or "")
+            local v2 = tonumber(val_of(ls, "Application", p .. "Enabled") or "")
+            if v1 and v1 > 0 and v1 <= 65535 then spec = v1 end
+            if v2 == 1 then en = 1 end
+        end
+        out[i] = { origin = org, specified = spec, enabled = en }
+    end
+    return out
+end
+
+function parastore.save_fine(t)
+    local ls = ensure_lines()
+    for i, org in ipairs(FINE_ORIGINS) do
+        local ft = t and t[i] or nil
+        local spec = ft and tonumber(ft.specified) or org
+        if not spec or spec < 0 or spec > 65535 then spec = org end
+        local en = (ft and ft.enabled == 1) and 1 or 0
+        local ka = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+        edit_group(ls, "Application", {
+            [ka .. "OriginDensity"] = tostring(org),
+            [ka .. "SpecifiedDensity"] = tostring(spec),
+            [ka .. "Enabled"] = tostring(en),
+        }, { ka .. "OriginDensity", ka .. "SpecifiedDensity",
+            ka .. "Enabled" })
+    end
+    return write_lines(ls)
+end
+
+---------------------------------------------------------------- 株距微调表
+-- config.txt格式(与QT QSettings数组一致):
+--   SeedGapFineTuning\\1\\OriginDensity=4000 (反斜杠子键路径)
+-- 五档原密度固定, 用户只改 SpecifiedDensity/Enabled
+-- -> { {origin,specified,enabled}, ... } 恒五元素(pathalgo.density直接用)
+function parastore.load_fine()
+    local ls = read_lines()
+    local out = {}
+    for i, org in ipairs(FINE_ORIGINS) do
+        local spec, en = org, 0
+        if ls then
+            local p = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+            local v1 = tonumber(val_of(ls, "Application", p .. "SpecifiedDensity") or "")
+            local v2 = tonumber(val_of(ls, "Application", p .. "Enabled") or "")
+            if v1 and v1 > 0 and v1 <= 65535 then spec = v1 end
+            if v2 == 1 then en = 1 end
+        end
+        out[i] = { origin = org, specified = spec, enabled = en }
+    end
+    return out
+end
+
+function parastore.save_fine(t)
+    local ls = ensure_lines()
+    for i, org in ipairs(FINE_ORIGINS) do
+        local ft = t and t[i] or nil
+        local spec = ft and tonumber(ft.specified) or org
+        if not spec or spec < 0 or spec > 65535 then spec = org end
+        local en = (ft and ft.enabled == 1) and 1 or 0
+        local ka = "SeedGapFineTuning" .. "\\" .. i .. "\\"
+        edit_group(ls, "Application", {
+            [ka .. "OriginDensity"] = tostring(org),
+            [ka .. "SpecifiedDensity"] = tostring(spec),
+            [ka .. "Enabled"] = tostring(en),
+        }, { ka .. "OriginDensity", ka .. "SpecifiedDensity",
+            ka .. "Enabled" })
+    end
     return write_lines(ls)
 end
 

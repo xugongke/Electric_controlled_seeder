@@ -45,6 +45,16 @@ pu_rmp,LW1622,u32 RMP (占2字)
 pu_antennatype,LW1624,u8 AntennaType 天线类型
 pu_antennadist,LW1625,i16 AntennaDistance 天线距离
 pu_gappoint,LW1626,u16 过道打点 三态: 0=关 1=开 2=间隔(隔趟打点，
+pu_ft_d1,LW1627,u16 档1(4000) SpecifiedDensity
+pu_ft_d2,LW1628,u16 档2(4500)
+pu_ft_d3,LW1629,u16 档3(5000)
+pu_ft_d4,LW162A,u16 档4(5500)
+pu_ft_d5,LW162B,u16 档5(6000)
+pu_ft_e1,LW162C,u16 开关 档1启用 0/1
+pu_ft_e2,LW162D,u16 开关 档2
+pu_ft_e3,LW162E,u16 开关 档3
+pu_ft_e4,LW162F,u16 开关 档4
+pu_ft_e5,LW1630,u16 开关 档5
 pu_write,LW1643,按钮 保存 -> 0x27(读表单+范围校验+gappoint持久化RW;
 pu_reset,LW1645,按钮 重置 -> 表单恢复QT默认值(formconfig.cpp:187~199，
 pu_cfgexp,LW1646,按钮 导出配置 -> 3:config.txt 拷贝到 2:U盘
