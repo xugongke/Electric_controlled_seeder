@@ -180,9 +180,25 @@ end
           '应答到达后确认成功绑定')
 
     print('5) 查看模式与取消')
+    # 先给demo绑定一条已知AB线(经保存流程), 供查看断言
+    W['writes'][ABP['req']] = 1
+    lua.execute('__HINT = "demo"')
+    jobrun['ab_hint_map'] = 'demo'
+    jobrun['_ab_dlg_on_update'](ABP['req'])
+    feed(FNC['STORE_AB'], bd)
+    jobrun['_ab_dlg_on_update'](ABP['confirm'])
+    # 查看: 显示地图绑定数据, 不发0x23(2026-10-08修复: 原发0x23读下位机,
+    # 屏/固件重启后显示全0)
+    n0 = lua.eval('#__W.txs')
     W['writes'][ABP['req']] = 2
     jobrun['_ab_dlg_on_update'](ABP['req'])
     check(W['writes'][ABP['mode']] == 1, '查看模式(mode=1)')
+    abd = STORE['maps']['demo']['ab']
+    startn_shown = lstr(lua, lw['AB']['startn'])
+    want = ('%.7f' % abd['sn']).encode('ascii')
+    check(startn_shown == want,
+          '查看显示地图绑定AB线(StartN=%s, 非下位机实时)' % want.decode())
+    check(lua.eval('#__W.txs') == n0, '查看不发0x23(txs数不变)')
     W['writes'][ABP['req']] = 1
     jobrun['_ab_dlg_on_update'](ABP['req'])
     jobrun['_ab_dlg_on_update'](ABP['cancel'])

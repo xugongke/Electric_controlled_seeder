@@ -3316,12 +3316,34 @@ function jobrun.ab_dlg_open(mode)
     elseif jobrun.ab_hint_map then ab_dlg_map = jobrun.ab_hint_map end
     w16(LW.ABP.mode, mode == 2 and 1 or 0)      -- LW口径: 0保存 1查看
     if mode == 2 then
+        -- QT语义(DialogABLine:517+): 查看=显示地图绑定的AB线, 不读下位机
+        -- (2026-10-08修复: 原实现发0x23读下位机实时值, 屏/固件重启后显示全0;
+        --  地图AB段落盘在3:, 重启屏后仍完整)
         local m = ab_dlg_map and STORE.maps[ab_dlg_map]
-        wstr(LW.ABP.name, (m and m.ab and m.ab.name) or "")
+        if m and m.ab and m.ab.has then
+            wstr(LW.ABP.name, m.ab.name or "")
+            jobrun.ab_show({ StartN = m.ab.sn, StartE = m.ab.se,
+                             EndBN = m.ab.en, EndBE = m.ab.ee,
+                             StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
+                             StartState = 1, CalcDirFlag = 1,
+                             OffLen = 0, BDOffTime = 100 })
+        else
+            -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
+            local p = jobrun.ab_rw_load()
+            if p then
+                wstr(LW.ABP.name, "(RW缓存)")
+                jobrun.ab_show(p)
+            else
+                wstr(LW.ABP.name, "(无AB线)")
+                jobrun.ab_show({ StartN = 0, StartE = 0, EndBN = 0, EndBE = 0,
+                                 StartDir = 0, CalcDir = 0, StartState = 0,
+                                 CalcDirFlag = 0, OffLen = 0, BDOffTime = 0 })
+            end
+        end
     else
         wstr(LW.ABP.name, "")
+        PROTOCOL.send(PROTOCOL.FNC.STORE_AB)   -- 保存前0x23采集当前B点
     end
-    PROTOCOL.send(PROTOCOL.FNC.STORE_AB)
 end
 
 -- 确认保存: 以对话框输入名称绑定地图(#AB段落盘) + 存RW; A排/方向用停止快照
