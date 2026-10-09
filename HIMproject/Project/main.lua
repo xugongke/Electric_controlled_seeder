@@ -244,6 +244,7 @@ LW.AB = {
     arow        = 0x1524, -- u16 A点排(0基, 地图本地属性; 0x23应答无此字段,
                           --   保存模式显示0, 查看模式显示地图绑定值)
     abdir       = 0x1525, -- u16 方向 0=反向/1=同向(查看模式填地图绑定值)
+    acol        = 0x1526, -- u16 A点列(0基, 同arow; 查看模式填地图绑定值)
     -- 原操作按钮(0x1520~0x1523)已随页面3删除, 区址让位给数值字段
 }
 
@@ -1868,7 +1869,18 @@ function csv.parse_map_grid(text)
                                                 density = 0, sow = 1 }
                                 local v = num(f[c])
                                 if section == "编号" then
-                                    if v ~= nil then cur.num = v end
+                                    if v ~= nil then
+                                        cur.num = v
+                                        cur.num_auto = nil
+                                    else
+                                        -- 编号区空: 顺位号仅作显示, 标记auto
+                                        -- (render回写保持空, 不固化覆盖用户
+                                        --  编号体系——QT导出文件编号区本为空,
+                                        --  2026-10-09用户"删AB线误删编号"实为
+                                        --  顺位号固化覆盖)
+                                        cur.num = r0 * m.cols + c0 + 1
+                                        cur.num_auto = true
+                                    end
                                 elseif section == "密度" then
                                     cur.density = v or 0
                                 else
@@ -2150,7 +2162,9 @@ function csv.render_map(m)
         end
         row("", "", "", "")
     end
-    matrix("编号", function(b) return b.num end)
+    matrix("编号", function(b)
+        return (b.num_auto and "") or b.num
+    end)
     matrix("密度", function(b) return b.density end)
     matrix("是否播种", function(b) return b.sow end)
     return table.concat(L, "\r\n") .. "\r\n"
@@ -3537,6 +3551,7 @@ function jobrun.ab_dlg_open(mode)
             -- A点排/方向为地图本地属性(0x23应答无), 查看时显示绑定值
             w16(LW.AB.arow, m.ab.a_row or 0)
             w16(LW.AB.abdir, m.ab.abdir or 0)
+            w16(LW.AB.acol, m.ab.a_col or 0)
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()

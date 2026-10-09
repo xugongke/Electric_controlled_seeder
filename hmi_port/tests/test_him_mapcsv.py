@@ -131,6 +131,27 @@ lua.execute('__PM3, __MSG3 = __CSV.parse_map(__OLD)')
 pm3 = lua.globals().__PM3
 check(pm3['rows'] == 4 and str(pm3['ab']['name']) == 'a', '旧#段式兼容')
 
+# 编号区空(QT转存文件特征) -> 回写不固化顺位号(2026-10-09删AB线误删编号修复)
+lua.execute('__M, __ = __CSV.parse_map(__TEXT)')
+lua.execute('__M.ab = { name = "ab", sn = 1, se = 2, en = 3, ee = 4,'
+            ' sdir = 0, cdir = 0, a_row = 0, a_col = 0, abdir = 1,'
+            ' startstate = 1, calcdirflag = 0, offlen = 60, bdofftime = 100,'
+            ' has = true }')
+lua.execute('__RTB = __CSV.render_map(__M)')
+lua.execute('__M.ab = nil')
+lua.execute('__RTC = __CSV.render_map(__M)')
+# 直接在python侧检查RT文本编号区
+rth = lua.execute('return (__RTC:gsub(".", function(c) '
+                  'return string.format("%02x", string.byte(c)) end))')
+rth = rth[0] if isinstance(rth, tuple) else rth
+rt_text = bytes.fromhex(rth).decode('gb2312', errors='replace')
+lines2 = rt_text.splitlines()
+i_num = lines2.index('编号,,,')
+num_block = lines2[i_num + 2:i_num + 7]
+check(all(l.split(',')[1] == '' for l in num_block),
+      '编号区空文件回写后编号区仍空(顺位号不固化)')
+check(pm['blocks'][4][0]['num'] == 9, '运行时编号顺位可用(内存: 5排1列=顺位9)')
+
 
 def main():
     pass  # 主体已模块级执行

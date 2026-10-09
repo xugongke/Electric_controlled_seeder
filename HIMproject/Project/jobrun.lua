@@ -465,6 +465,7 @@ function jobrun.ab_dlg_open(mode)
             -- A点排/方向为地图本地属性(0x23应答无), 查看时显示绑定值
             w16(LW.AB.arow, m.ab.a_row or 0)
             w16(LW.AB.abdir, m.ab.abdir or 0)
+            w16(LW.AB.acol, m.ab.a_col or 0)
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()
