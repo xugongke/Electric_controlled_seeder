@@ -342,11 +342,6 @@ LW.TW = {
     count      = 0x1802, -- u16 当前列表可选项数
     selidx     = 0x1803, -- u16 列表选中项(0基)
     path_type  = 0x1805, -- u16 路径方式0~5(步骤3数值输入: 0梭形/1同向/2中间左/3右梭/4右同/5中间右)
-    positive   = 0x1806, -- u16 行进方向 1=正向(沿排号增大) 0=反向
-                           --   (对齐QT radioButtonPositive选中=true;
-                           --   画面开关'正'状态须绑值1, 2026-10-09)
-    start_row  = 0x1807, -- u16 起始小区排(1基显示号, 步骤4数值输入, 默认=算法起点)
-    start_col  = 0x1808, -- u16 起始小区列(1基, 步骤4数值输入)
     cur_row    = 0x1809, -- u16 作业中: 当前排(显示号)
     cur_col    = 0x180A, -- u16 作业中: 当前列(1基)
     done_cnt   = 0x180B, -- u16 已完成小区数
@@ -3650,8 +3645,20 @@ return function(ctx)
             goto_state(1)
 
         elseif addr == LW.TW.btn_resume then
-            -- 续接最近的未完成任务
+            -- 续接"最近创建"的未完成任务(2026-10-09修0%bug: 原按列表序
+            -- 取第一个未完成, 多任务积累时字典序选中旧的空任务)
+            local best, best_ct = nil, ""
             for _, n in ipairs(STORE.task_list()) do
+                local t = STORE.task_get(n)
+                if t then
+                    local d, tot = STORE.task_progress(n)
+                    if d < tot and (t.create_time or "") >= best_ct then
+                        best, best_ct = n, t.create_time or ""
+                    end
+                end
+            end
+            if best then
+                local n = best
                 local t = STORE.task_get(n)
                 if t then
                     local d, tot = STORE.task_progress(n)

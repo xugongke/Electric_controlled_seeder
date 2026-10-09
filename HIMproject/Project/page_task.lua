@@ -174,8 +174,20 @@ return function(ctx)
             goto_state(1)
 
         elseif addr == LW.TW.btn_resume then
-            -- 续接最近的未完成任务
+            -- 续接"最近创建"的未完成任务(2026-10-09修0%bug: 原按列表序
+            -- 取第一个未完成, 多任务积累时字典序选中旧的空任务)
+            local best, best_ct = nil, ""
             for _, n in ipairs(STORE.task_list()) do
+                local t = STORE.task_get(n)
+                if t then
+                    local d, tot = STORE.task_progress(n)
+                    if d < tot and (t.create_time or "") >= best_ct then
+                        best, best_ct = n, t.create_time or ""
+                    end
+                end
+            end
+            if best then
+                local n = best
                 local t = STORE.task_get(n)
                 if t then
                     local d, tot = STORE.task_progress(n)
