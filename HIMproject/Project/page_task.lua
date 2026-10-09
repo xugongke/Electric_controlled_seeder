@@ -58,17 +58,6 @@ return function(ctx)
         if not m then return end
         W.map = name
         wstr(LW.TW.mapinfo, name .. " " .. STORE.map_spec(name))
-        if PATHALGO then
-            local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0,
-                                              r16(LW.TW.positive) == 1)
-            if path and path[1] then
-                -- 默认起始小区=路径首节点, 1基直显(2026-10-09修:
-                -- 原rows-row反向换算, 正向首节点排0被显示成末排5)
-                w16(LW.TW.start_row, path[1].row + 1)
-                w16(LW.TW.start_col, path[1].column + 1)
-            end
-        end
-        -- 路径方式/方向变化时重算默认起点
     end
 
     local function goto_state(n)
@@ -123,16 +112,12 @@ return function(ctx)
                 wstr(LW.TW.detail, "请先选择地图")
                 return
             end
-            -- 起始排1基直转0基(2026-10-09修: 原rows-start_row把1基排1
-            -- 换算成末排, 起点与保存AB线的A点排随之错位)
-            local drow = math.max(0, math.min(m.rows - 1,
-                (r16(LW.TW.start_row) or 1) - 1))
-            local dcol = math.max(0, math.min(m.cols - 1,
-                (r16(LW.TW.start_col) or 1) - 1))
+            -- 配置简化(2026-10-09): 固定 正向+起始(1,1)=0基(0,0)
+            local drow, dcol = 0, 0
             local seq = #STORE.task_list() + 1
             local name = "任务" .. seq
             local ok, err = STORE.task_create(name, W.map,
-                r16(LW.TW.path_type) or 0, r16(LW.TW.positive) or 0,
+                r16(LW.TW.path_type) or 0, 1,
                 r16(LW.TW.sow_exceed) or 0, drow, dcol, NOW())
             if not ok then
                 log("ERR", "任务创建失败: " .. tostring(err))
