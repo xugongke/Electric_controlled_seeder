@@ -62,7 +62,9 @@ return function(ctx)
             local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0,
                                               r16(LW.TW.positive) == 1)
             if path and path[1] then
-                w16(LW.TW.start_row, m.rows - path[1].row)
+                -- 默认起始小区=路径首节点, 1基直显(2026-10-09修:
+                -- 原rows-row反向换算, 正向首节点排0被显示成末排5)
+                w16(LW.TW.start_row, path[1].row + 1)
                 w16(LW.TW.start_col, path[1].column + 1)
             end
         end
