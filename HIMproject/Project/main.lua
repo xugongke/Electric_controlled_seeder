@@ -3374,9 +3374,12 @@ function jobrun.start(task_name, opts)
                 break
             end
         end
-    elseif type(t.outset_row) == "number" and t.outset_row >= 0 then
+    elseif t.outset and type(t.outset.r) == "number"
+        and t.outset.r >= 0 then
+        -- (2026-10-09修: task_create存嵌套表outset={r,c}, 此前读t.outset_row
+        --  恒nil -> 起始排定位从未生效, 起点一直是path首节点)
         for i, pn in ipairs(path) do
-            if pn.row == t.outset_row then
+            if pn.row == t.outset.r then
                 start_idx = i
                 break
             end

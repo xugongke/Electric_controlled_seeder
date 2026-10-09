@@ -240,6 +240,17 @@ end
         "local p = pa.create_path(__M5, 0, false); "
         "return p[1].row")
     check(p1 == 4, '反向首节点row=4(末排)')
+    # 起始排定位(jobrun.start同款扫描): outset={r=0}在正向路径首次出现=index1
+    idx = lua.execute(
+        "local f = assert(loadfile(__P2)); local pa = f(); "
+        "local p = pa.create_path(__M5, 0, true); "
+        "for i, pn in ipairs(p) do if pn.row == 0 then return i end end")
+    check(idx == 1, '起始排0(1基排1)+正向 -> 起点即首节点(实际从(1,1)出发)')
+    idx2 = lua.execute(
+        "local f = assert(loadfile(__P2)); local pa = f(); "
+        "local p = pa.create_path(__M5, 0, true); "
+        "for i, pn in ipairs(p) do if pn.row == 2 then return i end end")
+    check(idx2 == 3, '起始排3(0基2)+正向 -> 起点index3(该排首节点)')
 
     print('5) 启动链: 0x27(HJ覆盖) -> ACK -> 0x25 -> ACK -> 回调')
     done = []
