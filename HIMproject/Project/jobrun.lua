@@ -212,8 +212,9 @@ function jobrun.ab_bind_map(map_name, name, pa)
     local a_row, abdir = 0, 1
     if pa then
         a_row, abdir = pa.a_row or 0, (pa.dir and 1 or 0)
-    elseif J and J.m and J.m.name == map_name and J.ab then
-        a_row, abdir = J.ab.a_row or 0, (J.ab.dir and 1 or 0)
+    elseif J and J.m and J.m.name == map_name and J.outset_ref then
+        a_row = J.outset_ref.row or 0
+        abdir = (J.outset_ref.dir == true) and 1 or 0
     end
     m.ab = { name = (name and name ~= "") and name or map_name,
              sn = p.StartN, se = p.StartE,
@@ -311,6 +312,10 @@ function jobrun.start(task_name, opts)
 
     J = {
         task = task_name, m = m, path = path, ab = ab,
+        -- 本次作业实际出发点(2026-10-09修): 保存AB线的A点排/方向从此取,
+        -- 不受地图旧绑定污染(J.ab绑定优先是调度语义, 旧值自我覆盖实测暴露)
+        outset_ref = { row = path[start_idx].row,
+                       dir = path[start_idx].positive },
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx,
@@ -389,8 +394,9 @@ function jobrun.stop()
     if not J then return true end
     -- AB线保存建议(QT signalStopSow :310-311): 无绑定地图 -> 采集填显示 + 请求弹窗
     if not (J.m.ab and J.m.ab.has) then
-        pending_ab = { map = J.m.name, a_row = J.ab and J.ab.a_row or 0,
-                       dir = J.ab and J.ab.dir or false }
+        pending_ab = { map = J.m.name,
+                       a_row = J.outset_ref and J.outset_ref.row or 0,
+                       dir = J.outset_ref and J.outset_ref.dir or false }
         ab_dlg_mode = 1                            -- 预置保存模式(弹窗已带目的)
         ab_dlg_map = J.m.name
         w16(LW.ABP.mode, 0)

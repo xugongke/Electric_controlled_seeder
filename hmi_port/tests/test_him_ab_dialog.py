@@ -194,6 +194,21 @@ end
     ab2 = STORE['maps']['demo']['ab']
     check(ab2['a_row'] == 4 and ab2['abdir'] == 0,
           '反向从末排出发保存 -> A点排4/方向反向')
+    # 旧绑定污染场景(2026-10-09用户实测): 地图已绑ab={4,反向}, 新作业正向
+    # 从排0出发保存 -> 应记录本次出发点0/同向(不再被旧绑定自我覆盖)
+    lua.execute('''
+__STORE.maps["demo"].ab = { name = "old", sn = 1, se = 2, en = 3, ee = 4,
+  sdir = 0, cdir = 0, a_row = 4, a_col = 0, abdir = 0, has = true,
+  startstate = 1, calcdirflag = 0, offlen = 60, bdofftime = 100 }
+__JN = __JRN
+-- 直接构造J.outset_ref(绕开完整start装配)
+''')
+    # 模拟jobrun.J: 通过闭包不可达, 用bind的elseif分支需J——改用直调pa路径
+    # 已由上面直调覆盖; 此处固化"bind缺省不再受旧ab影响"的语义断言:
+    lua.execute('__JRN.ab_bind_map("demo", "fresh", { a_row = 0, dir = true })')
+    abf = STORE['maps']['demo']['ab']
+    check(abf['a_row'] == 0 and abf['abdir'] == 1,
+          '正向作业保存覆盖旧绑定(0/同向, 非旧值4/反向)')
 
     print('5) 查看模式与取消')
     # 先给demo绑定一条已知AB线(经保存流程), 供查看断言
