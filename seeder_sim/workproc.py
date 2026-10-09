@@ -292,6 +292,12 @@ class WorkProc:
     def _bd_sim(self):
         run = self.run_state == RUN_S_START
         moving = run and self.movement_armed and self.bd_ok and not self.paused
+        # 等待行程开关触发期间冻结经纬度推进(2026-10-09用户要求:
+        # 拖拉机地头停下按开关, 模拟器位置保持不变; 触发后继续模拟运动)
+        if (moving and self.work_mode == WORK_MODE_BD
+                and self.seed_mode == SEED_S_START
+                and self.dev.bd.StartState == 0 and self.bd_trig_cnt == 0):
+            moving = False
         if moving:
             sign = -1 if self.reverse else 1          # 相对 BDTXFlag 方向的行驶方向
             dir_pos = (1 if self.bd_tx_flag else -1) * sign
@@ -479,7 +485,8 @@ class WorkProc:
                     bd.StartDir = 0
                     bd.CalcDirFlag = 0
                     bd.BDOffTime = 100
-                    bd.OffLen = int((100 + 500) * abs(self.speed_now) / 10000)
+                    # 冻结期间speed_now=0, 用标称速度(触发即恢复行驶)
+                    bd.OffLen = int((100 + 500) * self.speed_mm_s / 10000)
                     self.debug = '等待播种盘动作[%d]' % self.bz_curr.DisplayRowNum
                     self.seed_mode = SEED_WAIT_S_BZP
                     self.state_start = self.now
