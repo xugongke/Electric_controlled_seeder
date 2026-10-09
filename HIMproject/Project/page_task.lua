@@ -152,8 +152,10 @@ return function(ctx)
                 wstr(LW.TW.detail, "请先选择地图")
                 return
             end
+            -- 起始排1基直转0基(2026-10-09修: 原rows-start_row把1基排1
+            -- 换算成末排, 起点与保存AB线的A点排随之错位)
             local drow = math.max(0, math.min(m.rows - 1,
-                m.rows - (r16(LW.TW.start_row) or m.rows)))
+                (r16(LW.TW.start_row) or 1) - 1))
             local dcol = math.max(0, math.min(m.cols - 1,
                 (r16(LW.TW.start_col) or 1) - 1))
             local seq = #STORE.task_list() + 1

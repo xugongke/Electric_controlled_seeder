@@ -274,13 +274,22 @@ function jobrun.start(task_name, opts)
     local path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
     if not path then return nil, err end
 
-    -- 断点续作: 找到第一个未完成组的节点作为起点
+    -- 起点定位(2026-10-09修):
+    --   resume: 第一个未完成组(断点续作); 非resume: 起始排(outset_row)
+    --   在路径中首次出现处(此前被无视, 起点只由方向开关决定)
     local start_idx = 1
     if opts.resume then
         local bet = PATHALGO.block_each_trip(m)
         for i, pn in ipairs(path) do
             local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
             if not blk or (blk.sow == 1 and blk.state ~= 2) then
+                start_idx = i
+                break
+            end
+        end
+    elseif type(t.outset_row) == "number" and t.outset_row >= 0 then
+        for i, pn in ipairs(path) do
+            if pn.row == t.outset_row then
                 start_idx = i
                 break
             end
@@ -462,10 +471,11 @@ function jobrun.ab_dlg_open(mode)
                              CalcDirFlag = m.ab.calcdirflag or 1,
                              OffLen = m.ab.offlen or 0,
                              BDOffTime = m.ab.bdofftime or 100 })
-            -- A点排/方向为地图本地属性(0x23应答无), 查看时显示绑定值
-            w16(LW.AB.arow, m.ab.a_row or 0)
+            -- A点排/列/方向为地图本地属性(0x23应答无), 查看时显示绑定值
+            -- 排/列按用户口径1基显示(存储保持0基, 2026-10-09)
+            w16(LW.AB.arow, (m.ab.a_row or 0) + 1)
             w16(LW.AB.abdir, m.ab.abdir or 0)
-            w16(LW.AB.acol, m.ab.a_col or 0)
+            w16(LW.AB.acol, (m.ab.a_col or 0) + 1)
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()

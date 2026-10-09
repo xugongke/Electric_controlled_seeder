@@ -224,6 +224,22 @@ end
         "local pa = f(); "
         "return pa.density(__TSK, __M2, 0, 1, true, nil)")
     check(dens0 == 5000, '无微调表 -> 原密度5000')
+    # 起点语义(2026-10-09修): 正向首节点row=0; outset_row定位起点
+    lua.globals().__M5 = lua.table()
+    lua.globals().__M5['rows'] = 5
+    lua.globals().__M5['cols'] = 2
+    lua.globals().__M5['machine_cols'] = 1
+    p0 = lua.execute(
+        "local f = assert(loadfile(__P2)); local pa = f(); "
+        "local p = pa.create_path(__M5, 0, true); "
+        "return p[1].row, p[1].positive")
+    check(p0[0] == 0 and p0[1] is True,
+          '正向(positive=1)首节点row=0(QT createPath同款)')
+    p1 = lua.execute(
+        "local f = assert(loadfile(__P2)); local pa = f(); "
+        "local p = pa.create_path(__M5, 0, false); "
+        "return p[1].row")
+    check(p1 == 4, '反向首节点row=4(末排)')
 
     print('5) 启动链: 0x27(HJ覆盖) -> ACK -> 0x25 -> ACK -> 回调')
     done = []
