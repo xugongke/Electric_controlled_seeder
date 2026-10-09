@@ -6,9 +6,9 @@ page_task.lua —— 任务作业页(画面6, 2026-09-24重构)
         -> [创建任务] 只创建不启动(QT创建后由开始键执行)
   就绪(tstate=4): 任务已创建待开始 -> [开始作业] JOBRUN.start
   作业(tstate=2): jobrun.snapshot 轻刷新; [开始]=续趟裸发0x0A; [停止]=收尾
-        (无AB线地图停止后弹AB保存对话框, 见 jobrun stop/LW.ABP)
+-- (AB线功能已于2026-10-09整体移除: 恒行程开关模式,
+--  开播前地头按行程开关设A点; 见jobrun.ab_send_map全零0x24)
   完成(tstate=3): 待续接/返回配置
-AB操作: 查看/保存=画面功能按钮(打开对话框画面22+执行通知LW.ABP.req, jobrun处理);
         导入/清除=字设置按钮(本页处理, 作用于所选/当前地图)。
 U盘导入已移至地图导入页(page_map.lua, 画面9)。
 依赖注入: creator(ctx) 同现有页面模式。
@@ -95,37 +95,6 @@ return function(ctx)
     end
 
     ------------------------------------------------------------------ AB操作
-    -- 查看/保存: 画面功能按钮打开对话框(写LW.ABP.req), jobrun影子页全局处理;
-    -- 本页只处理 导入/清除(字设置按钮), 目标=配置态所选地图 或 作业态当前地图
-    local function ab_target_map()
-        if JOBRUN and JOBRUN.active() then
-            local s = JOBRUN.snapshot()
-            if s then return s.map end
-        end
-        return W.map
-    end
-
-    local function on_ab_btn(addr)
-        if addr ~= LW.TW.ab_import and addr ~= LW.TW.ab_clear then return end
-        local map_name = ab_target_map()
-        if not map_name then
-            wstr(LW.TW.detail, "请先选择地图")
-            return
-        end
-        if addr == LW.TW.ab_import then
-            if not JOBRUN.ab_cache then
-                JOBRUN.ab_cache = JOBRUN.ab_rw_load()   -- RW缓存 -> 绑定地图
-            end
-            local ok, err = JOBRUN.ab_bind_map(map_name)
-            wstr(LW.TW.detail, ok and ("AB线已绑定 " .. map_name)
-                                   or ("绑定失败 " .. tostring(err):sub(1, 20)))
-        else
-            local ok, err = JOBRUN.ab_clear_map(map_name)
-            wstr(LW.TW.detail, ok and ("AB线已清除 " .. map_name)
-                                   or ("清除失败 " .. tostring(err):sub(1, 20)))
-        end
-    end
-
     ------------------------------------------------------------------ 按钮
     local function on_btn(addr, val)
         if val ~= 1 then return end
@@ -232,7 +201,7 @@ return function(ctx)
             --  ipairs首项截断导致本页按钮地址全未注册 -> 按钮无反应)
             LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
-            LW.TW.btn_resume, LW.TW.ab_import, LW.TW.ab_clear,
+            LW.TW.btn_resume,
         },
     }
 
@@ -256,7 +225,6 @@ return function(ctx)
 
     function page:on_update(addr, val)           -- 冒号定义(app.lua 冒号调用)
         on_btn(addr, val)
-        on_ab_btn(addr)
     end
 
     -- 作业视图刷新(0x21被jobrun常驻截获, 页面用tick级轻刷新)

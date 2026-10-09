@@ -306,6 +306,34 @@ end
     check(ps['export_usb'](), 'export_usb')
     check(files['2:config.txt'] == files['3:config.txt'], '2:与3:一致')
 
+    print("8b) AB线功能删除: 0x24恒全零(StartState=0行程开关触发)")
+    jr = load('jobrun.lua')
+    lua.globals().__JRB = jr
+    lua.globals().__PROT = prot
+    jr['init']({'APP': {'sub_always': lambda f, h: None},
+                'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
+                'STORE': None, 'PATHALGO': None, 'LOGGER': None,
+                'w32': T['w16'], 'rw16': lambda a: 0,
+                'rw16w': lambda a, v: None, 'parastore': None,
+                'w16': T['w16'], 'wstr': T['wstr'],
+                'now': lambda: 'T+0s', 'rstr': lambda a: '',
+                'r16': lambda a: 0})
+    lua.execute(r'''
+__FTX = {}
+local old_tx = __PROT.io.tx
+__PROT.io.tx = function(fr) __FTX[#__FTX + 1] = fr end
+__JRB.ab_send_map()
+__PROT.io.tx = old_tx
+__ABF = __CODEC.bdpara.unpack(__FTX[1]:sub(5))
+''')
+    n_f = lua.eval('#__FTX')
+    fnc0 = lua.execute('return string.byte(__FTX[1], 2)')
+    abz = lua.globals().__ABF
+    check(n_f == 1 and fnc0 == FNC['SET_AB'], 'ab_send_map发出单帧0x24')
+    check(abz['StartState'] == 0 and abz['StartN'] == 0
+          and abz['BDOffTime'] == 0 and abz['OffLen'] == 0,
+          '0x24载荷全零(地头行程开关触发设A点, 2026-10-09)')
+
     print()
     if FAIL:
         print('参数链: %d项失败' % FAIL)
