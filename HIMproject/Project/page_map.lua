@@ -3,7 +3,7 @@ page_map.lua -- 地图导入页(画面9, 2026-09-24新增)
 ================================================================================
 仿QT地图管理页的屏端子集(地图创建/编辑由PC导出工具负责):
   地图列表(选中) + 详情摘要 + U盘扫描导入(map_*.csv, 文件名须ASCII, 显示名取#MAP)
-  + 删除地图 (AB线功能已于2026-10-09移除: 纯行程开关模式)
+  + 删除地图 + 清除AB线(2026-10-09部分恢复: 保存/清除/查看, 无导入)
 U盘导入逻辑自原任务向导页迁移(2026-09-24向导删除)。
 LW: LW.MAP (0x1C00区)。
 依赖注入: creator(ctx) 同现有页面模式。
@@ -57,7 +57,9 @@ return function(ctx)
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
         if not m then return end
-        wstr(LW.MAP.detail, ("%s %d排x%d列"):format(n, m.rows, m.cols))
+        local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
+                       or "无AB线"
+        wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))
     end
 
     ------------------------------------------------------------------ U盘导入
@@ -133,6 +135,14 @@ return function(ctx)
                 wstr(LW.MAP.detail, "已删除 " .. n)
                 refresh()
             end
+        elseif addr == LW.MAP.ab_clear then
+            local n = selected_name()
+            if n and JOBRUN then
+                local ok, err = JOBRUN.ab_clear_map(n)
+                wstr(LW.MAP.detail, ok and ("AB线已清除 " .. n)
+                                       or ("清除失败 " .. tostring(err):sub(1, 16)))
+                show_detail()
+            end
         end
     end
 
@@ -141,7 +151,7 @@ return function(ctx)
         poll_cmds = {},
         addrs = {
             LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
-            LW.MAP.btn_usb,
+            LW.MAP.btn_usb, LW.MAP.ab_clear,
         },
     }
 

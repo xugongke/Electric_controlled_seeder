@@ -58,6 +58,14 @@ return function(ctx)
         if not m then return end
         W.map = name
         wstr(LW.TW.mapinfo, name .. " " .. STORE.map_spec(name))
+        if PATHALGO then
+            local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0, true)
+            if path and path[1] then
+                -- 默认起始小区=路径首节点(1基直显; 方向恒正向)
+                w16(LW.TW.start_row, path[1].row + 1)
+                w16(LW.TW.start_col, path[1].column + 1)
+            end
+        end
     end
 
     local function goto_state(n)
@@ -112,8 +120,11 @@ return function(ctx)
                 wstr(LW.TW.detail, "请先选择地图")
                 return
             end
-            -- 配置简化(2026-10-09): 固定 正向+起始(1,1)=0基(0,0)
-            local drow, dcol = 0, 0
+            -- 起始排/列1基直转0基(2026-10-09恢复输入); 方向固定正向
+            local drow = math.max(0, math.min(m.rows - 1,
+                (r16(LW.TW.start_row) or 1) - 1))
+            local dcol = math.max(0, math.min(m.cols - 1,
+                (r16(LW.TW.start_col) or 1) - 1))
             local seq = #STORE.task_list() + 1
             local name = "任务" .. seq
             local ok, err = STORE.task_create(name, W.map,
@@ -158,6 +169,13 @@ return function(ctx)
             -- 返回配置(不删除已建任务)
             goto_state(1)
 
+        elseif addr == LW.TW.ab_clear then
+            local map_name = W.map
+            if map_name and JOBRUN then
+                local ok, err = JOBRUN.ab_clear_map(map_name)
+                wstr(LW.TW.detail, ok and ("AB线已清除 " .. map_name)
+                                       or ("清除失败 " .. tostring(err):sub(1, 20)))
+            end
         elseif addr == LW.TW.btn_resume then
             -- 续接"最近创建"的未完成任务(2026-10-09修0%bug: 原按列表序
             -- 取第一个未完成, 多任务积累时字典序选中旧的空任务)
@@ -199,6 +217,8 @@ return function(ctx)
             LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume,
+       
+            LW.TW.ab_clear,
         },
     }
 

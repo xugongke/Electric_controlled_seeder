@@ -310,7 +310,8 @@ end
     jr = load('jobrun.lua')
     lua.globals().__JRB = jr
     lua.globals().__PROT = prot
-    jr['init']({'APP': {'sub_always': lambda f, h: None},
+    jr['init']({'APP': {'sub_always': lambda f, h: None,
+                    'register': lambda pg: None},
                 'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
                 'STORE': None, 'PATHALGO': None, 'LOGGER': None,
                 'w32': T['w16'], 'rw16': lambda a: 0,

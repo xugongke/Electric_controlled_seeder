@@ -228,9 +228,22 @@ LW.CONT = {
 -- 原页面3(AB线管理)已删除(2026-09-23): 显示区保留, 由任务页承载;
 -- 操作按钮在 LW.TW.ab_*(查看/导入/清除/保存), 采集应答经 jobrun 全局0x23路由。
 -- double/float 屏端无原生控件: lua 读值后 string.format 写字符串控件显示
--- LW.AB 显示区(0x1500~0x1526)已随AB线功能删除(2026-10-09,
--- 纯行程开关模式: 开播前地头按行程开关设A点, 固件0x24全零
--- StartState=0触发)
+LW.AB = {   -- (2026-10-09部分恢复: 保存/清除/查看; 无A点排/列/方向显示)
+    -- 字符串区按 %.7f 最长11字符=6字/串 重排(2026-09-24; 旧版每串2字会互相
+    -- 覆盖截断); 方向角 %.3f=6字符=3字, 配4字余量
+    startn      = 0x1500, -- 字符串 A点纬度  (占0x1500~0x1505 共6字)
+    starte      = 0x1506, -- 字符串 A点经度  (占0x1506~0x150B 共6字)
+    endbn       = 0x150C, -- 字符串 B点纬度  (占0x150C~0x1511 共6字)
+    endbe       = 0x1512, -- 字符串 B点经度  (占0x1512~0x1517 共6字)
+    startdir    = 0x1518, -- 字符串 起始方向角(占0x1518~0x151B 共4字)
+    calcdir     = 0x151C, -- 字符串 计算方向角(占0x151C~0x151F 共4字)
+    startstate  = 0x1520, -- u16 StartState
+    calcdirflag = 0x1521, -- u16 CalcDirFlag
+    offlen      = 0x1522, -- u16 OffLen 偏移量
+    bdofftime   = 0x1523, -- u16 BDOffTime
+    -- 原操作按钮(0x1520~0x1523)已随页面3删除, 区址让位给数值字段
+}
+
 
 --==================== 页面4 参数页(0x1600~, TerParaType 40B + UserParaType 16B) ====================
 -- 范围/默认值列由 params 任务从 hd3005a1/Src/para.c ParaLegalCheck 核对后固化
@@ -358,7 +371,11 @@ LW.TW = {
     -- AB线操作(2026-09-23自page_abline迁移; 配置期作用于所选地图, 作业期作用于当前地图;
     -- 绑定信息显示复用 LW.AB 地址区, 查看/保存走AB对话框画面22)
     btn_start  = 0x188C, -- 按钮 开始作业(任务就绪后启动; 作业中=续趟裸发0x0A)
-    btn_stop   = 0x188D, -- 按钮 停止作业(收尾断点+无AB线时弹保存对话框)
+    btn_stop   = 0x188D, -- 按钮 停止作业(收尾断点+无AB线时弹保存对话框)
+    ab_clear    = 0x188A, -- 按钮 清除本图AB线绑定
+    -- 起始排/列(2026-10-09恢复输入, 1基; 方向固定正向不设输入)
+    start_row   = 0x180C, -- u16 起始排(1基)
+    start_col   = 0x180D, -- u16 起始列(1基)
 }
 
 --==================== 页面9 地图导入(0x1C00~, 2026-09-24新增) ====================
@@ -371,7 +388,8 @@ LW.MAP = {
     btn_down   = 0x1C71, -- 按钮 选项下移
     btn_sel    = 0x1C72, -- 按钮 查看详情
     btn_del    = 0x1C73, -- 按钮 删除地图
-    btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
+    btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
+    ab_clear    = 0x1C46, -- 按钮 清除本图AB线绑定
 }
 
 --==================== AB线对话框交互区(0x1D00~, 画面22承载) ====================
@@ -414,9 +432,20 @@ LW.LOGV = {
 --==================== RW 掉电保持区(0x0000~0x7FFF, 64KB 按扇区) ====================
 -- 注意: 标志位与数据须同 4KB 扇区; 上电读 0xFFFF 须恢复默认; 严禁高频写
 -- AB线 BDParaType 56B=28字: magic(0x55AA) + 完整 pack 镜像(CrcCheck置0)
+LW.ABP = {
+    mode     = 0x1D00, -- u16 对话框模式 0=保存命名(需输入名称) 1=查看(只读)
+    auto_req = 0x1D01, -- u16 停止后自动弹窗请求(条件触发功能按钮的条件地址)
+    name     = 0x1D02, -- 字符串 AB线名称(保存=输入框, 查看=绑定的AB名; 占8字)
+    req      = 0x1D10, -- 通知 打开请求(画面按钮执行通知: 1=保存 2=查看)
+    confirm  = 0x1D11, -- 通知 确认(关闭对话框按钮执行通知写1)
+    cancel   = 0x1D12, -- 通知 取消(关闭对话框按钮执行通知写1)
+}
+
 LW.RW = {
-    -- AB线RW镜像已随AB线功能删除(2026-10-09); 过道打点存config.txt,
-    -- RW区当前无使用者, 保留表壳防旧代码索引nil
+    ab_magic = 0x0000, -- u16 AB线有效标志 0x55AA
+    ab_data  = 0x0001, -- 28字 BDParaType 完整镜像(page_abline pack, CrcCheck=0)
+    -- 参数配置已迁3:config.txt单轨(2026-09-30, QT模式); gap_point随迁,
+    -- 参数副本区(0x0020起)整体撤销, RW仅存AB线
 }
 
 return LW
@@ -3080,6 +3109,8 @@ local PSTORE                    -- parastore(启动参数链, 可缺省)
 -- 作业现场(单个活动任务)
 local J = nil
 -- 停止流程挂起的AB采集请求 { map, a_row, dir } (声明在前供 init 闭包引用)
+local pending_ab = nil
+-- (AB对话框状态local在dlg段内自含)
 -- J = { task=名, m=地图, path, ab, next_idx, cur_col, cur_read_row,
 
 local function now_s()
@@ -3114,6 +3145,27 @@ function jobrun.init(deps)
         end
         if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
     end)
+-- 0x23 采集应答全局处理: 填 ab_cache 与 LW.AB 显示区(对话框画面22的显示控件
+    -- 绑同一地址区)。2026-09-24 起停止不再自动落图, 改由对话框确认保存
+    APP.sub_always(PROTOCOL.FNC.STORE_AB, function(f)
+        local ok, p = pcall(CODEC.bdpara.unpack, f.data)
+        if not ok then
+            wstr(LW.A.log, "bdpara unpack err: len=" .. #f.data)
+            return
+        end
+        jobrun.ab_cache = p
+        jobrun.ab_show(p)
+    end)
+
+-- AB对话框通知地址(画面22的功能按钮执行通知写LW=1) -> 影子页全局路由
+    APP.register({
+        id = -900,                              -- 非真实画面号, 永不成为当前页
+        addrs = { LW.ABP.req, LW.ABP.confirm, LW.ABP.cancel },
+        on_update = function(_, addr) jobrun._ab_dlg_on_update(addr) end,
+    })
+    -- creator 时机恢复 RW 缓存(掉电保持)
+    jobrun.ab_cache = jobrun.ab_rw_load()
+
     return jobrun
 end
 
@@ -3192,15 +3244,114 @@ local function ab_pack(p)
     return CODEC.bdpara.pack(t)
 end
 
--- 下发地图AB(0x24); 无绑定时下发全零(StartState=0, 固件清空并等待行程开关设A)
-function jobrun.ab_send_map()
-    -- 2026-10-09 AB线功能删除: 恒发全零(QT setEmptyABLine语义,
-    -- StartState=0 -> 固件清空BDParam, 地头行程开关触发后设A点开播;
-    -- 地图#AB段数据仍随文件保留但不再被调度使用
-    PROTOCOL.send(PROTOCOL.FNC.SET_AB, ab_pack({
-        StartN = 0, StartE = 0, EndBN = 0, EndBE = 0,
-        StartDir = 0, CalcDir = 0, StartState = 0, CalcDirFlag = 0,
-        OffLen = 0, BDOffTime = 0 }))
+-- 下发地图AB(0x24); 有绑定->存储真值(免触发开播); 无绑定->全零
+-- (StartState=0, 固件清空并等待行程开关设A); 2026-10-09部分恢复
+-- 下发地图AB(0x24); 有绑定->存储真值(免触发开播); 无绑定->全零
+-- (StartState=0, 固件清空并等待行程开关设A); 2026-10-09部分恢复
+function jobrun.ab_show(p)
+    if not (p and LW and LW.AB and wstr) then return end
+    wstr(LW.AB.startn,   ("%.7f"):format(p.StartN))
+    wstr(LW.AB.starte,   ("%.7f"):format(p.StartE))
+    wstr(LW.AB.endbn,    ("%.7f"):format(p.EndBN))
+    wstr(LW.AB.endbe,    ("%.7f"):format(p.EndBE))
+    wstr(LW.AB.startdir, ("%.3f"):format(p.StartDir))
+    wstr(LW.AB.calcdir,  ("%.3f"):format(p.CalcDir))
+    w16(LW.AB.startstate,  p.StartState & 0xFFFF)
+    w16(LW.AB.calcdirflag, p.CalcDirFlag & 0xFFFF)
+    w16(LW.AB.offlen,      p.OffLen & 0xFFFF)
+    w16(LW.AB.bdofftime,   p.BDOffTime & 0xFFFF)
+end
+
+local function ab_pack(p)
+    local t = {}
+    for k, v in pairs(p) do t[k] = v end
+    t.Resv, t.CrcCheck = 0, 0                 -- 占位, 下位机自行处理
+    return CODEC.bdpara.pack(t)
+end
+
+-- RW 持久化(28字=56B小端u16序列; 先写数据后写magic, 掉电安全侧判无效)
+function jobrun.ab_rw_save()
+    if not jobrun.ab_cache then return nil, "无AB线, 请先采集" end
+    if not (rw16w and LW.RW) then return nil, "RW不可用" end
+    local data = ab_pack(jobrun.ab_cache)
+    for i = 0, 27 do
+        local b1 = string.byte(data, i * 2 + 1)
+        local b2 = string.byte(data, i * 2 + 2)
+        rw16w(LW.RW.ab_data + i, b1 | (b2 << 8))
+    end
+    rw16w(LW.RW.ab_magic, 0x55AA)
+    return true
+end
+
+function jobrun.ab_rw_load()
+    if not (rw16 and LW.RW) then return nil end
+    if rw16(LW.RW.ab_magic) ~= 0x55AA then return nil end
+    local bytes = {}
+    for i = 0, 27 do
+        bytes[#bytes + 1] = string.pack("<H", rw16(LW.RW.ab_data + i) & 0xFFFF)
+    end
+    local ok, p = pcall(CODEC.bdpara.unpack, table.concat(bytes))
+    if not ok then return nil end
+    return p
+end
+
+-- 把 cache 绑定到地图(QT FormMap 导入语义: 写 #AB 段并落盘)
+-- name: AB线显示名(对话框输入); pa: 停止快照{a_row,dir}(优先于作业参考)
+function jobrun.ab_bind_map(map_name, name, pa)
+    local p = jobrun.ab_cache
+    if not p then return nil, "无AB线, 请先采集或从RW读回" end
+    local m = STORE.maps[map_name]
+    if not m then return nil, "地图不存在" end
+    local a_row, abdir = 0, 1
+    if pa then
+        a_row, abdir = pa.a_row or 0, (pa.dir and 1 or 0)
+    elseif J and J.m and J.m.name == map_name and J.outset_ref then
+        a_row = J.outset_ref.row or 0
+        abdir = (J.outset_ref.dir == true) and 1 or 0
+    end
+    m.ab = { name = (name and name ~= "") and name or map_name,
+             sn = p.StartN, se = p.StartE,
+             en = p.EndBN, ee = p.EndBE, sdir = p.StartDir, cdir = p.CalcDir,
+             a_row = a_row, abdir = abdir, has = true,
+             -- BDPara下发参数随线保存(2026-10-08, 0x24/查看用存储真值)
+             startstate = p.StartState or 1, calcdirflag = p.CalcDirFlag or 1,
+             offlen = p.OffLen or 0, bdofftime = p.BDOffTime or 100,
+             -- A点列(QT aColumn: 农机图标列定位输入, 2026-10-08随格式补)
+             a_col = (J and J.cur_col) or 0 }
+    if STORE.map_save and not STORE.map_save(map_name) then
+        return nil, "地图落盘失败"
+    end
+    return true
+end
+
+-- 清除地图AB绑定
+function jobrun.ab_clear_map(map_name)
+    local m = STORE.maps[map_name]
+    if not m then return nil, "地图不存在" end
+    m.ab = nil
+    if STORE.map_save and not STORE.map_save(map_name) then
+        return nil, "地图落盘失败"
+    end
+    return true
+end
+
+function jobrun.ab_send_map(m)
+    local t
+    if m and m.ab and m.ab.has then
+        t = { StartN = m.ab.sn, StartE = m.ab.se, EndBN = m.ab.en, EndBE = m.ab.ee,
+              StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
+              StartState = m.ab.startstate or 1,
+              CalcDirFlag = m.ab.calcdirflag or 1,
+              OffLen = m.ab.offlen or 0,
+              BDOffTime = m.ab.bdofftime or 100 }
+    else
+        -- QT communication.cpp:591 setEmptyABLine: 全零, StartState=0
+        -- -> 固件 protocol.c:284 清空BDParam, 地头行程开关触发后才设A点开播
+        t = { StartN = 0, StartE = 0, EndBN = 0, EndBE = 0,
+              StartDir = 0, CalcDir = 0, StartState = 0, CalcDirFlag = 0,
+              OffLen = 0, BDOffTime = 0 }
+    end
+    PROTOCOL.send(PROTOCOL.FNC.SET_AB, ab_pack(t))
 end
 
 -------------------------------------------------------------------- 启动(QT :269)
@@ -3244,9 +3395,10 @@ function jobrun.start(task_name, opts)
     -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
         J = {
         task = task_name, m = m, path = path,
+        outset_ref = { row = path[start_idx].row,
+                       dir = path[start_idx].positive },
         ab = { has = false, dir = path[start_idx].positive,
-               a_row = path[start_idx].row },   -- 恒无AB线(2026-10-09砍);
-                                           -- 保留字段: TXFlag/voff翻转按无AB分支
+               a_row = path[start_idx].row },
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx,
@@ -3271,7 +3423,7 @@ function jobrun.start(task_name, opts)
         -- 有绑定->存储值(StartState=1); 无绑定->全零(StartState=0, 固件清空BDParam,
         -- 地头等待行程开关触发设A点后才开播)。此前屏端从不发0x24, 下位机沿用上次
         -- 持久化的StartState=1, 无AB线任务跳过触发直接开播(用户联调暴露)。
-        jobrun.ab_send_map()
+        jobrun.ab_send_map(m)
 
         -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
         local pn = path[J.next_idx]
@@ -3320,7 +3472,19 @@ end
 
 function jobrun.stop()
     PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)        -- 0x0B
-    -- (AB线保存建议/弹窗已随AB线功能删除2026-10-09; 停止即收尾)
+    -- AB线保存建议(QT signalStopSow :310-311): 无绑定地图 -> 采集填显示 + 请求弹窗
+    if not (J.m.ab and J.m.ab.has) then
+        pending_ab = { map = J.m.name,
+                       a_row = J.outset_ref and J.outset_ref.row or 0,
+                       dir = J.outset_ref and J.outset_ref.dir or false }
+        ab_dlg_mode = 1                            -- 预置保存模式(弹窗已带目的)
+        ab_dlg_map = J.m.name
+        w16(LW.ABP.mode, 0)
+        wstr(LW.ABP.name, "")
+        PROTOCOL.send(PROTOCOL.FNC.STORE_AB)       -- 0x23 采集填显示
+        w16(LW.ABP.auto_req, 1)                    -- 画面功能按钮条件触发弹窗
+        log("INF", "地图无AB线, 停止后建议保存: " .. J.m.name)
+    end
     if not J then return true end
     if not J.completed then
         -- QT :306-307: 停止时当前块已完成则 next_idx 回退到 temp_idx(下次续作起点)
@@ -3345,7 +3509,105 @@ function jobrun.detach()
     if APP then APP.set_always_poll(nil) end
 end
 
-    -------------------------------------------------------------------- 200ms 状态机
+    -------------------------------------------------------------------- AB线对话框(LW.ABP)
+-- 画面22承载(功能按钮"打开对话框"弹出, 蒙版半透明模态); 字段显示控件绑 LW.AB 区,
+-- 0x23 应答经全局路由自动填充。名称输入为文本控件(虚拟键盘)读写 LW.ABP.name。
+-- 交互: 画面按钮执行通知写 LW.ABP.req(1保存/2查看) -> 采集+开窗;
+--       确认(关闭对话框+通知confirm) -> 命名保存到地图+RW; 取消 -> 丢弃。
+local function rstr_safe(addr)
+    if RSTR then
+        local ok, s = pcall(RSTR, addr)
+        if ok and type(s) == "string" then return s end
+    end
+    return ""
+end
+
+function jobrun._ab_dlg_on_update(addr)
+    if addr == LW.ABP.req then
+        local v = (r16 and r16(LW.ABP.req)) or 1
+        jobrun.ab_dlg_open(v == 2 and 2 or 1)
+    elseif addr == LW.ABP.confirm then
+        jobrun.ab_dlg_confirm()
+    elseif addr == LW.ABP.cancel then
+        ab_dlg_mode = 0
+        pending_ab = nil
+        w16(LW.ABP.auto_req, 0)
+    end
+end
+
+-- 打开请求(mode 1=保存命名 2=查看): 填模式/名称, 发0x23采集
+-- 目标地图优先级: 作业中=当前任务地图 > 停止快照 > 页面提示(jobrun.ab_hint_map,
+-- 地图导入页选中行设置) > 保持上次
+function jobrun.ab_dlg_open(mode)
+    ab_dlg_mode = mode
+    if J and J.m then ab_dlg_map = J.m.name
+    elseif pending_ab then ab_dlg_map = pending_ab.map
+    elseif jobrun.ab_hint_map then ab_dlg_map = jobrun.ab_hint_map end
+    w16(LW.ABP.mode, mode == 2 and 1 or 0)      -- LW口径: 0保存 1查看
+    if mode == 2 then
+        -- QT语义(DialogABLine:517+): 查看=显示地图绑定的AB线, 不读下位机
+        -- (2026-10-08修复: 原实现发0x23读下位机实时值, 屏/固件重启后显示全0;
+        --  地图AB段落盘在3:, 重启屏后仍完整)
+        local m = ab_dlg_map and STORE.maps[ab_dlg_map]
+        if m and m.ab and m.ab.has then
+            wstr(LW.ABP.name, m.ab.name or "")
+            jobrun.ab_show({ StartN = m.ab.sn, StartE = m.ab.se,
+                             EndBN = m.ab.en, EndBE = m.ab.ee,
+                             StartDir = m.ab.sdir, CalcDir = m.ab.cdir,
+                             StartState = m.ab.startstate or 1,
+                             CalcDirFlag = m.ab.calcdirflag or 1,
+                             OffLen = m.ab.offlen or 0,
+                             BDOffTime = m.ab.bdofftime or 100 })
+            -- (A点排/列/方向不显示, 2026-10-09用户决策)
+        else
+            -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
+            local p = jobrun.ab_rw_load()
+            if p then
+                wstr(LW.ABP.name, "(RW缓存)")
+                jobrun.ab_show(p)
+            else
+                wstr(LW.ABP.name, "(无AB线)")
+                jobrun.ab_show({ StartN = 0, StartE = 0, EndBN = 0, EndBE = 0,
+                                 StartDir = 0, CalcDir = 0, StartState = 0,
+                                 CalcDirFlag = 0, OffLen = 0, BDOffTime = 0 })
+            end
+        end
+    else
+        wstr(LW.ABP.name, "")
+        PROTOCOL.send(PROTOCOL.FNC.STORE_AB)   -- 保存前0x23采集当前B点
+    end
+end
+
+-- 确认保存: 以对话框输入名称绑定地图(#AB段落盘) + 存RW; A排/方向用停止快照
+-- (严格要求本次开窗后已有0x23应答, 不回退RW旧缓存——避免保存过期数据)
+function jobrun.ab_dlg_confirm()
+    if ab_dlg_mode ~= 1 then
+        ab_dlg_mode = 0
+        w16(LW.ABP.auto_req, 0)
+        return
+    end
+    ab_dlg_mode = 0
+    w16(LW.ABP.auto_req, 0)
+    if not (ab_dlg_map and STORE.maps[ab_dlg_map]) then
+        return
+    end
+    jobrun.ab_cache = jobrun.ab_cache
+    if not jobrun.ab_cache then
+        return
+    end
+    local name = rstr_safe(LW.ABP.name)
+    if name == "" then name = ab_dlg_map end
+    local pa = pending_ab
+    local ok, err = jobrun.ab_bind_map(ab_dlg_map, name, pa)
+    if ok then
+        jobrun.ab_rw_save()
+        log("INF", ("AB线保存 %s -> 地图%s"):format(name, ab_dlg_map))
+    else
+    end
+    pending_ab = nil
+end
+
+-------------------------------------------------------------------- 200ms 状态机
 -- QT :330-473 signalGetSowStatus 核心分支(去除拖拉机图标/表格可视化)
 function jobrun._feed(f)
     local ok, st = pcall(CODEC.bzstatus.unpack, f.data)
@@ -3529,6 +3791,14 @@ return function(ctx)
         if not m then return end
         W.map = name
         wstr(LW.TW.mapinfo, name .. " " .. STORE.map_spec(name))
+        if PATHALGO then
+            local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0, true)
+            if path and path[1] then
+                -- 默认起始小区=路径首节点(1基直显; 方向恒正向)
+                w16(LW.TW.start_row, path[1].row + 1)
+                w16(LW.TW.start_col, path[1].column + 1)
+            end
+        end
     end
 
     local function goto_state(n)
@@ -3583,8 +3853,11 @@ return function(ctx)
                 wstr(LW.TW.detail, "请先选择地图")
                 return
             end
-            -- 配置简化(2026-10-09): 固定 正向+起始(1,1)=0基(0,0)
-            local drow, dcol = 0, 0
+            -- 起始排/列1基直转0基(2026-10-09恢复输入); 方向固定正向
+            local drow = math.max(0, math.min(m.rows - 1,
+                (r16(LW.TW.start_row) or 1) - 1))
+            local dcol = math.max(0, math.min(m.cols - 1,
+                (r16(LW.TW.start_col) or 1) - 1))
             local seq = #STORE.task_list() + 1
             local name = "任务" .. seq
             local ok, err = STORE.task_create(name, W.map,
@@ -3629,6 +3902,13 @@ return function(ctx)
             -- 返回配置(不删除已建任务)
             goto_state(1)
 
+        elseif addr == LW.TW.ab_clear then
+            local map_name = W.map
+            if map_name and JOBRUN then
+                local ok, err = JOBRUN.ab_clear_map(map_name)
+                wstr(LW.TW.detail, ok and ("AB线已清除 " .. map_name)
+                                       or ("清除失败 " .. tostring(err):sub(1, 20)))
+            end
         elseif addr == LW.TW.btn_resume then
             -- 续接"最近创建"的未完成任务(2026-10-09修0%bug: 原按列表序
             -- 取第一个未完成, 多任务积累时字典序选中旧的空任务)
@@ -3670,6 +3950,8 @@ return function(ctx)
             LW.TW.btn_sel, LW.TW.btn_ok,
             LW.TW.btn_start, LW.TW.btn_stop, LW.TW.btn_cancel,
             LW.TW.btn_resume,
+       
+            LW.TW.ab_clear,
         },
     }
 
@@ -3940,7 +4222,7 @@ page_map.lua -- 地图导入页(画面9, 2026-09-24新增)
 ================================================================================
 仿QT地图管理页的屏端子集(地图创建/编辑由PC导出工具负责):
   地图列表(选中) + 详情摘要 + U盘扫描导入(map_*.csv, 文件名须ASCII, 显示名取#MAP)
-  + 删除地图 (AB线功能已于2026-10-09移除: 纯行程开关模式)
+  + 删除地图 + 清除AB线(2026-10-09部分恢复: 保存/清除/查看, 无导入)
 U盘导入逻辑自原任务向导页迁移(2026-09-24向导删除)。
 LW: LW.MAP (0x1C00区)。
 依赖注入: creator(ctx) 同现有页面模式。
@@ -3994,7 +4276,9 @@ return function(ctx)
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
         if not m then return end
-        wstr(LW.MAP.detail, ("%s %d排x%d列"):format(n, m.rows, m.cols))
+        local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
+                       or "无AB线"
+        wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))
     end
 
     ------------------------------------------------------------------ U盘导入
@@ -4070,6 +4354,14 @@ return function(ctx)
                 wstr(LW.MAP.detail, "已删除 " .. n)
                 refresh()
             end
+        elseif addr == LW.MAP.ab_clear then
+            local n = selected_name()
+            if n and JOBRUN then
+                local ok, err = JOBRUN.ab_clear_map(n)
+                wstr(LW.MAP.detail, ok and ("AB线已清除 " .. n)
+                                       or ("清除失败 " .. tostring(err):sub(1, 16)))
+                show_detail()
+            end
         end
     end
 
@@ -4078,7 +4370,7 @@ return function(ctx)
         poll_cmds = {},
         addrs = {
             LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
-            LW.MAP.btn_usb,
+            LW.MAP.btn_usb, LW.MAP.ab_clear,
         },
     }
 
