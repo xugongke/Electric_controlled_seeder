@@ -2735,10 +2735,12 @@ pathalgo.block_each_trip = bet
 -- 生成有序作业序列 { {row=, column=组起点列, positive=行进方向bool} ... }
 -- positive=true: row 0→rows-1 递增; false: rows-1→0 递减
 local function emit(path, rows, col, positive)
+    -- (2026-10-10对齐QT实测: 播种方向=正 -> 从末排(5,1)起向排号减小;
+    --  反向 -> 从首排(1,1)起向排号增大; 与用户QT联调观察一致)
     if positive then
-        for r = 0, rows - 1 do path[#path + 1] = { row = r, column = col, positive = true } end
+        for r = rows - 1, 0, -1 do path[#path + 1] = { row = r, column = col, positive = true } end
     else
-        for r = rows - 1, 0, -1 do path[#path + 1] = { row = r, column = col, positive = false } end
+        for r = 0, rows - 1 do path[#path + 1] = { row = r, column = col, positive = false } end
     end
 end
 
@@ -3821,7 +3823,7 @@ return function(ctx)
         W.map = name
         wstr(LW.TW.mapinfo, name .. " " .. STORE.map_spec(name))
         if PATHALGO then
-            local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0, true)
+            local path = PATHALGO.create_path(m, r16(LW.TW.path_type) or 0, false)
             if path and path[1] then
                 -- 默认起始小区=路径首节点(1基直显; 方向恒正向)
                 w16(LW.TW.start_row, path[1].row + 1)
@@ -3897,7 +3899,9 @@ return function(ctx)
             local seq = #STORE.task_list() + 1
             local name = "任务" .. seq
             local ok, err = STORE.task_create(name, W.map,
-                r16(LW.TW.path_type) or 0, 1,
+                                r16(LW.TW.path_type) or 0, 0,
+                -- 方向固定反向(2026-10-10用户决策: QT语义正向=末排起,
+                --  固定反 -> 从首排(1,1)起播)
                 r16(LW.TW.sow_exceed) or 0, drow, dcol, NOW())
             if not ok then
                 log("ERR", "任务创建失败: " .. tostring(err))

@@ -233,19 +233,19 @@ end
         "local f = assert(loadfile(__P2)); local pa = f(); "
         "local p = pa.create_path(__M5, 0, true); "
         "return p[1].row, p[1].positive")
-    check(p0[0] == 0 and p0[1] is True,
-          '正向(positive=1)首节点row=0(QT createPath同款)')
+    check(p0[0] == 4 and p0[1] is True,
+          '正向(positive=1)首节点row=4末排(2026-10-10 QT实测语义: 正向=末排起)')
     p1 = lua.execute(
         "local f = assert(loadfile(__P2)); local pa = f(); "
         "local p = pa.create_path(__M5, 0, false); "
         "return p[1].row")
-    check(p1 == 4, '反向首节点row=4(末排)')
+    check(p1 == 0, '反向首节点row=0(2026-10-10反转后: 反向=首排起)')
     # 起始排定位(jobrun.start同款扫描): outset={r=0}在正向路径首次出现=index1
     idx = lua.execute(
         "local f = assert(loadfile(__P2)); local pa = f(); "
         "local p = pa.create_path(__M5, 0, true); "
         "for i, pn in ipairs(p) do if pn.row == 0 then return i end end")
-    check(idx == 1, '起始排0(1基排1)+正向 -> 起点即首节点(实际从(1,1)出发)')
+    check(idx == 5, '起始排1(0基0)+正向(末排起) -> 起点index5(该排首节点)')
     idx2 = lua.execute(
         "local f = assert(loadfile(__P2)); local pa = f(); "
         "local p = pa.create_path(__M5, 0, true); "
