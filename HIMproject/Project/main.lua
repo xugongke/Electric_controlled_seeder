@@ -2889,16 +2889,21 @@ end
 
 -- AB 参考: ab = { has=bool, dir=bool, a_row=int } (无AB时 a_row=outset排)
 function pathalgo.start_pos(m, row, d, ab)
+    -- (2026-10-10修: 无AB线时参考改地头(-1)而非起始排 —— 原"相对起始排"
+    --  使StartPOS=0, A点(行程开关)按在起始排之前时走到前排就提前漏种漏肥;
+    --  QT同款公式但QT假设A点恰在起始排处, 用户实况A点在地头任意位置,
+    --  绝对参考保证"走到起始排所在小区才播")
+    local ref = ab.has and ab.a_row or -1
     if d then
         if (not ab.has) or ab.dir then
-            return pathalgo.fwd_start(m, row) - pathalgo.fwd_start(m, ab.a_row)
+            return pathalgo.fwd_start(m, row) - pathalgo.fwd_start(m, ref)
         end
-        return pathalgo.bwd_start(m, ab.a_row) - pathalgo.fwd_start(m, row)
+        return pathalgo.bwd_start(m, ref) - pathalgo.fwd_start(m, row)
     end
     if (not ab.has) or (not ab.dir) then
-        return pathalgo.bwd_start(m, ab.a_row) - pathalgo.bwd_start(m, row)
+        return pathalgo.bwd_start(m, ref) - pathalgo.bwd_start(m, row)
     end
-    return pathalgo.bwd_start(m, row) - pathalgo.fwd_start(m, ab.a_row)
+    return pathalgo.bwd_start(m, row) - pathalgo.fwd_start(m, ref)
 end
 
 -------------------------------------------------------------------- startNode
@@ -3377,8 +3382,16 @@ function jobrun.start(task_name, opts)
     --   在路径中首次出现处(此前被无视, 起点只由方向开关决定)
     local start_idx = 1
     if opts.resume then
-        local bet = PATHALGO.block_each_trip(m)
-        for i, pn in ipairs(path) do
+        -- (2026-10-10修: 从起始排定位点开始扫, 不回到起始排之前 ——
+        --  起始排2的任务排1本就不在作业范围, 原全程扫描会命中排1重来)
+        local oidx = 1
+        if t.outset and type(t.outset.r) == "number" and t.outset.r >= 0 then
+            for i, pn in ipairs(path) do
+                if pn.row == t.outset.r then oidx = i break end
+            end
+        end
+        for i = oidx, #path do
+            local pn = path[i]
             local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
             if not blk or (blk.sow == 1 and blk.state ~= 2) then
                 start_idx = i

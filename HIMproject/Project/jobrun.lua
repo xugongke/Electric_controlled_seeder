@@ -290,8 +290,16 @@ function jobrun.start(task_name, opts)
     --   在路径中首次出现处(此前被无视, 起点只由方向开关决定)
     local start_idx = 1
     if opts.resume then
-        local bet = PATHALGO.block_each_trip(m)
-        for i, pn in ipairs(path) do
+        -- (2026-10-10修: 从起始排定位点开始扫, 不回到起始排之前 ——
+        --  起始排2的任务排1本就不在作业范围, 原全程扫描会命中排1重来)
+        local oidx = 1
+        if t.outset and type(t.outset.r) == "number" and t.outset.r >= 0 then
+            for i, pn in ipairs(path) do
+                if pn.row == t.outset.r then oidx = i break end
+            end
+        end
+        for i = oidx, #path do
+            local pn = path[i]
             local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
             if not blk or (blk.sow == 1 and blk.state ~= 2) then
                 start_idx = i
