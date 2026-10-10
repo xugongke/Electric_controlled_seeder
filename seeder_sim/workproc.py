@@ -227,6 +227,12 @@ class WorkProc:
     def _off_len(self):
         return int(self.pos_cm)                       # (s32)(Y*100), C 截断
 
+    def _off_disp(self):
+        # 显示/上报口径(2026-10-10): 反向列(tx=0)取绝对值, 行程恒为正数递减
+        # —— 触发计算仍用 _off_len 的带符号原值(播种基准已锁定, 勿动)
+        v = self._off_len()
+        return -v if not self.bd_tx_flag else v
+
     def bd_dist_cm(self):
         """0x23 取 B 点用的当前行程: 运行中=实时 OffLen, 停止=停止瞬间冻结值。
 
@@ -241,7 +247,7 @@ class WorkProc:
                     bd_state=1 if self.bd_ok else 0,
                     speed=self.speed_now,
                     row_num=self.bz_curr.RowNum,
-                    off_len=self._off_len(),
+                    off_len=self._off_disp(),
                     vertical_off=vert,
                     loufei=list(self.loufei),
                     louzh=list(self.louzh))
