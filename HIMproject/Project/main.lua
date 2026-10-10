@@ -2889,21 +2889,15 @@ end
 
 -- AB 参考: ab = { has=bool, dir=bool, a_row=int } (无AB时 a_row=outset排)
 function pathalgo.start_pos(m, row, d, ab)
-    -- (2026-10-10修: 无AB线时参考改地头(-1)而非起始排 —— 原"相对起始排"
-    --  使StartPOS=0, A点(行程开关)按在起始排之前时走到前排就提前漏种漏肥;
-    --  QT同款公式但QT假设A点恰在起始排处, 用户实况A点在地头任意位置,
-    --  绝对参考保证"走到起始排所在小区才播")
-    local ref = ab.has and ab.a_row or -1
+    -- (2026-10-10最终: 绝对行程体系 —— StartPOS=目标排播种位全图绝对位置
+    -- (1,1端地头=0): 正向排上沿fwd(row); 反向排下沿fwd(row)+排长.
+    --  模拟器按绝对值引导(StartPOS±800预备段), 触发=绝对位置比较;
+    --  显示: 正向0递增/反向从全图长+预备递减(正数)
     if d then
-        if (not ab.has) or ab.dir then
-            return pathalgo.fwd_start(m, row) - pathalgo.fwd_start(m, ref)
-        end
-        return pathalgo.bwd_start(m, ref) - pathalgo.fwd_start(m, row)
+        return pathalgo.fwd_start(m, row)
     end
-    if (not ab.has) or (not ab.dir) then
-        return pathalgo.bwd_start(m, ref) - pathalgo.bwd_start(m, row)
-    end
-    return pathalgo.bwd_start(m, row) - pathalgo.fwd_start(m, ref)
+    local ri = (row >= 0 and row < m.rows) and row or (m.rows - 1)
+    return pathalgo.fwd_start(m, row) + (m.rowlen[ri + 1] or 0)
 end
 
 -------------------------------------------------------------------- startNode
