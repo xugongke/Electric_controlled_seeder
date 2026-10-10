@@ -167,18 +167,7 @@ function csv.parse_map_grid(text)
                                                 density = 0, sow = 1 }
                                 local v = num(f[c])
                                 if section == "编号" then
-                                    if v ~= nil then
-                                        cur.num = v
-                                        cur.num_auto = nil
-                                    else
-                                        -- 编号区空: 顺位号仅作显示, 标记auto
-                                        -- (render回写保持空, 不固化覆盖用户
-                                        --  编号体系——QT导出文件编号区本为空,
-                                        --  2026-10-09用户"删AB线误删编号"实为
-                                        --  顺位号固化覆盖)
-                                        cur.num = r0 * m.cols + c0 + 1
-                                        cur.num_auto = true
-                                    end
+                                    if v ~= nil then cur.num = v end
                                 elseif section == "密度" then
                                     cur.density = v or 0
                                 else
@@ -460,9 +449,7 @@ function csv.render_map(m)
         end
         row("", "", "", "")
     end
-    matrix("编号", function(b)
-        return (b.num_auto and "") or b.num
-    end)
+    matrix("编号", function(b) return b.num end)
     matrix("密度", function(b) return b.density end)
     matrix("是否播种", function(b) return b.sow end)
     return table.concat(L, "\r\n") .. "\r\n"

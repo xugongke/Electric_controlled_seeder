@@ -30,12 +30,6 @@ local function emit(path, rows, col, positive)
 end
 
 function pathalgo.create_path(m, path_type, positive)
-    -- (2026-10-10对齐QT实测语义: 正向=从末排起. 入口取反实现——
-    --  撤销昨天的emit反转(它破坏了FinalFlag/InS/Next等按d分方向的
-    --  几何配套, 首排被判FinalFlag固件播一排即收=10%卡死根因);
-    --  入口取反后emit及全部下游几何保持自洽: p=1->emit反向序(末排起),
-    --  p=0->正向序(首排1,1起))
-    positive = not positive
     local path = {}
     local b = bet(m)
     local rows = m.rows
@@ -182,15 +176,16 @@ end
 
 -- AB 参考: ab = { has=bool, dir=bool, a_row=int } (无AB时 a_row=outset排)
 function pathalgo.start_pos(m, row, d, ab)
-    -- (2026-10-10最终: 绝对行程体系 —— StartPOS=目标排播种位全图绝对位置
-    -- (1,1端地头=0): 正向排上沿fwd(row); 反向排下沿fwd(row)+排长.
-    --  模拟器按绝对值引导(StartPOS±800预备段), 触发=绝对位置比较;
-    --  显示: 正向0递增/反向从全图长+预备递减(正数)
     if d then
-        return pathalgo.fwd_start(m, row)
+        if (not ab.has) or ab.dir then
+            return pathalgo.fwd_start(m, row) - pathalgo.fwd_start(m, ab.a_row)
+        end
+        return pathalgo.bwd_start(m, ab.a_row) - pathalgo.fwd_start(m, row)
     end
-    local ri = (row >= 0 and row < m.rows) and row or (m.rows - 1)
-    return pathalgo.fwd_start(m, row) + (m.rowlen[ri + 1] or 0)
+    if (not ab.has) or (not ab.dir) then
+        return pathalgo.bwd_start(m, ab.a_row) - pathalgo.bwd_start(m, row)
+    end
+    return pathalgo.bwd_start(m, row) - pathalgo.fwd_start(m, ab.a_row)
 end
 
 -------------------------------------------------------------------- startNode

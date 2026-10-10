@@ -224,33 +224,6 @@ end
         "local pa = f(); "
         "return pa.density(__TSK, __M2, 0, 1, true, nil)")
     check(dens0 == 5000, '无微调表 -> 原密度5000')
-    # 起点语义(2026-10-09修): 正向首节点row=0; outset_row定位起点
-    lua.globals().__M5 = lua.table()
-    lua.globals().__M5['rows'] = 5
-    lua.globals().__M5['cols'] = 2
-    lua.globals().__M5['machine_cols'] = 1
-    p0 = lua.execute(
-        "local f = assert(loadfile(__P2)); local pa = f(); "
-        "local p = pa.create_path(__M5, 0, true); "
-        "return p[1].row, p[1].positive")
-    check(p0[0] == 4 and p0[1] is True,
-          '正向(positive=1)首节点row=4末排(2026-10-10 QT实测语义: 正向=末排起)')
-    p1 = lua.execute(
-        "local f = assert(loadfile(__P2)); local pa = f(); "
-        "local p = pa.create_path(__M5, 0, false); "
-        "return p[1].row")
-    check(p1 == 0, '反向首节点row=0(2026-10-10反转后: 反向=首排起)')
-    # 起始排定位(jobrun.start同款扫描): outset={r=0}在正向路径首次出现=index1
-    idx = lua.execute(
-        "local f = assert(loadfile(__P2)); local pa = f(); "
-        "local p = pa.create_path(__M5, 0, true); "
-        "for i, pn in ipairs(p) do if pn.row == 0 then return i end end")
-    check(idx == 5, '起始排1(0基0)+正向(末排起) -> 起点index5(该排首节点)')
-    idx2 = lua.execute(
-        "local f = assert(loadfile(__P2)); local pa = f(); "
-        "local p = pa.create_path(__M5, 0, true); "
-        "for i, pn in ipairs(p) do if pn.row == 2 then return i end end")
-    check(idx2 == 3, '起始排3(0基2)+正向 -> 起点index3(该排首节点)')
 
     print('5) 启动链: 0x27(HJ覆盖) -> ACK -> 0x25 -> ACK -> 回调')
     done = []
@@ -305,35 +278,6 @@ end
     files['2:config.txt'] = ''
     check(ps['export_usb'](), 'export_usb')
     check(files['2:config.txt'] == files['3:config.txt'], '2:与3:一致')
-
-    print("8b) AB线功能删除: 0x24恒全零(StartState=0行程开关触发)")
-    jr = load('jobrun.lua')
-    lua.globals().__JRB = jr
-    lua.globals().__PROT = prot
-    jr['init']({'APP': {'sub_always': lambda f, h: None,
-                    'register': lambda pg: None},
-                'PROTOCOL': prot, 'CODEC': codec, 'LW': lw,
-                'STORE': None, 'PATHALGO': None, 'LOGGER': None,
-                'w32': T['w16'], 'rw16': lambda a: 0,
-                'rw16w': lambda a, v: None, 'parastore': None,
-                'w16': T['w16'], 'wstr': T['wstr'],
-                'now': lambda: 'T+0s', 'rstr': lambda a: '',
-                'r16': lambda a: 0})
-    lua.execute(r'''
-__FTX = {}
-local old_tx = __PROT.io.tx
-__PROT.io.tx = function(fr) __FTX[#__FTX + 1] = fr end
-__JRB.ab_send_map()
-__PROT.io.tx = old_tx
-__ABF = __CODEC.bdpara.unpack(__FTX[1]:sub(5))
-''')
-    n_f = lua.eval('#__FTX')
-    fnc0 = lua.execute('return string.byte(__FTX[1], 2)')
-    abz = lua.globals().__ABF
-    check(n_f == 1 and fnc0 == FNC['SET_AB'], 'ab_send_map发出单帧0x24')
-    check(abz['StartState'] == 0 and abz['StartN'] == 0
-          and abz['BDOffTime'] == 0 and abz['OffLen'] == 0,
-          '0x24载荷全零(地头行程开关触发设A点, 2026-10-09)')
 
     print()
     if FAIL:

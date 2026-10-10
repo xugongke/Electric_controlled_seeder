@@ -3,9 +3,9 @@ page_map.lua -- 地图导入页(画面9, 2026-09-24新增)
 ================================================================================
 仿QT地图管理页的屏端子集(地图创建/编辑由PC导出工具负责):
   地图列表(选中) + 详情摘要 + U盘扫描导入(map_*.csv, 文件名须ASCII, 显示名取#MAP)
-  + 删除地图 + 清除AB线(2026-10-09部分恢复: 保存/清除/查看, 无导入)
+  + 删除地图 + AB线操作(查看=对话框0x23回显 / 导入=RW缓存绑定本图 / 清除=解绑)
 U盘导入逻辑自原任务向导页迁移(2026-09-24向导删除)。
-LW: LW.MAP (0x1C00区)。
+LW: LW.MAP (0x1C00区); AB查看按钮=功能按钮(打开对话框画面22+通知LW.ABP.req=2)。
 依赖注入: creator(ctx) 同现有页面模式。
 --]]
 
@@ -57,7 +57,7 @@ return function(ctx)
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
         if not m then return end
-        JOBRUN.ab_hint_map = n   -- AB对话框默认目标地图(查看入口)
+        JOBRUN.ab_hint_map = n                  -- AB对话框的默认目标地图
         local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
                        or "无AB线"
         wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))
@@ -136,6 +136,18 @@ return function(ctx)
                 wstr(LW.MAP.detail, "已删除 " .. n)
                 refresh()
             end
+        elseif addr == LW.MAP.ab_import then
+            local n = selected_name()
+            if not n then return end
+            if JOBRUN then
+                if not JOBRUN.ab_cache then
+                    JOBRUN.ab_cache = JOBRUN.ab_rw_load()
+                end
+                local ok, err = JOBRUN.ab_bind_map(n)
+                wstr(LW.MAP.detail, ok and ("AB线已绑定 " .. n)
+                                       or ("绑定失败 " .. tostring(err):sub(1, 16)))
+                show_detail()
+            end
         elseif addr == LW.MAP.ab_clear then
             local n = selected_name()
             if n and JOBRUN then
@@ -152,7 +164,7 @@ return function(ctx)
         poll_cmds = {},
         addrs = {
             LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
-            LW.MAP.btn_usb, LW.MAP.ab_clear,
+            LW.MAP.btn_usb, LW.MAP.ab_import, LW.MAP.ab_clear,
         },
     }
 

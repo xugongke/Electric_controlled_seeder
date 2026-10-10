@@ -178,37 +178,6 @@ end
     jobrun['_ab_dlg_on_update'](ABP['confirm'])
     check(STORE['maps']['demo2']['ab'] is not None,
           '应答到达后确认成功绑定')
-    abd2 = STORE['maps']['demo2']['ab']
-    # QT bug规避(2026-10-09用户报告): QT保存时aRow/direction被状态机动态
-    # 覆盖(正向从(1,1)出发存成"5排/反"); 屏端pending_ab取作业启动的出发点
-    # /方向(J.ab, 不随趟变) -> 正向从排0出发 = A点排0/方向同向
-    check(abd2['a_row'] == 0 and abd2['abdir'] == 1,
-          '保存的A点排/方向=作业出发点(pa={0,正向} -> 0/同向), 非当前趟')
-    # 直调bind验证pa语义: 正向出发点排0 -> A点排0/同向; 反向出发排4 -> 4/反向
-    lua.globals().__JRN = jobrun
-    lua.execute('__JRN.ab_bind_map("demo", "t1", { a_row = 0, dir = true })')
-    ab1 = STORE['maps']['demo']['ab']
-    check(ab1['a_row'] == 0 and ab1['abdir'] == 1,
-          '正向从排0(小区1,1)出发保存 -> A点排0/方向同向(QT此处存成5/反)')
-    lua.execute('__JRN.ab_bind_map("demo", "t2", { a_row = 4, dir = false })')
-    ab2 = STORE['maps']['demo']['ab']
-    check(ab2['a_row'] == 4 and ab2['abdir'] == 0,
-          '反向从末排出发保存 -> A点排4/方向反向')
-    # 旧绑定污染场景(2026-10-09用户实测): 地图已绑ab={4,反向}, 新作业正向
-    # 从排0出发保存 -> 应记录本次出发点0/同向(不再被旧绑定自我覆盖)
-    lua.execute('''
-__STORE.maps["demo"].ab = { name = "old", sn = 1, se = 2, en = 3, ee = 4,
-  sdir = 0, cdir = 0, a_row = 4, a_col = 0, abdir = 0, has = true,
-  startstate = 1, calcdirflag = 0, offlen = 60, bdofftime = 100 }
-__JN = __JRN
--- 直接构造J.outset_ref(绕开完整start装配)
-''')
-    # 模拟jobrun.J: 通过闭包不可达, 用bind的elseif分支需J——改用直调pa路径
-    # 已由上面直调覆盖; 此处固化"bind缺省不再受旧ab影响"的语义断言:
-    lua.execute('__JRN.ab_bind_map("demo", "fresh", { a_row = 0, dir = true })')
-    abf = STORE['maps']['demo']['ab']
-    check(abf['a_row'] == 0 and abf['abdir'] == 1,
-          '正向作业保存覆盖旧绑定(0/同向, 非旧值4/反向)')
 
     print('5) 查看模式与取消')
     # 先给demo绑定一条已知AB线(经保存流程), 供查看断言
@@ -226,7 +195,7 @@ __JN = __JRN
     check(W['writes'][ABP['mode']] == 1, '查看模式(mode=1)')
     abd = STORE['maps']['demo']['ab']
     startn_shown = lstr(lua, lw['AB']['startn'])
-    want = ('%.8f' % abd['sn']).encode('ascii')
+    want = ('%.7f' % abd['sn']).encode('ascii')
     check(startn_shown == want,
           '查看显示地图绑定AB线(StartN=%s, 非下位机实时)' % want.decode())
     check(lua.eval('#__W.txs') == n0, '查看不发0x23(txs数不变)')

@@ -28,7 +28,9 @@ local PSTORE                    -- parastore(启动参数链, 可缺省)
 local J = nil
 -- 停止流程挂起的AB采集请求 { map, a_row, dir } (声明在前供 init 闭包引用)
 local pending_ab = nil
--- (AB对话框状态local在dlg段内自含)
+-- AB对话框状态(画面22): mode 0=无 1=保存命名 2=查看; map=保存目标地图
+local ab_dlg_mode = 0
+local ab_dlg_map = nil
 -- J = { task=名, m=地图, path, ab, next_idx, cur_col, cur_read_row,
 
 local function now_s()
@@ -63,7 +65,7 @@ function jobrun.init(deps)
         end
         if APP.cur and APP.cur.on_frame then APP.cur:on_frame(f) end
     end)
--- 0x23 采集应答全局处理: 填 ab_cache 与 LW.AB 显示区(对话框画面22的显示控件
+    -- 0x23 采集应答全局处理: 填 ab_cache 与 LW.AB 显示区(对话框画面22的显示控件
     -- 绑同一地址区)。2026-09-24 起停止不再自动落图, 改由对话框确认保存
     APP.sub_always(PROTOCOL.FNC.STORE_AB, function(f)
         local ok, p = pcall(CODEC.bdpara.unpack, f.data)
@@ -74,8 +76,7 @@ function jobrun.init(deps)
         jobrun.ab_cache = p
         jobrun.ab_show(p)
     end)
-
--- AB对话框通知地址(画面22的功能按钮执行通知写LW=1) -> 影子页全局路由
+    -- AB对话框通知地址(画面22的功能按钮执行通知写LW=1) -> 影子页全局路由
     APP.register({
         id = -900,                              -- 非真实画面号, 永不成为当前页
         addrs = { LW.ABP.req, LW.ABP.confirm, LW.ABP.cancel },
@@ -83,7 +84,6 @@ function jobrun.init(deps)
     })
     -- creator 时机恢复 RW 缓存(掉电保持)
     jobrun.ab_cache = jobrun.ab_rw_load()
-
     return jobrun
 end
 
@@ -123,23 +123,28 @@ end
 --   同趟下一排 -> 自动预置(QT :469); 跨列组 -> trip_wait 挂起(对齐 QT 现场
 --   实操: 播完一趟手动按停止, 掉头后再按开始续播); path 走完 -> 完成态收口
 local function advance()
-    -- (2026-10-10对齐QT dialogrealtimetask.cpp:469 原文: 走完当前排后
-    --  只要 path 未走完就 startNode(path[++nextPathIndex]) 自动预置,
-    --  跨列组同样自动(无"趟间挂起等手动"分支 —— 该挂起是屏端自加的
-    --  过度设计, 用户实测第一列播完即停=10%卡死根因)。startNode 仅
-    --  下发参数不置state, 行程不符保护仍在(:456/:459机制))
     if J.next_idx < #J.path then
         J.next_idx = J.next_idx + 1
         local np = J.path[J.next_idx]
         if np.column ~= J.cur_col then
+            -- 跨趟(列组切换): 断点推进到下一趟首节点后挂起, 不自动下发,
+            -- 0x21 只刷显示, 等待主页 停止->开始 (续播参数等价 QT :276/:299
+            -- 由 start(resume) 重新下发, 而非复用 QT :469 的旧列自动 startNode)
             J.cur_col = np.column
             J.enter_map = false
+            J.trip_wait = true
+            J.sow_state = false               -- 停推进(等手动), 保留 J
+            local _, _, pct = STORE.task_progress(J.task)
+            log("INF", ("本趟完成 下一趟列组=%d 进度%d%% 请停止后掉头再开始")
+                :format(np.column + 1, pct or 0))
+        else
+            send_node(np.row, J.cur_col)      -- 同趟下一排: QT :469 自动
+            -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
+            -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
+            -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
+            -- mark_dispatched(state=1)打穿该保护, 乱序排帧也会推进落库
+            -- 一路到100%. 2026-09-11 对齐 QT 删预置(用户联调暴露)
         end
-        -- (2026-10-10修: advance只推进指针, 不立即send_node —— QT 474的
-        --  ++nextPathIndex同样只动指针, 新排0x20在农机到达该排的帧
-        --  (RowNum==next.row, :457)才经605分支下发; 立即下发会在农机
-        --  尚在前排行程时覆盖模拟器NEXT区致其崩溃(实测RowNum跳-1))
-        -- send_node(np.row, J.cur_col)
     else
         jobrun._complete()                    -- path 走完: 完成态待手动停止
     end
@@ -147,28 +152,17 @@ end
 
 -------------------------------------------------------------------- AB线子系统
 -- 2026-09-23 自 page_abline(已删除)迁移: 查看采集(0x23)/RW掉电保存/
--- AB线下发(0x24, 恒全零StartState=0: 行程开关触发设A点)。
+-- 地图绑定与清除/下发(0x24)。显示复用 LW.AB 地址区(任务页承载)。
 -- 显示区由任务页承载, 无页面时仅更新 cache 不写屏。
 
-local function ab_pack(p)
-    local t = {}
-    for k, v in pairs(p) do t[k] = v end
-    t.Resv, t.CrcCheck = 0, 0                 -- 占位, 下位机自行处理
-    return CODEC.bdpara.pack(t)
-end
-
--- 下发地图AB(0x24); 有绑定->存储真值(免触发开播); 无绑定->全零
--- (StartState=0, 固件清空并等待行程开关设A); 2026-10-09部分恢复
--- 下发地图AB(0x24); 有绑定->存储真值(免触发开播); 无绑定->全零
--- (StartState=0, 固件清空并等待行程开关设A); 2026-10-09部分恢复
 function jobrun.ab_show(p)
     if not (p and LW and LW.AB and wstr) then return end
-    wstr(LW.AB.startn,   ("%.8f"):format(p.StartN))
-    wstr(LW.AB.starte,   ("%.8f"):format(p.StartE))
-    wstr(LW.AB.endbn,    ("%.8f"):format(p.EndBN))
-    wstr(LW.AB.endbe,    ("%.8f"):format(p.EndBE))
-    wstr(LW.AB.startdir, ("%.6f"):format(p.StartDir))
-    wstr(LW.AB.calcdir,  ("%.6f"):format(p.CalcDir))
+    wstr(LW.AB.startn,   ("%.7f"):format(p.StartN))
+    wstr(LW.AB.starte,   ("%.7f"):format(p.StartE))
+    wstr(LW.AB.endbn,    ("%.7f"):format(p.EndBN))
+    wstr(LW.AB.endbe,    ("%.7f"):format(p.EndBE))
+    wstr(LW.AB.startdir, ("%.3f"):format(p.StartDir))
+    wstr(LW.AB.calcdir,  ("%.3f"):format(p.CalcDir))
     w16(LW.AB.startstate,  p.StartState & 0xFFFF)
     w16(LW.AB.calcdirflag, p.CalcDirFlag & 0xFFFF)
     w16(LW.AB.offlen,      p.OffLen & 0xFFFF)
@@ -218,9 +212,8 @@ function jobrun.ab_bind_map(map_name, name, pa)
     local a_row, abdir = 0, 1
     if pa then
         a_row, abdir = pa.a_row or 0, (pa.dir and 1 or 0)
-    elseif J and J.m and J.m.name == map_name and J.outset_ref then
-        a_row = J.outset_ref.row or 0
-        abdir = (J.outset_ref.dir == true) and 1 or 0
+    elseif J and J.m and J.m.name == map_name and J.ab then
+        a_row, abdir = J.ab.a_row or 0, (J.ab.dir and 1 or 0)
     end
     m.ab = { name = (name and name ~= "") and name or map_name,
              sn = p.StartN, se = p.StartE,
@@ -248,6 +241,7 @@ function jobrun.ab_clear_map(map_name)
     return true
 end
 
+-- 下发地图AB(0x24); 无绑定时下发全零(StartState=0, 固件清空并等待行程开关设A)
 function jobrun.ab_send_map(m)
     local t
     if m and m.ab and m.ab.has then
@@ -280,42 +274,13 @@ function jobrun.start(task_name, opts)
     local path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
     if not path then return nil, err end
 
-    -- 起点定位(2026-10-09修):
-    --   resume: 第一个未完成组(断点续作); 非resume: 起始排(outset_row)
-    --   在路径中首次出现处(此前被无视, 起点只由方向开关决定)
+    -- 断点续作: 找到第一个未完成组的节点作为起点
     local start_idx = 1
     if opts.resume then
-        -- 续接定位(2026-10-10二修): 优先用任务记录的最近完成排(last_r/last_c,
-        --  0x21每帧更新), 定位其在path中的下一节点 —— 比按blocks.state扫描可靠:
-        --  列末排停止早时state仍=1(完成标记要等走出图帧), 扫描会误回本列重来
-        --  (用户实测首列播完续接回到2,1); last无记录时回退"从起始排起扫未完成"
-        if t.last and type(t.last.r) == "number" and t.last.r >= 0 then
-            local li = jobrun._index_of_static(path, t.last.r, t.last.c)
-            if li then start_idx = li % #path + 1 end
-        end
-        if start_idx == 1 then
-            local oidx = 1
-            if t.outset and type(t.outset.r) == "number"
-                and t.outset.r >= 0 then
-                for i, pn in ipairs(path) do
-                    if pn.row == t.outset.r then oidx = i break end
-                end
-            end
-            for i = oidx, #path do
-                local pn = path[i]
-                local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-                if not blk or (blk.sow == 1 and blk.state ~= 2) then
-                    start_idx = i
-                    break
-                end
-            end
-        end
-    elseif t.outset and type(t.outset.r) == "number"
-        and t.outset.r >= 0 then
-        -- (2026-10-09修: task_create存嵌套表outset={r,c}, 此前读t.outset_row
-        --  恒nil -> 起始排定位从未生效, 起点一直是path首节点)
+        local bet = PATHALGO.block_each_trip(m)
         for i, pn in ipairs(path) do
-            if pn.row == t.outset.r then
+            local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+            if not blk or (blk.sow == 1 and blk.state ~= 2) then
                 start_idx = i
                 break
             end
@@ -323,13 +288,20 @@ function jobrun.start(task_name, opts)
     end
 
     -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
-        J = {
-        task = task_name, m = m, path = path,
-        outset_ref = { row = path[start_idx].row,
-                       dir = path[start_idx].positive },
-        ab = { has = false, dir = path[start_idx].positive,
-               a_row = path[start_idx].row },
+    -- 真机化(2026-09-10): 方向改用 #AB.abdir(QT ABLineDirection bool);
+    -- 此前误用 sdir(StartDir 航向角)==1 恒false, 且 has 未置位,
+    -- 屏端一直按"无AB线"调度(TXFlag/start_pos/翻转全错), sim 不校验故未暴露
+    local ab
+    if m.ab and m.ab.has then
+        ab = { has = true, dir = (m.ab.abdir or 0) == 1,
+               a_row = m.ab.a_row or 0 }
+    else
+        local pn = path[start_idx]
+        ab = { has = false, dir = pn.positive, a_row = pn.row }
+    end
 
+    J = {
+        task = task_name, m = m, path = path, ab = ab,
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx,
@@ -399,15 +371,17 @@ end
 -------------------------------------------------------------------- 停止(QT :305)
 -- 主页停止按钮唯一收尾入口; 0x0B 无条件急停(含无任务时裸发),
 -- 有作业时回退断点(QT :306-307)+归档+清现场(允许后续新任务/续作)
--- (QT :310-311 的"停止弹保存AB线"已随AB线功能删除2026-10-09)
+-- QT :310-311: 地图无AB线时停止弹"是否保存AB线?" -> 2026-09-24 对齐:
+-- 停止时写 LW.ABP.auto_req=1, 画面侧"打开AB对话框"功能按钮以条件触发联动弹出
+-- (蒙版半透明模态), 用户命名后确认才保存(等价QT的Yes+名称输入), 取消则不存。
 
 function jobrun.stop()
     PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)        -- 0x0B
+    if not J then return true end
     -- AB线保存建议(QT signalStopSow :310-311): 无绑定地图 -> 采集填显示 + 请求弹窗
     if not (J.m.ab and J.m.ab.has) then
-        pending_ab = { map = J.m.name,
-                       a_row = J.outset_ref and J.outset_ref.row or 0,
-                       dir = J.outset_ref and J.outset_ref.dir or false }
+        pending_ab = { map = J.m.name, a_row = J.ab and J.ab.a_row or 0,
+                       dir = J.ab and J.ab.dir or false }
         ab_dlg_mode = 1                            -- 预置保存模式(弹窗已带目的)
         ab_dlg_map = J.m.name
         w16(LW.ABP.mode, 0)
@@ -416,7 +390,6 @@ function jobrun.stop()
         w16(LW.ABP.auto_req, 1)                    -- 画面功能按钮条件触发弹窗
         log("INF", "地图无AB线, 停止后建议保存: " .. J.m.name)
     end
-    if not J then return true end
     if not J.completed then
         -- QT :306-307: 停止时当前块已完成则 next_idx 回退到 temp_idx(下次续作起点)
         local pn = J.path[J.next_idx]
@@ -440,7 +413,7 @@ function jobrun.detach()
     if APP then APP.set_always_poll(nil) end
 end
 
-    -------------------------------------------------------------------- AB线对话框(LW.ABP)
+-------------------------------------------------------------------- AB线对话框(LW.ABP)
 -- 画面22承载(功能按钮"打开对话框"弹出, 蒙版半透明模态); 字段显示控件绑 LW.AB 区,
 -- 0x23 应答经全局路由自动填充。名称输入为文本控件(虚拟键盘)读写 LW.ABP.name。
 -- 交互: 画面按钮执行通知写 LW.ABP.req(1保存/2查看) -> 采集+开窗;
@@ -489,7 +462,9 @@ function jobrun.ab_dlg_open(mode)
                              CalcDirFlag = m.ab.calcdirflag or 1,
                              OffLen = m.ab.offlen or 0,
                              BDOffTime = m.ab.bdofftime or 100 })
-            -- (A点排/列/方向不显示, 2026-10-09用户决策)
+            -- A点排/方向为地图本地属性(0x23应答无), 查看时显示绑定值
+            w16(LW.AB.arow, m.ab.a_row or 0)
+            w16(LW.AB.abdir, m.ab.abdir or 0)
         else
             -- 地图未绑定: 回退显示RW镜像(最近一次保存), 再无则提示
             local p = jobrun.ab_rw_load()
@@ -607,20 +582,11 @@ function jobrun._feed(f)
 
         -- QT :446-458: 正在播 next_idx 排
         if st.RowNum == pn.row then
-            -- QT :456-458: 到达帧(==next.row)重发本排startNode(参数=本排,
-            --  nextPathIndex此时尚未++), 461置state=1; 464条件(state==1)
-            --  同帧成立→474推进++nextPathIndex(仅指针, 新排参数等下一到达帧)
             if not J.enter_map then
+                send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
                 J.enter_map = true
             end
-            send_node(pn.row, J.cur_col)             -- QT :457 重发本排
-            if sow_flag then
-                -- 到达帧=本排播完(农机已走到下一排触发本帧), 直接落完成
-                -- (QT 461置1后同帧474推进, state=1瞬时态; 屏端用state=2
-                --  表达同语义, 供断点/续接/进度落库)
-                STORE.task_mark_row_done(J.task, pn.row, J.cur_col, {}, now_s())
-            end
-            advance()                                -- QT :474 同帧推进(仅指针)
+            if sow_flag then STORE.task_mark_dispatched(J.task, pn.row, J.cur_col) end
         -- QT :459-470: 刚走完 next_idx 排 → 记结果 + 推进
         elseif (function()
                     local blk = t.blocks[pn.row] and t.blocks[pn.row][J.cur_col]
@@ -649,13 +615,6 @@ function jobrun._feed(f)
 end
 
 -- QT :1106 getIndex: path 中找 {row,column} 节点序号
-function jobrun._index_of_static(path, row, column)
-    for i, pn in ipairs(path) do
-        if pn.row == row and pn.column == column then return i end
-    end
-    return nil
-end
-
 function jobrun._index_of(row, column)
     for i, pn in ipairs(J.path) do
         if pn.row == row and pn.column == column then return i end
