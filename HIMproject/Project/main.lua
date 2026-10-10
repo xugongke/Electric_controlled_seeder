@@ -231,16 +231,18 @@ LW.CONT = {
 LW.AB = {   -- (2026-10-09部分恢复: 保存/清除/查看; 无A点排/列/方向显示)
     -- 字符串区按 %.7f 最长11字符=6字/串 重排(2026-09-24; 旧版每串2字会互相
     -- 覆盖截断); 方向角 %.3f=6字符=3字, 配4字余量
-    startn      = 0x1500, -- 字符串 A点纬度  (占0x1500~0x1505 共6字)
-    starte      = 0x1506, -- 字符串 A点经度  (占0x1506~0x150B 共6字)
-    endbn       = 0x150C, -- 字符串 B点纬度  (占0x150C~0x1511 共6字)
-    endbe       = 0x1512, -- 字符串 B点经度  (占0x1512~0x1517 共6字)
-    startdir    = 0x1518, -- 字符串 起始方向角(占0x1518~0x151B 共4字)
-    calcdir     = 0x151C, -- 字符串 计算方向角(占0x151C~0x151F 共4字)
-    startstate  = 0x1520, -- u16 StartState
-    calcdirflag = 0x1521, -- u16 CalcDirFlag
-    offlen      = 0x1522, -- u16 OffLen 偏移量
-    bdofftime   = 0x1523, -- u16 BDOffTime
+    startn      = 0x1500, -- 字符串 A点纬度  (占0x1500~0x1505 共6地址12字节)
+    starte      = 0x1506, -- 字符串 A点经度  (占0x1506~0x150B 共6地址12字节)
+    endbn       = 0x150C, -- 字符串 B点纬度  (占0x150C~0x1511 共6地址12字节)
+    endbe       = 0x1512, -- 字符串 B点经度  (占0x1512~0x1517 共6地址12字节)
+    -- 显示精度(2026-10-10用户要求): 坐标%.8f(11字符)/方向角%.6f(10字符),
+    -- 统一每串预留6地址=12字节(1地址=2字节), 不越界
+    startdir    = 0x1518, -- 字符串 起始方向角(占0x1518~0x151D 共6地址12字节)
+    calcdir     = 0x151E, -- 字符串 计算方向角(占0x151E~0x1523 共6地址12字节)
+    startstate  = 0x1524, -- u16 StartState
+    calcdirflag = 0x1525, -- u16 CalcDirFlag
+    offlen      = 0x1526, -- u16 OffLen 偏移量
+    bdofftime   = 0x1527, -- u16 BDOffTime
     -- 原操作按钮(0x1520~0x1523)已随页面3删除, 区址让位给数值字段
 }
 
@@ -391,7 +393,8 @@ LW.MAP = {
     btn_sel    = 0x1C72, -- 按钮 查看详情
     btn_del    = 0x1C73, -- 按钮 删除地图
     btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
-    ab_clear    = 0x1C46, -- 按钮 清除本图AB线绑定
+    -- 【勿放0x1C44~0x1C63】detail字符串区: 曾放0x1C46, 按钮写1截断详情文本
+    ab_clear    = 0x1C75, -- 按钮 清除本图AB线绑定
 }
 
 --==================== AB线对话框交互区(0x1D00~, 画面22承载) ====================
@@ -3252,12 +3255,12 @@ end
 -- (StartState=0, 固件清空并等待行程开关设A); 2026-10-09部分恢复
 function jobrun.ab_show(p)
     if not (p and LW and LW.AB and wstr) then return end
-    wstr(LW.AB.startn,   ("%.7f"):format(p.StartN))
-    wstr(LW.AB.starte,   ("%.7f"):format(p.StartE))
-    wstr(LW.AB.endbn,    ("%.7f"):format(p.EndBN))
-    wstr(LW.AB.endbe,    ("%.7f"):format(p.EndBE))
-    wstr(LW.AB.startdir, ("%.3f"):format(p.StartDir))
-    wstr(LW.AB.calcdir,  ("%.3f"):format(p.CalcDir))
+    wstr(LW.AB.startn,   ("%.8f"):format(p.StartN))
+    wstr(LW.AB.starte,   ("%.8f"):format(p.StartE))
+    wstr(LW.AB.endbn,    ("%.8f"):format(p.EndBN))
+    wstr(LW.AB.endbe,    ("%.8f"):format(p.EndBE))
+    wstr(LW.AB.startdir, ("%.6f"):format(p.StartDir))
+    wstr(LW.AB.calcdir,  ("%.6f"):format(p.CalcDir))
     w16(LW.AB.startstate,  p.StartState & 0xFFFF)
     w16(LW.AB.calcdirflag, p.CalcDirFlag & 0xFFFF)
     w16(LW.AB.offlen,      p.OffLen & 0xFFFF)
@@ -3989,7 +3992,9 @@ return function(ctx)
         local s = JOBRUN.snapshot()
         if s then
             if s.completed then w16(LW.TW.tstate, 3) end
-            w16(LW.TW.cur_row, s.rows and (s.rows - (s.cur_row or 0)) or 0)
+            -- 当前排1基正序显示(2026-10-10修: 原rows-x倒序,
+            -- 正向从0基0出发被显示成末排, 用户误以为从5,1开播)
+            w16(LW.TW.cur_row, (s.cur_row or 0) + 1)
             w16(LW.TW.cur_col, (s.cur_col or 0) + 1)
             w16(LW.TW.done_cnt, s.done or 0)
             w16(LW.TW.total_cnt, s.total or 0)

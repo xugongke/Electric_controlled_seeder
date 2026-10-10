@@ -253,7 +253,9 @@ return function(ctx)
         local s = JOBRUN.snapshot()
         if s then
             if s.completed then w16(LW.TW.tstate, 3) end
-            w16(LW.TW.cur_row, s.rows and (s.rows - (s.cur_row or 0)) or 0)
+            -- 当前排1基正序显示(2026-10-10修: 原rows-x倒序,
+            -- 正向从0基0出发被显示成末排, 用户误以为从5,1开播)
+            w16(LW.TW.cur_row, (s.cur_row or 0) + 1)
             w16(LW.TW.cur_col, (s.cur_col or 0) + 1)
             w16(LW.TW.done_cnt, s.done or 0)
             w16(LW.TW.total_cnt, s.total or 0)

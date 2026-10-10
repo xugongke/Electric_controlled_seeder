@@ -168,12 +168,12 @@ end
 -- (StartState=0, 固件清空并等待行程开关设A); 2026-10-09部分恢复
 function jobrun.ab_show(p)
     if not (p and LW and LW.AB and wstr) then return end
-    wstr(LW.AB.startn,   ("%.7f"):format(p.StartN))
-    wstr(LW.AB.starte,   ("%.7f"):format(p.StartE))
-    wstr(LW.AB.endbn,    ("%.7f"):format(p.EndBN))
-    wstr(LW.AB.endbe,    ("%.7f"):format(p.EndBE))
-    wstr(LW.AB.startdir, ("%.3f"):format(p.StartDir))
-    wstr(LW.AB.calcdir,  ("%.3f"):format(p.CalcDir))
+    wstr(LW.AB.startn,   ("%.8f"):format(p.StartN))
+    wstr(LW.AB.starte,   ("%.8f"):format(p.StartE))
+    wstr(LW.AB.endbn,    ("%.8f"):format(p.EndBN))
+    wstr(LW.AB.endbe,    ("%.8f"):format(p.EndBE))
+    wstr(LW.AB.startdir, ("%.6f"):format(p.StartDir))
+    wstr(LW.AB.calcdir,  ("%.6f"):format(p.CalcDir))
     w16(LW.AB.startstate,  p.StartState & 0xFFFF)
     w16(LW.AB.calcdirflag, p.CalcDirFlag & 0xFFFF)
     w16(LW.AB.offlen,      p.OffLen & 0xFFFF)
@@ -316,7 +316,8 @@ function jobrun.start(task_name, opts)
         outset_ref = { row = path[start_idx].row,
                        dir = path[start_idx].positive },
         ab = { has = false, dir = path[start_idx].positive,
-               a_row = path[start_idx].row },
+               a_row = path[start_idx].row },
+
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx,

@@ -226,7 +226,7 @@ __JN = __JRN
     check(W['writes'][ABP['mode']] == 1, '查看模式(mode=1)')
     abd = STORE['maps']['demo']['ab']
     startn_shown = lstr(lua, lw['AB']['startn'])
-    want = ('%.7f' % abd['sn']).encode('ascii')
+    want = ('%.8f' % abd['sn']).encode('ascii')
     check(startn_shown == want,
           '查看显示地图绑定AB线(StartN=%s, 非下位机实时)' % want.decode())
     check(lua.eval('#__W.txs') == n0, '查看不发0x23(txs数不变)')
