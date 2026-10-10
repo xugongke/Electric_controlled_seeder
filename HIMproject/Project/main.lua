@@ -3382,20 +3382,29 @@ function jobrun.start(task_name, opts)
     --   在路径中首次出现处(此前被无视, 起点只由方向开关决定)
     local start_idx = 1
     if opts.resume then
-        -- (2026-10-10修: 从起始排定位点开始扫, 不回到起始排之前 ——
-        --  起始排2的任务排1本就不在作业范围, 原全程扫描会命中排1重来)
-        local oidx = 1
-        if t.outset and type(t.outset.r) == "number" and t.outset.r >= 0 then
-            for i, pn in ipairs(path) do
-                if pn.row == t.outset.r then oidx = i break end
-            end
+        -- 续接定位(2026-10-10二修): 优先用任务记录的最近完成排(last_r/last_c,
+        --  0x21每帧更新), 定位其在path中的下一节点 —— 比按blocks.state扫描可靠:
+        --  列末排停止早时state仍=1(完成标记要等走出图帧), 扫描会误回本列重来
+        --  (用户实测首列播完续接回到2,1); last无记录时回退"从起始排起扫未完成"
+        if t.last and type(t.last.r) == "number" and t.last.r >= 0 then
+            local li = jobrun._index_of_static(path, t.last.r, t.last.c)
+            if li then start_idx = li % #path + 1 end
         end
-        for i = oidx, #path do
-            local pn = path[i]
-            local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-            if not blk or (blk.sow == 1 and blk.state ~= 2) then
-                start_idx = i
-                break
+        if start_idx == 1 then
+            local oidx = 1
+            if t.outset and type(t.outset.r) == "number"
+                and t.outset.r >= 0 then
+                for i, pn in ipairs(path) do
+                    if pn.row == t.outset.r then oidx = i break end
+                end
+            end
+            for i = oidx, #path do
+                local pn = path[i]
+                local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+                if not blk or (blk.sow == 1 and blk.state ~= 2) then
+                    start_idx = i
+                    break
+                end
             end
         end
     elseif t.outset and type(t.outset.r) == "number"
@@ -3728,6 +3737,13 @@ function jobrun._feed(f)
 end
 
 -- QT :1106 getIndex: path 中找 {row,column} 节点序号
+function jobrun._index_of_static(path, row, column)
+    for i, pn in ipairs(path) do
+        if pn.row == row and pn.column == column then return i end
+    end
+    return nil
+end
+
 function jobrun._index_of(row, column)
     for i, pn in ipairs(J.path) do
         if pn.row == row and pn.column == column then return i end
