@@ -2889,19 +2889,21 @@ end
 
 -- AB 参考: ab = { has=bool, dir=bool, a_row=int } (无AB时 a_row=outset排)
 function pathalgo.start_pos(m, row, d, ab)
-    -- (2026-10-10定稿: 完全对齐QT map.cpp startPosition —— 以A点参考排为0点.
-    --  操作约束同QT: A点(行程开关)按在起始排的播种线附近;
-    --  固件/模拟器在触发瞬间行程清零, StartPOS=目标排相对A点距离)
+    -- (2026-10-10最终定稿: 绝对行程参考 —— StartPOS=目标排播种位在全图的
+    --  绝对位置(1,1端地头=0). 行程体系与QT排列行程一致: 第一列正向0递增,
+    --  反向列从全图长递减; A点(行程开关)可按在地头任意位置, 走到目标
+    --  排绝对位置才触发播种. 模拟器/固件行程为连续绝对累计)
+    local ref = ab.has and ab.a_row or -1
     if d then
         if (not ab.has) or ab.dir then
-            return pathalgo.fwd_start(m, row) - pathalgo.fwd_start(m, ab.a_row)
+            return pathalgo.fwd_start(m, row) - pathalgo.fwd_start(m, ref)
         end
-        return pathalgo.bwd_start(m, ab.a_row) - pathalgo.fwd_start(m, row)
+        return pathalgo.bwd_start(m, ref) - pathalgo.fwd_start(m, row)
     end
     if (not ab.has) or (not ab.dir) then
-        return pathalgo.bwd_start(m, ab.a_row) - pathalgo.bwd_start(m, row)
+        return pathalgo.bwd_start(m, ref) - pathalgo.bwd_start(m, row)
     end
-    return pathalgo.bwd_start(m, row) - pathalgo.fwd_start(m, ab.a_row)
+    return pathalgo.bwd_start(m, row) - pathalgo.fwd_start(m, ref)
 end
 
 -------------------------------------------------------------------- startNode
