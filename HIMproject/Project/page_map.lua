@@ -57,6 +57,7 @@ return function(ctx)
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
         if not m then return end
+        JOBRUN.ab_hint_map = n   -- AB对话框默认目标地图(查看入口)
         local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
                        or "无AB线"
         wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))

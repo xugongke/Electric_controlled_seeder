@@ -374,8 +374,10 @@ LW.TW = {
     btn_stop   = 0x188D, -- 按钮 停止作业(收尾断点+无AB线时弹保存对话框)
     ab_clear    = 0x188A, -- 按钮 清除本图AB线绑定
     -- 起始排/列(2026-10-09恢复输入, 1基; 方向固定正向不设输入)
-    start_row   = 0x180C, -- u16 起始排(1基)
-    start_col   = 0x180D, -- u16 起始列(1基)
+    -- 【勿用0x180C/0x180D】曾与 total_cnt/pct 撞址: 选图回填起始排1列1
+    --   把总小区数/完成率控件写成1(完成率恒1%根因)
+    start_row   = 0x1807, -- u16 起始排(1基)
+    start_col   = 0x1808, -- u16 起始列(1基)
 }
 
 --==================== 页面9 地图导入(0x1C00~, 2026-09-24新增) ====================
@@ -3398,7 +3400,8 @@ function jobrun.start(task_name, opts)
         outset_ref = { row = path[start_idx].row,
                        dir = path[start_idx].positive },
         ab = { has = false, dir = path[start_idx].positive,
-               a_row = path[start_idx].row },
+               a_row = path[start_idx].row },
+
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
         temp_idx = start_idx,
@@ -4276,6 +4279,7 @@ return function(ctx)
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
         if not m then return end
+        JOBRUN.ab_hint_map = n   -- AB对话框默认目标地图(查看入口)
         local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
                        or "无AB线"
         wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))

@@ -113,8 +113,8 @@ tw_btn_resume,LW1886,按钮 续接未完成任务
 tw_btn_start,LW188C,按钮 开始作业(任务就绪后启动; 作业中=续趟裸发0x0A)
 tw_btn_stop,LW188D,按钮 停止作业(收尾断点+无AB线时弹保存对话框)
 tw_ab_clear,LW188A,按钮 清除本图AB线绑定
-tw_start_row,LW180C,u16 起始排(1基)
-tw_start_col,LW180D,u16 起始列(1基)
+tw_start_row,LW1807,u16 起始排(1基)
+tw_start_col,LW1808,u16 起始列(1基)
 map_count,LW1C00,u16 地图数
 map_selidx,LW1C01,u16 列表选中项(0基)
 map_list,LW1C04,字符串 列表多行文本(占0x1C04~0x1C43， 64字)
