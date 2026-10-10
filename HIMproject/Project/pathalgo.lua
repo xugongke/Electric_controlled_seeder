@@ -176,10 +176,10 @@ end
 
 -- AB 参考: ab = { has=bool, dir=bool, a_row=int } (无AB时 a_row=outset排)
 function pathalgo.start_pos(m, row, d, ab)
-    -- (2026-10-10最终定稿: 绝对行程参考 —— StartPOS=目标排播种位在全图的
-    --  绝对位置(1,1端地头=0). 行程体系与QT排列行程一致: 第一列正向0递增,
-    --  反向列从全图长递减; A点(行程开关)可按在地头任意位置, 走到目标
-    --  排绝对位置才触发播种. 模拟器/固件行程为连续绝对累计)
+    -- (2026-10-10修: 无AB线时参考改地头(-1)而非起始排 —— 原"相对起始排"
+    --  使StartPOS=0, A点(行程开关)按在起始排之前时走到前排就提前漏种漏肥;
+    --  QT同款公式但QT假设A点恰在起始排处, 用户实况A点在地头任意位置,
+    --  绝对参考保证"走到起始排所在小区才播")
     local ref = ab.has and ab.a_row or -1
     if d then
         if (not ab.has) or ab.dir then

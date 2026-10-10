@@ -308,14 +308,11 @@ class WorkProc:
             self.speed_now = 0
         if not run:
             if self._run_prev:
-                # 停止瞬间冻结行程(绝对位置): 重启(续接)时恢复, 保证行程全图连续
-                # (第一列0递增/反向列递减, 2026-10-10用户模型);
-                # 0x21 的 OffLen 上报仍按固件停止分支取 frozen_off
+                # 停止瞬间冻结行程: 真机 GNSS 位置停车后仍有效, 0x23 取 B 点用
+                # (固件 StoreAB 用 CurrBDPos 原始坐标, 不随停止清零);
+                # OffLen 上报仍按固件 BDTrigCoor 停止分支清零
                 self.frozen_off = int(self.pos_cm)
             self.pos_cm = 0.0                         # BDTrigCoor 停止分支: Y=X=0
-        elif not self._run_prev and self.frozen_off:
-            # run 上升沿(续接/重启): 恢复绝对行程, 模拟 GNSS 投影的连续性
-            self.pos_cm = float(self.frozen_off)
         self._run_prev = run
 
     def _sync_curr(self):
@@ -485,9 +482,6 @@ class WorkProc:
                 if self.bd_trig_cnt != 0:
                     bd.StartN, bd.StartE = 36.40, 117.00
                     bd.StartState = 1
-                    # (2026-10-10定稿: 行程=全图绝对连续累计(第一列0递增/
-                    #  反向列递减), 触发不清零; 续接恢复由run上升沿的
-                    #  frozen_off还原实现)
                     bd.StartDir = 0
                     bd.CalcDirFlag = 0
                     bd.BDOffTime = 100
