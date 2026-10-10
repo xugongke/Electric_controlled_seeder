@@ -482,6 +482,10 @@ class WorkProc:
                 if self.bd_trig_cnt != 0:
                     bd.StartN, bd.StartE = 36.40, 117.00
                     bd.StartState = 1
+                    # (2026-10-10对齐固件/QT: 触发瞬间行程以A点清零 ——
+                    #  上位机StartPOS按"A点在起始排"下发(相对参考),
+                    #  模拟器若保留旧行程则续接反向列起点错位(用户实测-3100起播))
+                    self.pos_cm = 0.0
                     bd.StartDir = 0
                     bd.CalcDirFlag = 0
                     bd.BDOffTime = 100
