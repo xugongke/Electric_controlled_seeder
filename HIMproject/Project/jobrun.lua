@@ -123,28 +123,23 @@ end
 --   同趟下一排 -> 自动预置(QT :469); 跨列组 -> trip_wait 挂起(对齐 QT 现场
 --   实操: 播完一趟手动按停止, 掉头后再按开始续播); path 走完 -> 完成态收口
 local function advance()
+    -- (2026-10-10对齐QT dialogrealtimetask.cpp:469 原文: 走完当前排后
+    --  只要 path 未走完就 startNode(path[++nextPathIndex]) 自动预置,
+    --  跨列组同样自动(无"趟间挂起等手动"分支 —— 该挂起是屏端自加的
+    --  过度设计, 用户实测第一列播完即停=10%卡死根因)。startNode 仅
+    --  下发参数不置state, 行程不符保护仍在(:456/:459机制))
     if J.next_idx < #J.path then
         J.next_idx = J.next_idx + 1
         local np = J.path[J.next_idx]
         if np.column ~= J.cur_col then
-            -- 跨趟(列组切换): 断点推进到下一趟首节点后挂起, 不自动下发,
-            -- 0x21 只刷显示, 等待主页 停止->开始 (续播参数等价 QT :276/:299
-            -- 由 start(resume) 重新下发, 而非复用 QT :469 的旧列自动 startNode)
             J.cur_col = np.column
             J.enter_map = false
-            J.trip_wait = true
-            J.sow_state = false               -- 停推进(等手动), 保留 J
-            local _, _, pct = STORE.task_progress(J.task)
-            log("INF", ("本趟完成 下一趟列组=%d 进度%d%% 请停止后掉头再开始")
-                :format(np.column + 1, pct or 0))
-        else
-            send_node(np.row, J.cur_col)      -- 同趟下一排: QT :469 自动
-            -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
-            -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
-            -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
-            -- mark_dispatched(state=1)打穿该保护, 乱序排帧也会推进落库
-            -- 一路到100%. 2026-09-11 对齐 QT 删预置(用户联调暴露)
         end
+        -- (2026-10-10修: advance只推进指针, 不立即send_node —— QT 474的
+        --  ++nextPathIndex同样只动指针, 新排0x20在农机到达该排的帧
+        --  (RowNum==next.row, :457)才经605分支下发; 立即下发会在农机
+        --  尚在前排行程时覆盖模拟器NEXT区致其崩溃(实测RowNum跳-1))
+        -- send_node(np.row, J.cur_col)
     else
         jobrun._complete()                    -- path 走完: 完成态待手动停止
     end
@@ -612,11 +607,20 @@ function jobrun._feed(f)
 
         -- QT :446-458: 正在播 next_idx 排
         if st.RowNum == pn.row then
+            -- QT :456-458: 到达帧(==next.row)重发本排startNode(参数=本排,
+            --  nextPathIndex此时尚未++), 461置state=1; 464条件(state==1)
+            --  同帧成立→474推进++nextPathIndex(仅指针, 新排参数等下一到达帧)
             if not J.enter_map then
-                send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
                 J.enter_map = true
             end
-            if sow_flag then STORE.task_mark_dispatched(J.task, pn.row, J.cur_col) end
+            send_node(pn.row, J.cur_col)             -- QT :457 重发本排
+            if sow_flag then
+                -- 到达帧=本排播完(农机已走到下一排触发本帧), 直接落完成
+                -- (QT 461置1后同帧474推进, state=1瞬时态; 屏端用state=2
+                --  表达同语义, 供断点/续接/进度落库)
+                STORE.task_mark_row_done(J.task, pn.row, J.cur_col, {}, now_s())
+            end
+            advance()                                -- QT :474 同帧推进(仅指针)
         -- QT :459-470: 刚走完 next_idx 排 → 记结果 + 推进
         elseif (function()
                     local blk = t.blocks[pn.row] and t.blocks[pn.row][J.cur_col]
