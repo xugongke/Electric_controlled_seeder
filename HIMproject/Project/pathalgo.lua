@@ -22,16 +22,20 @@ pathalgo.block_each_trip = bet
 -- 生成有序作业序列 { {row=, column=组起点列, positive=行进方向bool} ... }
 -- positive=true: row 0→rows-1 递增; false: rows-1→0 递减
 local function emit(path, rows, col, positive)
-    -- (2026-10-10对齐QT实测: 播种方向=正 -> 从末排(5,1)起向排号减小;
-    --  反向 -> 从首排(1,1)起向排号增大; 与用户QT联调观察一致)
     if positive then
-        for r = rows - 1, 0, -1 do path[#path + 1] = { row = r, column = col, positive = true } end
+        for r = 0, rows - 1 do path[#path + 1] = { row = r, column = col, positive = true } end
     else
-        for r = 0, rows - 1 do path[#path + 1] = { row = r, column = col, positive = false } end
+        for r = rows - 1, 0, -1 do path[#path + 1] = { row = r, column = col, positive = false } end
     end
 end
 
 function pathalgo.create_path(m, path_type, positive)
+    -- (2026-10-10对齐QT实测语义: 正向=从末排起. 入口取反实现——
+    --  撤销昨天的emit反转(它破坏了FinalFlag/InS/Next等按d分方向的
+    --  几何配套, 首排被判FinalFlag固件播一排即收=10%卡死根因);
+    --  入口取反后emit及全部下游几何保持自洽: p=1->emit反向序(末排起),
+    --  p=0->正向序(首排1,1起))
+    positive = not positive
     local path = {}
     local b = bet(m)
     local rows = m.rows
