@@ -3853,6 +3853,13 @@ return function(ctx)
 
         elseif addr == LW.TW.btn_ok then
             -- 创建任务(不自动开始, 2026-09-24用户决策: 设置完参数点开始再执行)
+            -- (2026-10-10修: 上次作业未停止时J残留, 新任务start被"已有作业"
+            --  拒绝/状态错乱(用户实测: 状态显示作业中但模拟器行程不动)——
+            --  创建前自动收尾旧作业, 断点保留仍可续接)
+            if JOBRUN and JOBRUN.active() then
+                JOBRUN.stop()
+                wstr(LW.TW.detail, "已自动停止上次未完作业")
+            end
             local m = STORE and STORE.map_get(W.map)
             if not m then
                 goto_state(1)
