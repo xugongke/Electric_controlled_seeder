@@ -1,2 +1,0 @@
-1.HAL生产FMC NAND 初始化代码MX_FSMC_Init中改为hnand2.Init.Waitfeature = FSMC_NAND_PCC_WAIT_FEATURE_DISABLE;，否则处理器会跑飞无法调试
-2.HAL 生成的NAND库有问题，只用来初始化，实际数据访问采用自己接口
