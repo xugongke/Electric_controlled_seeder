@@ -108,6 +108,8 @@ function jobrun.snapshot()
         sow_state = J.sow_state,
         trip_wait = J.trip_wait and true or false,
         completed = J.completed and true or false,
+        machine = J.machine,                    -- 农机近似位置(地图绘制用)
+        trail = J.trail,                        -- 本次作业轨迹(64点环形)
     }
 end
 
@@ -372,10 +374,12 @@ function jobrun.start(task_name, opts)
         --   outsetColumn/bet%2==0 与QT:255同式; 存config.txt经用户参数页配置)
         -- 过道打点三态从config.txt读(2026-09-30, RW副本已撤)
         local gp = 0
-        if PSTORE then
+        if opts.gap ~= nil then
+            gp = opts.gap                   -- 实时播种页下拉直读(2026-10-13)
+        elseif PSTORE then
             gp = PSTORE.load_gap()
-            if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
         end
+        if gp ~= 0 and gp ~= 1 and gp ~= 2 then gp = 0 end
         local gp_on = 0
         if gp == 1 then
             gp_on = 1

@@ -247,4 +247,27 @@ function mapdraw.cmds(m, t, opts)
     return out, g
 end
 
+
+-------------------------------------------------------------------- 平台适配
+-- cmds -> draw_* 翻译(on_draw回调内调用; PC/lupa无绘图API时整段跳过)。
+-- draw_text charcode=1: 指令字符串为GB2312字节(lua源文件即GB18030)
+function mapdraw.render(cmds)
+    if set_pen_color == nil then return end
+    for i = 1, #cmds do
+        local c = cmds[i]
+        if c.op == "rect" then
+            set_pen_color(c.color or 0)
+            draw_rect(c.x0, c.y0, c.x1, c.y1, c.fill == 1 and 1 or 0)
+        elseif c.op == "arect" then
+            draw_rect_alpha(c.x0, c.y0, c.x1, c.y1, c.alpha or 128)
+        elseif c.op == "line" then
+            set_pen_color(c.color or 0)
+            draw_line(c.x0, c.y0, c.x1, c.y1, c.w or 1)
+        elseif c.op == "text" then
+            draw_text(c.s, c.x, c.y, c.w, c.h, 0, c.size or 16,
+                      c.color or 0, c.align or 1, 1)
+        end
+    end
+end
+
 return mapdraw

@@ -240,6 +240,26 @@ function store.task_reset(name)
     return store.task_save(name)
 end
 
+-- 导入(U盘文本, 2026-10-13 M3任务管理页): 解析->校验地图存在->驻留+index
+-- 中断转换(1->3)与boot口径一致
+function store.task_import_text(text)
+    local t = C.parse_task(text)
+    if not t then return nil, "任务解析失败" end
+    if not t.name then return nil, "任务缺名称" end
+    if not store.maps[t.map] then
+        return nil, "地图不存在: " .. tostring(t.map)
+    end
+    for _, row in pairs(t.blocks) do
+        for _, b in pairs(row) do
+            if b.state == 1 then b.state = 3 end
+        end
+    end
+    store.tasks[t.name] = t
+    store.results[t.name] = {}
+    index_write()
+    return t
+end
+
 function store.task_delete(name)
     store.tasks[name], store.results[name] = nil, nil
     F.remove(p_task(name))

@@ -288,10 +288,41 @@ def main():
         return cmd_unpack(out)
     if cmd == 'pack':
         return cmd_pack(sys.argv[2])
+    if cmd == 'sync-labels':
+        return cmd_sync_labels()
     if cmd == 'spike26':
         return cmd_spike26()
     print(__doc__)
     return 1
+
+
+
+
+def cmd_sync_labels():
+    """按标签表.csv重建hmiprj的<addrlabels>(编辑器解析$name的依据)"""
+    import csv
+    rows = list(csv.reader(open(os.path.join(HERE, '标签表.csv'),
+                                encoding='gb18030')))
+    assert rows and rows[0][0] == '标签名称', 'CSV表头异常'
+
+    def esc(s):
+        return (s.replace('&', '&amp;').replace('<', '&lt;')
+                .replace('>', '&gt;').replace('"', '&quot;'))
+
+    labels = ['<label NAME="标签名称" ADDR="变量地址" TIP="描述说明"/>']
+    for r in rows[1:]:
+        if len(r) < 2 or not r[0] or not r[1]:
+            continue
+        labels.append('<label NAME="%s" ADDR="%s" TIP="%s"/>'
+                      % (esc(r[0]), esc(r[1]), esc(r[2]) if len(r) > 2 else ''))
+    xml = load()
+    i = xml.find('<addrlabels>')
+    j = xml.find('</addrlabels>')
+    assert i >= 0 and j > i, 'addrlabels块未找到'
+    xml = xml[:i] + '<addrlabels>\r\n\t\t' \
+        + '\r\n\t\t'.join(labels) + '\r\n\t' + xml[j:]
+    save(xml)
+    print('addrlabels已重建: %d个标签(含表头占位)' % len(labels))
 
 
 if __name__ == '__main__':

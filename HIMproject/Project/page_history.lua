@@ -7,6 +7,7 @@ page_history.lua —— 历史记录页(0x1900~, 画面7, B档)
 
 return function(ctx)
     local LW = ctx.LW
+    local APP = ctx.APP
     local STORE, LOGGER, FILEIO = ctx.STORE, ctx.LOGGER, ctx.FILEIO
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
@@ -91,6 +92,18 @@ return function(ctx)
     local page = {
         id = LW.SCREEN.HISTORY,                   -- 画面号(数字, APP.set_screen 路由)
         on_enter = function()
+            -- 外部预选(2026-10-13 M3): 实时播种页[任务结果]跳转携带任务名
+            if APP and APP.preset_hist_task then
+                local want = APP.preset_hist_task
+                APP.preset_hist_task = nil
+                local lst = task_names()
+                for i, n in ipairs(lst) do
+                    if n == want and i - 1 ~= S.sel then
+                        S.sel = i - 1
+                        S.top = math.max(0, i - 1 - 2)
+                    end
+                end
+            end
             refresh_list()
             render_detail()
         end,

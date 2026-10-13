@@ -19,7 +19,7 @@ PROJ = os.path.join(HERE, 'Project')
 MAIN = os.path.join(PROJ, 'main.lua')
 
 MODULES = ['lwmap', 'protocol', 'codec', 'csv', 'fileio', 'store', 'app',
-           'pathalgo', 'jobrun', 'logger', 'parastore', 'page_task',
+           'pathalgo', 'jobrun', 'logger', 'parastore', 'page_taskmgr', 'page_sowrt',
            'page_map', 'page_drawtest', 'mapdraw', 'page_userparam', 'page_manuparam', 'page_continuous',
            'page_testdiag', 'page_history', 'page_logview']
 

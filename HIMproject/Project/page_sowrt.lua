@@ -1,0 +1,236 @@
+--[[
+page_sowrt.lua —— 实时播种页(0x1F00~, 画面24; 2026-10-13 M3任务向导拆页重构)
+================================================================================
+还原 QT DialogRealtimeTask 左右两栏(800×480全屏, 拆页重构用户决策):
+  左栏: 调试信息(a_log) / 排列·列行程(a_offlen/a_voff, cm缩放0.01显示m) /
+        速度(rt_speed mm/s缩放0.001显示m/s) / 行进方向开关(rt_positive) /
+        路线6态图(rt_path_type) / 清种打点三态(rt_gapdot) / 图外播种
+        (rt_sow_exceed, 无AB线强制0) / AB线查看·保存(功能按钮开画面22, 复用
+        jobrun ABP影子页)·清除(rt_abclr) / 当前+最近完成 漏种漏肥各6路
+        (rt_cur_zh/fe, rt_last_zh/fe, jobrun 0x21常驻写入)
+  右栏: 地图画布(WidgetBasicGraph ID=1, 544×360: 块状态色+轨迹+农机标记) /
+        视图下拉(rt_view) / 更改起点(开关+排/列输入+应用, 仅记录/标记,
+        与原画面6口径一致——路径几何不变) / 开始·停止 / 运行状态灯
+        (a_runstate) / 完成率·进度(rt_pct/done/tot) / 任务结果(跳画面7并
+        预选APP.preset_hist_task) / 导出U盘
+开始: 收集左栏参数写入任务(path_type/positive/sow_exceed/outset)后
+  JOBRUN.start(task, {gap=rt_gapdot直读}); 停止: JOBRUN.stop()(含无AB线
+  停止保存建议弹窗, 复用既有机制)。
+--]]
+
+return function(ctx)
+    local LW = ctx.LW
+    local APP, STORE, JOBRUN = ctx.APP, ctx.STORE, ctx.JOBRUN
+    local MAPDRAW, LOGGER, FILEIO = ctx.MAPDRAW, ctx.LOGGER, ctx.FILEIO
+    local PROTOCOL = ctx.PROTOCOL
+    local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
+
+    local W = { task = nil, ver = -1 }
+
+    local function log(tag, msg)
+        if LOGGER then LOGGER.log(tag, msg) end
+    end
+
+    local function task_map(t)
+        return t and STORE.maps[t.map] or nil
+    end
+
+    ---------------------------------------------------------------- 参数收发
+    local function load_params()
+        -- 任务/配置参数 -> 左栏控件(进入画面/新建后)
+        local t = W.task and STORE.tasks[W.task] or nil
+        if not t then return end
+        w16(LW.RT.path_type, t.path_type or 0)
+        w16(LW.RT.positive, t.positive or 0)
+        local m = task_map(t)
+        local has_ab = m and m.ab and m.ab.has
+        w16(LW.RT.sow_exceed, (t.sow_exceed == 1 and has_ab) and 1 or 0)
+        local gp = 0
+        if ctx.PARASTORE and ctx.PARASTORE.load_gap then
+            gp = ctx.PARASTORE.load_gap() or 0
+        end
+        w16(LW.RT.gapdot, (gp == 1 or gp == 2) and gp or 0)
+        w16(LW.RT.sp_enable, 0)
+        local m2 = task_map(t)
+        if m2 and t.outset then
+            -- 0基->显示号(排显示=总排-内部行, 与原画面6一致)
+            w16(LW.RT.sp_row, math.max(1, (m2.rows or 1) - (t.outset.r or 0)))
+            w16(LW.RT.sp_col, (t.outset.c or 0) + 1)
+        else
+            w16(LW.RT.sp_row, 1)
+            w16(LW.RT.sp_col, 1)
+        end
+    end
+
+    local function harvest(outset_only)
+        -- 左栏控件 -> 任务字段(开始前/应用起点时)
+        local t = W.task and STORE.tasks[W.task]
+        if not t then return false end
+        local m = task_map(t)
+        if not outset_only then
+            t.path_type = r16(LW.RT.path_type) or 0
+            if t.path_type < 0 or t.path_type > 5 then t.path_type = 0 end
+            t.positive = (r16(LW.RT.positive) or 0) ~= 0 and 1 or 0
+            local has_ab = m and m.ab and m.ab.has
+            t.sow_exceed = (r16(LW.RT.sow_exceed) == 1 and has_ab) and 1 or 0
+            if r16(LW.RT.sow_exceed) == 1 and not has_ab then
+                w16(LW.RT.sow_exceed, 0)      -- 无AB线: 图外播种强制关
+                log("WRN", "无AB线, 图外播种不可用已自动关闭")
+            end
+        end
+        if r16(LW.RT.sp_enable) == 1 then
+            local r = (r16(LW.RT.sp_row) or 1) - 1
+            local c = (r16(LW.RT.sp_col) or 1) - 1
+            local rows = m and m.rows or 1
+            -- 显示号->0基: 排内部行 = 总排-显示排
+            t.outset = { r = math.min(math.max(rows - 1 - r, 0), rows - 1),
+                         c = math.min(math.max(c, 0),
+                                      (m and m.cols or 1) - 1) }
+            w16(LW.RT.sp_enable, 0)          -- 应用后复位开关
+        end
+        STORE.task_save(W.task)
+        return true
+    end
+
+    ---------------------------------------------------------------- 画布/刷新
+    local CANVAS_W, CANVAS_H = 544, 360
+
+    local function paint()
+        if not MAPDRAW then return end
+        local t = W.task and STORE.tasks[W.task] or nil
+        if not t then return end
+        local m = task_map(t)
+        if not m then return end
+        local v = r16(LW.RT.view) or 0
+        local opts = {
+            w = CANVAS_W, h = CANVAS_H,
+            view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
+        }
+        if JOBRUN and JOBRUN.active() then
+            local s = JOBRUN.snapshot()
+            if s and s.task == W.task then
+                opts.machine = s.machine
+                opts.trail = s.trail
+            end
+        end
+        MAPDRAW.render(MAPDRAW.cmds(m, t, opts))
+    end
+
+    local function pick_task()
+        -- 预选(任务管理页[开始任务]) > 作业中任务 > 最近未完成 > 最新任务
+        if APP.preset_sowrt_task then
+            local n = APP.preset_sowrt_task
+            APP.preset_sowrt_task = nil
+            if STORE.tasks[n] then return n end
+        end
+        if JOBRUN and JOBRUN.active() then
+            local s = JOBRUN.snapshot()
+            if s and STORE.tasks[s.task] then return s.task end
+        end
+        local lst = STORE.task_list()
+        for i = #lst, 1, -1 do
+            local _, tot, pct = STORE.task_progress(lst[i])
+            if tot == 0 or pct < 100 then return lst[i] end
+        end
+        return lst[#lst]
+    end
+
+    local page = {
+        id = LW.SCREEN.SOWRT,
+        poll_cmds = { PROTOCOL and PROTOCOL.FNC.GET_BZ_STATUS or nil },
+        addrs = {
+            LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
+            LW.RT.btn_exp, LW.RT.btn_abclr, LW.RT.btn_spply,
+        },
+    }
+
+    function page:on_enter()
+        W.task = pick_task()
+        if W.task then
+            wstr(LW.RT.tname, string.sub(W.task, 1, 15))
+            load_params()
+            local m = task_map(STORE.tasks[W.task])
+            if JOBRUN then JOBRUN.ab_hint_map = m and m.name or nil end
+        else
+            wstr(LW.RT.tname, "(无任务)")
+        end
+        W.ver = -1
+    end
+
+    function page:on_tick()
+        if not W.task then return end
+        local d, tot, pct = STORE.task_progress(W.task)
+        w16(LW.RT.pct, pct or 0)
+        w16(LW.RT.done, d or 0)
+        w16(LW.RT.tot, tot or 0)
+        local ver = JOBRUN and JOBRUN.draw_ver or 0
+        if ver ~= W.ver then
+            W.ver = ver
+            if redraw then redraw() end
+        end
+    end
+
+    function page:on_drawctrl(cid)
+        if cid == 1 then paint() end
+    end
+
+    function page:on_update(addr, val)
+        if val ~= 1 then return end
+        if addr == LW.RT.btn_start then
+            if not W.task then log("ERR", "无任务"); return end
+            if JOBRUN and JOBRUN.active() then
+                local s = JOBRUN.snapshot()
+                if s and s.task == W.task then
+                    if s.trip_wait then
+                        log("WRN", "本趟已完成, 请先[停止]后掉头再开始(续趟)")
+                    else
+                        -- 作业进行中再按开始 = 续趟裸发0x0A(原画面6口径)
+                        PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)
+                        log("INF", "续趟 0x0A 已下发")
+                    end
+                    return
+                end
+                log("ERR", "已有其他作业进行中: " .. tostring(s and s.task))
+                return
+            end
+            if not harvest(false) then return end
+            local gp = r16(LW.RT.gapdot) or 0
+            local ok, err = JOBRUN.start(W.task, { gap = gp })
+            log(ok and "INF" or "ERR",
+                ok and ("作业启动 " .. W.task)
+                   or ("启动失败: " .. tostring(err)))
+        elseif addr == LW.RT.btn_stop then
+            if JOBRUN then JOBRUN.stop() end
+        elseif addr == LW.RT.btn_abclr then
+            local t = W.task and STORE.tasks[W.task] or nil
+            local m = task_map(t)
+            if m then
+                local ok, err = JOBRUN.ab_clear_map(m.name)
+                log(ok and "INF" or "ERR",
+                    ok and ("清除AB线 " .. m.name)
+                       or ("清除失败: " .. tostring(err)))
+            end
+        elseif addr == LW.RT.btn_spply then
+            if harvest(true) then
+                log("INF", "起点已更新(记录/标记; 路径几何不变)")
+                W.ver = -1
+                if redraw then redraw() end
+            end
+        elseif addr == LW.RT.btn_result then
+            APP.preset_hist_task = W.task
+            APP.goto_screen(LW.SCREEN.HISTORY)
+        elseif addr == LW.RT.btn_exp then
+            if W.task and FILEIO then
+                local fname = "result_"
+                    .. (STORE.slug and STORE.slug(W.task) or W.task) .. ".csv"
+                local ok = FILEIO.write_all("2:" .. fname,
+                                             STORE.export_task_text(W.task))
+                log(ok and "INF" or "ERR",
+                    ok and ("导出结果 " .. W.task .. " -> " .. fname)
+                       or "导出失败")
+            end
+        end
+    end
+
+    return page
+end

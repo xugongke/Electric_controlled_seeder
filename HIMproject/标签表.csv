@@ -197,6 +197,10 @@ rt_cur_zh,LW1F10,u16[6] 当前漏种(0x21 LouZHCnt， 占6字)
 rt_cur_fe,LW1F16,u16[6] 当前漏肥(LoufeiCnt)
 rt_last_zh,LW1F1C,u16[6] 最近完成排漏种(快照)
 rt_last_fe,LW1F22,u16[6] 最近完成排漏肥(快照)
+rt_tname,LW1F38,字符串 当前任务名显示(占0x1F38~0x1F47， 16字)
+rt_pct,LW1F58,u16 完成率%(页面on_tick刷新)
+rt_done,LW1F59,u16 已完成块数
+rt_tot,LW1F5A,u16 总块数
 rt_btn_start,LW1F60,按钮 开始(下发作业链)
 rt_btn_stop,LW1F61,按钮 停止
 rt_btn_result,LW1F62,按钮 任务结果(跳画面7并预选)
