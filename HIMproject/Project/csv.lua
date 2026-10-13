@@ -504,7 +504,18 @@ local function render_result_line(e)
     return table.concat(t, ",")
 end
 
+-- 双格式分派(2026-10-13): 首个有效行首字段="信息" -> Excel式(任务.csv
+-- 导出布局); 否则旧#段式(内部3:盘存储格式)
 function csv.parse_task(text)
+    for line in csv.iter_lines(text) do
+        if line ~= "" and line:sub(1, 1) ~= "#" then
+            local f0 = csv.split(line)
+            if (f0[1] or "") == "信息" then
+                return csv.parse_task_xlsx(text)
+            end
+            break
+        end
+    end
     local msgs = {}
     local t = { name = nil, map = nil, path_type = 0, positive = 0, sow_exceed = 0,
                 outset = { r = 0, c = 0 }, last = { r = -1, c = -1 },
@@ -612,6 +623,148 @@ function csv.render_task(t)
         end
     end
     return table.concat(L, "\r\n") .. "\r\n"
+end
+
+
+-------------------------------------------------------------------- 任务Excel格式(2026-10-13)
+-- 仿QT"任务.csv"导出布局(用户样例): 信息键值区 + 状态矩阵 + 是否播种矩阵
+-- + 结果表; U盘导出供Excel直接查看(GB2312)。parse_task双格式分派,
+-- 导出的文件可再导入(内部3:盘存储仍用#段式, 互不影响)。
+local function task_dims(t)
+    local rows, cols = 0, 0
+    for r, rowb in pairs(t.blocks) do
+        if r + 1 > rows then rows = r + 1 end
+        for c in pairs(rowb) do
+            if c + 1 > cols then cols = c + 1 end
+        end
+    end
+    return rows, cols
+end
+
+function csv.render_task_xlsx(t)
+    local L = {}
+    local function row(...)
+        local s = {}
+        for i = 1, select("#", ...) do s[i] = tostring(select(i, ...)) end
+        L[#L + 1] = table.concat(s, ",")
+    end
+    local rows, cols = task_dims(t)
+    row("信息")
+    row("名称", t.name or "")
+    row("地图", t.map or "")
+    row("创建时间", t.create_time or "")
+    row("最后工作时间", t.last_work_time or "")
+    row("备注", t.remark or "")
+    row("排", rows)
+    row("列", cols)
+    row("路线类型", t.path_type or 0)
+    row("路线方向", (t.positive == 1) and "正" or "反")
+    row("起点排列", (t.outset and t.outset.r) or 0,
+        (t.outset and t.outset.c) or 0)
+    row("最近完成排列", (t.last and t.last.r) or -1,
+        (t.last and t.last.c) or -1)
+    row("")
+    local function matrix(title, get)
+        row(title)
+        local hd = { "" }
+        for c = 1, cols do hd[c + 1] = c .. "列" end
+        L[#L + 1] = table.concat(hd, ",")
+        for r = rows, 1, -1 do
+            local vals = { r .. "排" }
+            for c = 1, cols do
+                local b = (t.blocks[r - 1] or {})[c - 1]
+                vals[c + 1] = get(b)
+            end
+            L[#L + 1] = table.concat(vals, ",")
+        end
+        row("")
+    end
+    matrix("状态", function(b) return b and b.state or 0 end)
+    matrix("是否播种", function(b)
+        return (b and b.sow == 1) and "√" or ""
+    end)
+    row("结果")
+    local hd = { "排", "列", "开始时间", "完成时间", "状态" }
+    for i = 1, 6 do hd[#hd + 1] = i .. "行播种" end
+    for i = 1, 6 do hd[#hd + 1] = i .. "行漏肥" end
+    L[#L + 1] = table.concat(hd, ",")
+    for _, e in ipairs(t.results or {}) do
+        local vals = { e.r + 1, e.c + 1, e.start_t or "", e.end_t or "",
+                       e.state or 0 }
+        for i = 1, 6 do vals[#vals + 1] = (e.seed or {})[i] or 0 end
+        for i = 1, 6 do vals[#vals + 1] = (e.fert or {})[i] or 0 end
+        L[#L + 1] = table.concat(vals, ",")
+    end
+    return table.concat(L, "\r\n") .. "\r\n"
+end
+
+function csv.parse_task_xlsx(text)
+    local msgs = {}
+    local t = { name = nil, map = nil, path_type = 0, positive = 0,
+                sow_exceed = 0, outset = { r = 0, c = 0 },
+                last = { r = -1, c = -1 }, state = 0,
+                create_time = "", last_work_time = "",
+                blocks = {}, results = {} }
+    local section = nil
+    for line in csv.iter_lines(text) do
+        if line ~= "" then
+            local f = csv.split(line)
+            local a1 = f[1] or ""
+            if a1 == "信息" or a1 == "状态" or a1 == "是否播种"
+               or a1 == "结果" then
+                section = a1
+            elseif section == "信息" then
+                if a1 == "名称" then t.name = f[2]
+                elseif a1 == "地图" then t.map = f[2]
+                elseif a1 == "创建时间" then t.create_time = f[2] or ""
+                elseif a1 == "最后工作时间" then t.last_work_time = f[2] or ""
+                elseif a1 == "备注" then t.remark = f[2] or ""
+                elseif a1 == "路线类型" then
+                    local v = num(f[2])
+                    if v and v >= 0 and v <= 5 then t.path_type = v end
+                elseif a1 == "路线方向" then
+                    t.positive = (f[2] == "正") and 1 or 0
+                elseif a1 == "起点排列" then
+                    t.outset = { r = num(f[2]) or 0, c = num(f[3]) or 0 }
+                elseif a1 == "最近完成排列" then
+                    t.last = { r = num(f[2]) or -1, c = num(f[3]) or -1 }
+                end
+            elseif (section == "状态" or section == "是否播种") then
+                local rr = a1:match("^(%d+)排$")
+                if rr then
+                    local r0 = tonumber(rr) - 1
+                    if r0 >= 0 then
+                        if not t.blocks[r0] then t.blocks[r0] = {} end
+                        for c = 2, #f do
+                            local c0 = c - 2
+                            local cur = t.blocks[r0][c0]
+                                       or { state = 0, sow = 1 }
+                            if section == "状态" then
+                                cur.state = num(f[c]) or 0
+                            else
+                                cur.sow = (f[c] ~= "" and f[c] ~= nil) and 1 or 0
+                            end
+                            t.blocks[r0][c0] = cur
+                        end
+                    end
+                end
+            elseif section == "结果" then
+                local e = parse_result_line(f)
+                if e then
+                    e.r, e.c = e.r - 1, e.c - 1     -- 1基->0基
+                    if e.r >= 0 and e.c >= 0 then
+                        t.results[#t.results + 1] = e
+                    end
+                end
+            end
+        end
+    end
+    if t.name == nil then msgs[#msgs + 1] = "E:信息区缺名称" end
+    if t.map == nil then msgs[#msgs + 1] = "E:信息区缺地图" end
+    for _, s in ipairs(msgs) do
+        if s:sub(1, 2) == "E:" then return nil, msgs end
+    end
+    return t, msgs
 end
 
 csv.render_result_line = render_result_line

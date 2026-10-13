@@ -251,21 +251,27 @@ end
 -------------------------------------------------------------------- 平台适配
 -- cmds -> draw_* 翻译(on_draw回调内调用; PC/lupa无绘图API时整段跳过)。
 -- draw_text charcode=1: 指令字符串为GB2312字节(lua源文件即GB18030)
-function mapdraw.render(cmds)
+function mapdraw.render(cmds, ox, oy)
+    -- ox/oy: 画布控件在画面中的原点(2026-10-13用户实测: draw_*为整画面
+    -- 坐标系, 画布控件不提供平移, 不加偏移会画到画面左上角)
+    ox, oy = ox or 0, oy or 0
     if set_pen_color == nil then return end
     for i = 1, #cmds do
         local c = cmds[i]
         if c.op == "rect" then
             set_pen_color(c.color or 0)
-            draw_rect(c.x0, c.y0, c.x1, c.y1, c.fill == 1 and 1 or 0)
+            draw_rect(c.x0 + ox, c.y0 + oy, c.x1 + ox, c.y1 + oy,
+                      c.fill == 1 and 1 or 0)
         elseif c.op == "arect" then
-            draw_rect_alpha(c.x0, c.y0, c.x1, c.y1, c.alpha or 128)
+            draw_rect_alpha(c.x0 + ox, c.y0 + oy, c.x1 + ox, c.y1 + oy,
+                           c.alpha or 128)
         elseif c.op == "line" then
             set_pen_color(c.color or 0)
-            draw_line(c.x0, c.y0, c.x1, c.y1, c.w or 1)
+            draw_line(c.x0 + ox, c.y0 + oy, c.x1 + ox, c.y1 + oy,
+                      c.w or 1)
         elseif c.op == "text" then
-            draw_text(c.s, c.x, c.y, c.w, c.h, 0, c.size or 16,
-                      c.color or 0, c.align or 1, 1)
+            draw_text(c.s, c.x + ox, c.y + oy, c.w, c.h, 0,
+                      c.size or 16, c.color or 0, c.align or 1, 1)
         end
     end
 end

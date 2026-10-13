@@ -248,6 +248,19 @@ local t2x, err = STR.task_import_text(txt)
 IMP = { ok = t2x ~= nil, err = err }
 ''')
     check(bool(lua.eval('IMP.ok')), '导出->导入往返成功')
+    # 新Excel格式形状: 信息/状态/是否播种/结果四区 + √标记 + 1基结果行
+    # (导出为GB2312字节, Lua字面量是UTF-8不可直接比, hex中转到python断言)
+    lua.execute('''
+local txt = STR.export_task_text("t2")
+__EXPH = (txt:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+''')
+    exp_txt = bytes.fromhex(str(lua.eval('(__EXPH)'))).decode('gbk')
+    check(all(k in exp_txt for k in
+              ('信息\r\n名称,', '\r\n状态\r\n', '\r\n是否播种\r\n', '\r\n结果\r\n',
+               '√', '排,列,开始时间,完成时间,状态,1行播种,2行播种',
+               '1行漏肥,2行漏肥', '路线方向,正')),
+          '导出格式含信息/状态/是否播种/结果区+√+双表头+方向')
     # 删除(非作业中)
     lua.execute('''
 P9:on_enter()

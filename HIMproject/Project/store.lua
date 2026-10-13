@@ -342,12 +342,13 @@ function store.task_progress(name)
     return done, total, (total > 0) and math.floor(done * 100 / total) or 0
 end
 
--- USB 导出文本: 任务定义 + 全部结果(合并渲染)
+-- USB 导出文本: Excel友好格式(2026-10-13仿QT任务.csv: 信息+状态矩阵+
+-- 是否播种矩阵+结果表; Excel直开; parse_task双格式可再导回)
 function store.export_task_text(name)
     local t = store.tasks[name]
     if not t then return nil, "任务不存在" end
     t.results = store.results[name] or {}
-    local s = C.render_task(t)
+    local s = C.render_task_xlsx(t)
     t.results = {}
     return s
 end

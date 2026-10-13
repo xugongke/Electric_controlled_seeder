@@ -113,7 +113,7 @@ return function(ctx)
                 opts.trail = s.trail
             end
         end
-        MAPDRAW.render(MAPDRAW.cmds(m, t, opts))
+        MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 252, 32)
     end
 
     local function pick_task()

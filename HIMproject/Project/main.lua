@@ -55,12 +55,16 @@ end
 local function r16(addr)
     if get_uint16 then return get_uint16(VT_LW, addr) end
 end
-local function rstr(addr)                        -- 读字符串变量(AB对话框名称等)
-    if get_string then
-        local ok, s = pcall(get_string, VT_LW, addr)
-        if ok and type(s) == "string" then return s end
+local function rstr(addr, len)                   -- 读字符串变量(逐字u16小端拼
+    len = len or 32                              --   原始字节, 遇NUL终止;
+    local t = {}                                 --   2026-10-13: 旧版漏传len
+    for i = 0, len - 1 do                        --   恒读空->新建任务名
+        local v = get_uint16                     --   判空被拒(用户实测)
+                      and get_uint16(VT_LW, addr + i)
+        if not v or v == 0 then break end
+        t[#t + 1] = string.pack("<H", v & 0xFFFF)
     end
-    return ""
+    return table.concat(t)
 end
 local function r32(addr)
     if get_uint32 then return get_uint32(VT_LW, addr) end
@@ -2283,7 +2287,18 @@ local function render_result_line(e)
     return table.concat(t, ",")
 end
 
+-- 双格式分派(2026-10-13): 首个有效行首字段="信息" -> Excel式(任务.csv
+-- 导出布局); 否则旧#段式(内部3:盘存储格式)
 function csv.parse_task(text)
+    for line in csv.iter_lines(text) do
+        if line ~= "" and line:sub(1, 1) ~= "#" then
+            local f0 = csv.split(line)
+            if (f0[1] or "") == "信息" then
+                return csv.parse_task_xlsx(text)
+            end
+            break
+        end
+    end
     local msgs = {}
     local t = { name = nil, map = nil, path_type = 0, positive = 0, sow_exceed = 0,
                 outset = { r = 0, c = 0 }, last = { r = -1, c = -1 },
@@ -2391,6 +2406,148 @@ function csv.render_task(t)
         end
     end
     return table.concat(L, "\r\n") .. "\r\n"
+end
+
+
+-------------------------------------------------------------------- 任务Excel格式(2026-10-13)
+-- 仿QT"任务.csv"导出布局(用户样例): 信息键值区 + 状态矩阵 + 是否播种矩阵
+-- + 结果表; U盘导出供Excel直接查看(GB2312)。parse_task双格式分派,
+-- 导出的文件可再导入(内部3:盘存储仍用#段式, 互不影响)。
+local function task_dims(t)
+    local rows, cols = 0, 0
+    for r, rowb in pairs(t.blocks) do
+        if r + 1 > rows then rows = r + 1 end
+        for c in pairs(rowb) do
+            if c + 1 > cols then cols = c + 1 end
+        end
+    end
+    return rows, cols
+end
+
+function csv.render_task_xlsx(t)
+    local L = {}
+    local function row(...)
+        local s = {}
+        for i = 1, select("#", ...) do s[i] = tostring(select(i, ...)) end
+        L[#L + 1] = table.concat(s, ",")
+    end
+    local rows, cols = task_dims(t)
+    row("信息")
+    row("名称", t.name or "")
+    row("地图", t.map or "")
+    row("创建时间", t.create_time or "")
+    row("最后工作时间", t.last_work_time or "")
+    row("备注", t.remark or "")
+    row("排", rows)
+    row("列", cols)
+    row("路线类型", t.path_type or 0)
+    row("路线方向", (t.positive == 1) and "正" or "反")
+    row("起点排列", (t.outset and t.outset.r) or 0,
+        (t.outset and t.outset.c) or 0)
+    row("最近完成排列", (t.last and t.last.r) or -1,
+        (t.last and t.last.c) or -1)
+    row("")
+    local function matrix(title, get)
+        row(title)
+        local hd = { "" }
+        for c = 1, cols do hd[c + 1] = c .. "列" end
+        L[#L + 1] = table.concat(hd, ",")
+        for r = rows, 1, -1 do
+            local vals = { r .. "排" }
+            for c = 1, cols do
+                local b = (t.blocks[r - 1] or {})[c - 1]
+                vals[c + 1] = get(b)
+            end
+            L[#L + 1] = table.concat(vals, ",")
+        end
+        row("")
+    end
+    matrix("状态", function(b) return b and b.state or 0 end)
+    matrix("是否播种", function(b)
+        return (b and b.sow == 1) and "√" or ""
+    end)
+    row("结果")
+    local hd = { "排", "列", "开始时间", "完成时间", "状态" }
+    for i = 1, 6 do hd[#hd + 1] = i .. "行播种" end
+    for i = 1, 6 do hd[#hd + 1] = i .. "行漏肥" end
+    L[#L + 1] = table.concat(hd, ",")
+    for _, e in ipairs(t.results or {}) do
+        local vals = { e.r + 1, e.c + 1, e.start_t or "", e.end_t or "",
+                       e.state or 0 }
+        for i = 1, 6 do vals[#vals + 1] = (e.seed or {})[i] or 0 end
+        for i = 1, 6 do vals[#vals + 1] = (e.fert or {})[i] or 0 end
+        L[#L + 1] = table.concat(vals, ",")
+    end
+    return table.concat(L, "\r\n") .. "\r\n"
+end
+
+function csv.parse_task_xlsx(text)
+    local msgs = {}
+    local t = { name = nil, map = nil, path_type = 0, positive = 0,
+                sow_exceed = 0, outset = { r = 0, c = 0 },
+                last = { r = -1, c = -1 }, state = 0,
+                create_time = "", last_work_time = "",
+                blocks = {}, results = {} }
+    local section = nil
+    for line in csv.iter_lines(text) do
+        if line ~= "" then
+            local f = csv.split(line)
+            local a1 = f[1] or ""
+            if a1 == "信息" or a1 == "状态" or a1 == "是否播种"
+               or a1 == "结果" then
+                section = a1
+            elseif section == "信息" then
+                if a1 == "名称" then t.name = f[2]
+                elseif a1 == "地图" then t.map = f[2]
+                elseif a1 == "创建时间" then t.create_time = f[2] or ""
+                elseif a1 == "最后工作时间" then t.last_work_time = f[2] or ""
+                elseif a1 == "备注" then t.remark = f[2] or ""
+                elseif a1 == "路线类型" then
+                    local v = num(f[2])
+                    if v and v >= 0 and v <= 5 then t.path_type = v end
+                elseif a1 == "路线方向" then
+                    t.positive = (f[2] == "正") and 1 or 0
+                elseif a1 == "起点排列" then
+                    t.outset = { r = num(f[2]) or 0, c = num(f[3]) or 0 }
+                elseif a1 == "最近完成排列" then
+                    t.last = { r = num(f[2]) or -1, c = num(f[3]) or -1 }
+                end
+            elseif (section == "状态" or section == "是否播种") then
+                local rr = a1:match("^(%d+)排$")
+                if rr then
+                    local r0 = tonumber(rr) - 1
+                    if r0 >= 0 then
+                        if not t.blocks[r0] then t.blocks[r0] = {} end
+                        for c = 2, #f do
+                            local c0 = c - 2
+                            local cur = t.blocks[r0][c0]
+                                       or { state = 0, sow = 1 }
+                            if section == "状态" then
+                                cur.state = num(f[c]) or 0
+                            else
+                                cur.sow = (f[c] ~= "" and f[c] ~= nil) and 1 or 0
+                            end
+                            t.blocks[r0][c0] = cur
+                        end
+                    end
+                end
+            elseif section == "结果" then
+                local e = parse_result_line(f)
+                if e then
+                    e.r, e.c = e.r - 1, e.c - 1     -- 1基->0基
+                    if e.r >= 0 and e.c >= 0 then
+                        t.results[#t.results + 1] = e
+                    end
+                end
+            end
+        end
+    end
+    if t.name == nil then msgs[#msgs + 1] = "E:信息区缺名称" end
+    if t.map == nil then msgs[#msgs + 1] = "E:信息区缺地图" end
+    for _, s in ipairs(msgs) do
+        if s:sub(1, 2) == "E:" then return nil, msgs end
+    end
+    return t, msgs
 end
 
 csv.render_result_line = render_result_line
@@ -2745,12 +2902,13 @@ function store.task_progress(name)
     return done, total, (total > 0) and math.floor(done * 100 / total) or 0
 end
 
--- USB 导出文本: 任务定义 + 全部结果(合并渲染)
+-- USB 导出文本: Excel友好格式(2026-10-13仿QT任务.csv: 信息+状态矩阵+
+-- 是否播种矩阵+结果表; Excel直开; parse_task双格式可再导回)
 function store.export_task_text(name)
     local t = store.tasks[name]
     if not t then return nil, "任务不存在" end
     t.results = store.results[name] or {}
-    local s = C.render_task(t)
+    local s = C.render_task_xlsx(t)
     t.results = {}
     return s
 end
@@ -4349,7 +4507,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density")
                    or "arrange",
-        }))
+        }), 495, 4)                   -- 画布原点(画面坐标系)
     end
 
     local page = {
@@ -5220,6 +5378,21 @@ local function creator(ctx)
         return ((r // 8) << 11) | ((g // 4) << 5) | (b // 8)
     end
 
+    -- 画布原点包装(2026-10-13: draw_*为整画面坐标系, 画布在(50,40))
+    local OX, OY = 50, 40
+    local function d_rect(x0, y0, x1, y1, f)
+        draw_rect(x0 + OX, y0 + OY, x1 + OX, y1 + OY, f)
+    end
+    local function d_line(x0, y0, x1, y1, w)
+        draw_line(x0 + OX, y0 + OY, x1 + OX, y1 + OY, w)
+    end
+    local function d_circle(x, y, r, f)
+        draw_circle(x + OX, y + OY, r, f)
+    end
+    local function d_text(s, x, y, w, h, f0, size, col, al, cc)
+        draw_text(s, x + OX, y + OY, w, h, f0, size, col, al, cc)
+    end
+
     local function draw_pat0()
         local cols = { { 192, 192, 192, "待播" }, { 0, 112, 192, "下发" },
                        { 34, 139, 34, "完成" }, { 237, 108, 36, "中断" },
@@ -5229,44 +5402,44 @@ local function creator(ctx)
                 local e = cols[c + 1]
                 local x0, y0 = 20 + c * 110, 20 + r * 110
                 set_pen_color(rgb565(e[1], e[2], e[3]))
-                draw_rect(x0, y0, x0 + 100, y0 + 100, 1)
-                draw_text(e[4], x0, y0 + 40, 100, 30, 0, 20,
+                d_rect(x0, y0, x0 + 100, y0 + 100, 1)
+                d_text(e[4], x0, y0 + 40, 100, 30, 0, 20,
                           rgb565(255, 255, 255), 1, 1)
             end
         end
         set_pen_color(0)
-        draw_text("图样0 状态色网格 RGB565自算", 20, 350, 420, 24, 0, 16, 0, 0, 1)
+        d_text("图样0 状态色网格 RGB565自算", 20, 350, 420, 24, 0, 16, 0, 0, 1)
     end
 
     local function draw_pat1()
         for i = 1, 8 do
             set_pen_color(rgb565(255, 0, 0))
-            draw_line(20, 20 + i * 20, 300, 20 + i * 20, i)
+            d_line(20, 20 + i * 20, 300, 20 + i * 20, i)
         end
         set_pen_color(rgb565(0, 112, 192))
-        draw_circle(120, 220, 60, 0)          -- 实心(fill=0)
+        d_circle(120, 220, 60, 0)          -- 实心(fill=0)
         set_pen_color(rgb565(34, 139, 34))
-        draw_circle(300, 220, 60, 3)          -- 空心(线厚3)
+        d_circle(300, 220, 60, 3)          -- 空心(线厚3)
         set_pen_color(0)
-        draw_rect(400, 160, 650, 300, 0)      -- 边框
-        draw_text("图样1 线宽1-8/实心圆/空心圆/边框", 20, 350, 500, 24, 0, 16,
+        d_rect(400, 160, 650, 300, 0)      -- 边框
+        d_text("图样1 线宽1-8/实心圆/空心圆/边框", 20, 350, 500, 24, 0, 16,
                   0, 0, 1)
     end
 
     local function draw_pat2()
         set_pen_color(0)
-        draw_rect(20, 20, 660, 340, 1)        -- 黑底
-        draw_text("16号字-左对齐", 30, 30, 300, 20, 0, 16,
+        d_rect(20, 20, 660, 340, 1)        -- 黑底
+        d_text("16号字-左对齐", 30, 30, 300, 20, 0, 16,
                   rgb565(255, 255, 255), 0, 1)
-        draw_text("24号字-居中", 30, 70, 400, 30, 0, 24,
+        d_text("24号字-居中", 30, 70, 400, 30, 0, 24,
                   rgb565(255, 255, 0), 1, 1)
-        draw_text("32号字-右对齐", 30, 120, 500, 40, 0, 32,
+        d_text("32号字-右对齐", 30, 120, 500, 40, 0, 32,
                   rgb565(0, 255, 128), 2, 1)
-        draw_text("排列行程 12.34m 速度 1.5m/s", 30, 200, 400, 30, 0, 24,
+        d_text("排列行程 12.34m 速度 1.5m/s", 30, 200, 400, 30, 0, 24,
                   rgb565(255, 255, 255), 0, 1)
-        draw_text("排5-2 列3 密度4000 编号17", 30, 250, 400, 30, 0, 24,
+        d_text("排5-2 列3 密度4000 编号17", 30, 250, 400, 30, 0, 24,
                   rgb565(255, 255, 255), 0, 1)
-        draw_text("图样2 文字规格", 30, 310, 300, 24, 0, 16,
+        d_text("图样2 文字规格", 30, 310, 300, 24, 0, 16,
                   rgb565(255, 255, 255), 0, 1)
     end
 
@@ -5563,21 +5736,27 @@ end
 -------------------------------------------------------------------- 平台适配
 -- cmds -> draw_* 翻译(on_draw回调内调用; PC/lupa无绘图API时整段跳过)。
 -- draw_text charcode=1: 指令字符串为GB2312字节(lua源文件即GB18030)
-function mapdraw.render(cmds)
+function mapdraw.render(cmds, ox, oy)
+    -- ox/oy: 画布控件在画面中的原点(2026-10-13用户实测: draw_*为整画面
+    -- 坐标系, 画布控件不提供平移, 不加偏移会画到画面左上角)
+    ox, oy = ox or 0, oy or 0
     if set_pen_color == nil then return end
     for i = 1, #cmds do
         local c = cmds[i]
         if c.op == "rect" then
             set_pen_color(c.color or 0)
-            draw_rect(c.x0, c.y0, c.x1, c.y1, c.fill == 1 and 1 or 0)
+            draw_rect(c.x0 + ox, c.y0 + oy, c.x1 + ox, c.y1 + oy,
+                      c.fill == 1 and 1 or 0)
         elseif c.op == "arect" then
-            draw_rect_alpha(c.x0, c.y0, c.x1, c.y1, c.alpha or 128)
+            draw_rect_alpha(c.x0 + ox, c.y0 + oy, c.x1 + ox, c.y1 + oy,
+                           c.alpha or 128)
         elseif c.op == "line" then
             set_pen_color(c.color or 0)
-            draw_line(c.x0, c.y0, c.x1, c.y1, c.w or 1)
+            draw_line(c.x0 + ox, c.y0 + oy, c.x1 + ox, c.y1 + oy,
+                      c.w or 1)
         elseif c.op == "text" then
-            draw_text(c.s, c.x, c.y, c.w, c.h, 0, c.size or 16,
-                      c.color or 0, c.align or 1, 1)
+            draw_text(c.s, c.x + ox, c.y + oy, c.w, c.h, 0,
+                      c.size or 16, c.color or 0, c.align or 1, 1)
         end
     end
 end
@@ -5690,12 +5869,14 @@ return function(ctx)
                 opts.trail = s.trail
             end
         end
-        MAPDRAW.render(MAPDRAW.cmds(m, t, opts))
+        MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
     end
 
     local function mark_dirty()
         W.ver = -1                             -- 强制on_tick比对失效->redraw
     end
+    local canvas_dirty_from_dlg = false       -- 弹窗创建后画布置脏(声明
+                                            --   在前供dlg闭包引用)
 
     ---------------------------------------------------------------- U盘导入(fileio回调式, 同page_map)
     local function start_scan()
@@ -5762,6 +5943,10 @@ return function(ctx)
         if n then
             local _, _, pct = STORE.task_progress(n)
             w16(LW.TM.tpct, pct or 0)
+        end
+        if canvas_dirty_from_dlg then
+            canvas_dirty_from_dlg = false
+            W.ver = -1
         end
         local ver = JOBRUN and JOBRUN.draw_ver or 0
         if ver ~= W.ver then
@@ -5899,10 +6084,16 @@ return function(ctx)
             local t, err = STORE.task_create(name, mapn, 0, 1, 0, 0, 0, NOW())
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
+                wstr(LW.TM.tremark, "创建失败: " .. tostring(err))
                 return
             end
             log("INF", "任务已创建 " .. name .. " 地图=" .. mapn)
-            -- 关闭弹窗由按钮自身(ButtonUsage=2)完成; 画面9 on_enter 自动刷新
+            wstr(LW.TM.tremark, "已创建 " .. name)
+            -- 弹窗关闭不触发画面9 on_enter(同打开), 就地刷新列表/详情
+            W.sel = math.max(0, #STORE.task_list() - 1)
+            refresh()
+            render_detail()
+            canvas_dirty_from_dlg = true
         end
         -- btn_cancel: 仅关闭(按钮行为), 无动作
     end
@@ -6031,7 +6222,7 @@ return function(ctx)
                 opts.trail = s.trail
             end
         end
-        MAPDRAW.render(MAPDRAW.cmds(m, t, opts))
+        MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 252, 32)
     end
 
     local function pick_task()

@@ -102,12 +102,14 @@ return function(ctx)
                 opts.trail = s.trail
             end
         end
-        MAPDRAW.render(MAPDRAW.cmds(m, t, opts))
+        MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
     end
 
     local function mark_dirty()
         W.ver = -1                             -- 强制on_tick比对失效->redraw
     end
+    local canvas_dirty_from_dlg = false       -- 弹窗创建后画布置脏(声明
+                                            --   在前供dlg闭包引用)
 
     ---------------------------------------------------------------- U盘导入(fileio回调式, 同page_map)
     local function start_scan()
@@ -174,6 +176,10 @@ return function(ctx)
         if n then
             local _, _, pct = STORE.task_progress(n)
             w16(LW.TM.tpct, pct or 0)
+        end
+        if canvas_dirty_from_dlg then
+            canvas_dirty_from_dlg = false
+            W.ver = -1
         end
         local ver = JOBRUN and JOBRUN.draw_ver or 0
         if ver ~= W.ver then
@@ -311,10 +317,16 @@ return function(ctx)
             local t, err = STORE.task_create(name, mapn, 0, 1, 0, 0, 0, NOW())
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
+                wstr(LW.TM.tremark, "创建失败: " .. tostring(err))
                 return
             end
             log("INF", "任务已创建 " .. name .. " 地图=" .. mapn)
-            -- 关闭弹窗由按钮自身(ButtonUsage=2)完成; 画面9 on_enter 自动刷新
+            wstr(LW.TM.tremark, "已创建 " .. name)
+            -- 弹窗关闭不触发画面9 on_enter(同打开), 就地刷新列表/详情
+            W.sel = math.max(0, #STORE.task_list() - 1)
+            refresh()
+            render_detail()
+            canvas_dirty_from_dlg = true
         end
         -- btn_cancel: 仅关闭(按钮行为), 无动作
     end

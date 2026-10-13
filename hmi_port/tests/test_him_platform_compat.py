@@ -67,7 +67,10 @@ def main():
     def load_patched(name, hook, ret):
         src = open(os.path.join(HIM, name), encoding='gb18030').read()
         assert ret in src
-        src = src.replace(ret, hook + ' return ' + ret.split()[1].strip(), 1)
+        # 末次出现(2026-10-13: csv.parse_task双格式分派内含"return csv."
+        # 前缀, 首次匹配会命中它导致hook注入到函数体内)
+        i = src.rfind(ret)
+        src = src[:i] + hook + ' return ' + ret.split()[1].strip() + src[i + len(ret):]
         p = os.path.join(tmpd, name).replace('\\', '/')
         with open(p, 'w', encoding='gb18030') as fp:
             fp.write(src)

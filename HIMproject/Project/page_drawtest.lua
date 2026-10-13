@@ -29,6 +29,21 @@ local function creator(ctx)
         return ((r // 8) << 11) | ((g // 4) << 5) | (b // 8)
     end
 
+    -- 画布原点包装(2026-10-13: draw_*为整画面坐标系, 画布在(50,40))
+    local OX, OY = 50, 40
+    local function d_rect(x0, y0, x1, y1, f)
+        draw_rect(x0 + OX, y0 + OY, x1 + OX, y1 + OY, f)
+    end
+    local function d_line(x0, y0, x1, y1, w)
+        draw_line(x0 + OX, y0 + OY, x1 + OX, y1 + OY, w)
+    end
+    local function d_circle(x, y, r, f)
+        draw_circle(x + OX, y + OY, r, f)
+    end
+    local function d_text(s, x, y, w, h, f0, size, col, al, cc)
+        draw_text(s, x + OX, y + OY, w, h, f0, size, col, al, cc)
+    end
+
     local function draw_pat0()
         local cols = { { 192, 192, 192, "待播" }, { 0, 112, 192, "下发" },
                        { 34, 139, 34, "完成" }, { 237, 108, 36, "中断" },
@@ -38,44 +53,44 @@ local function creator(ctx)
                 local e = cols[c + 1]
                 local x0, y0 = 20 + c * 110, 20 + r * 110
                 set_pen_color(rgb565(e[1], e[2], e[3]))
-                draw_rect(x0, y0, x0 + 100, y0 + 100, 1)
-                draw_text(e[4], x0, y0 + 40, 100, 30, 0, 20,
+                d_rect(x0, y0, x0 + 100, y0 + 100, 1)
+                d_text(e[4], x0, y0 + 40, 100, 30, 0, 20,
                           rgb565(255, 255, 255), 1, 1)
             end
         end
         set_pen_color(0)
-        draw_text("图样0 状态色网格 RGB565自算", 20, 350, 420, 24, 0, 16, 0, 0, 1)
+        d_text("图样0 状态色网格 RGB565自算", 20, 350, 420, 24, 0, 16, 0, 0, 1)
     end
 
     local function draw_pat1()
         for i = 1, 8 do
             set_pen_color(rgb565(255, 0, 0))
-            draw_line(20, 20 + i * 20, 300, 20 + i * 20, i)
+            d_line(20, 20 + i * 20, 300, 20 + i * 20, i)
         end
         set_pen_color(rgb565(0, 112, 192))
-        draw_circle(120, 220, 60, 0)          -- 实心(fill=0)
+        d_circle(120, 220, 60, 0)          -- 实心(fill=0)
         set_pen_color(rgb565(34, 139, 34))
-        draw_circle(300, 220, 60, 3)          -- 空心(线厚3)
+        d_circle(300, 220, 60, 3)          -- 空心(线厚3)
         set_pen_color(0)
-        draw_rect(400, 160, 650, 300, 0)      -- 边框
-        draw_text("图样1 线宽1-8/实心圆/空心圆/边框", 20, 350, 500, 24, 0, 16,
+        d_rect(400, 160, 650, 300, 0)      -- 边框
+        d_text("图样1 线宽1-8/实心圆/空心圆/边框", 20, 350, 500, 24, 0, 16,
                   0, 0, 1)
     end
 
     local function draw_pat2()
         set_pen_color(0)
-        draw_rect(20, 20, 660, 340, 1)        -- 黑底
-        draw_text("16号字-左对齐", 30, 30, 300, 20, 0, 16,
+        d_rect(20, 20, 660, 340, 1)        -- 黑底
+        d_text("16号字-左对齐", 30, 30, 300, 20, 0, 16,
                   rgb565(255, 255, 255), 0, 1)
-        draw_text("24号字-居中", 30, 70, 400, 30, 0, 24,
+        d_text("24号字-居中", 30, 70, 400, 30, 0, 24,
                   rgb565(255, 255, 0), 1, 1)
-        draw_text("32号字-右对齐", 30, 120, 500, 40, 0, 32,
+        d_text("32号字-右对齐", 30, 120, 500, 40, 0, 32,
                   rgb565(0, 255, 128), 2, 1)
-        draw_text("排列行程 12.34m 速度 1.5m/s", 30, 200, 400, 30, 0, 24,
+        d_text("排列行程 12.34m 速度 1.5m/s", 30, 200, 400, 30, 0, 24,
                   rgb565(255, 255, 255), 0, 1)
-        draw_text("排5-2 列3 密度4000 编号17", 30, 250, 400, 30, 0, 24,
+        d_text("排5-2 列3 密度4000 编号17", 30, 250, 400, 30, 0, 24,
                   rgb565(255, 255, 255), 0, 1)
-        draw_text("图样2 文字规格", 30, 310, 300, 24, 0, 16,
+        d_text("图样2 文字规格", 30, 310, 300, 24, 0, 16,
                   rgb565(255, 255, 255), 0, 1)
     end
 

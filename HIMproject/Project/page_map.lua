@@ -178,7 +178,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density")
                    or "arrange",
-        }))
+        }), 495, 4)                   -- 画布原点(画面坐标系)
     end
 
     local page = {
