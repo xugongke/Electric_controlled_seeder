@@ -28,7 +28,7 @@ mapdraw.COLORS = {
     done    = { 34, 139, 34 },     -- 2 完成 绿
     broken  = { 237, 108, 36 },    -- 3 中断 橙红
     nosow   = { 64, 64, 64 },      -- 不播 深灰
-    aisle   = { 210, 210, 210 },   -- 过道带 浅灰
+    aisle   = { 228, 228, 228 },   -- 过道带 更浅灰(与待播灰拉开)
     grid    = { 0, 0, 0 },         -- 网格线/文字 黑
     label   = { 0, 0, 0 },
     outset  = { 255, 200, 0 },     -- 起点标记 黄
@@ -57,12 +57,15 @@ end
 
 -------------------------------------------------------------------- 布局
 -- fit-scale: 均匀网格 + 排间过道带(AISLE_FRAC*ch, 至少4px), 排/列标签边距
-local AISLE_FRAC = 0.35
-local LABEL_W, LABEL_H = 30, 22
+local AISLE_FRAC = 0.22                          -- 过道带比例(收窄,
+                                                 --   2026-10-14样式重设计)
+local LABEL_W, LABEL_H = 22, 18
+local PAD = 4                                    -- 画布内边距(防控件
+                                                 --   边框裁剪最外圈)
 
 function mapdraw.layout(m, w, h)
     local rows, cols = m.rows or 1, m.cols or 1
-    local iw, ih = w - LABEL_W, h - LABEL_H
+    local iw, ih = w - LABEL_W - 2 * PAD, h - LABEL_H - 2 * PAD
     if iw < 20 or ih < 20 then return nil end
     local ch = ih // (rows + math.floor(AISLE_FRAC * (rows + 1)) + 1)
     if ch < 6 then ch = 6 end
@@ -75,8 +78,8 @@ function mapdraw.layout(m, w, h)
     local cw = iw // cols
     if cw < 6 then cw = 6 end
     return {
-        x0 = LABEL_W + (iw - cw * cols) // 2,
-        y0 = LABEL_H + (ih - total_h) // 2,
+        x0 = LABEL_W + PAD + (iw - cw * cols) // 2,
+        y0 = LABEL_H + PAD + (ih - total_h) // 2,
         cw = cw, ch = ch, aisle = aisle,
         rows = rows, cols = cols,
     }
@@ -133,26 +136,25 @@ function mapdraw.cmds(m, t, opts)
         for c = 0, g.cols - 1 do
             local col = state_color(m, t, r, c)
             local x0, y0, x1, y1 = cell_rect(g, r, c)
-            out[#out + 1] = { op = 'rect', x0 = x0 + 1, y0 = y0 + 1,
-                              x1 = x1 - 1, y1 = y1 - 1, fill = 1,
+            -- 满格填充(2026-10-14: 原内缩1px+贯穿线在视觉上产生错位感;
+            --   改QT式满格无缝, 格界靠颜色差与过道带表达)
+            out[#out + 1] = { op = 'rect', x0 = x0, y0 = y0,
+                              x1 = x1, y1 = y1, fill = 1,
                               color = mapdraw.rgb565(col[1], col[2], col[3]) }
         end
     end
 
-    -- 网格线(O(rows+cols), 不逐格描边)
+    -- 每格细边框(2026-10-14: 满格填充后的格子感; 中大图省略保指令量:
+    --   <=200格画边框, 更大只靠色块)
     local kc = mapdraw.rgb565(mapdraw.COLORS.grid[1],
                               mapdraw.COLORS.grid[2], mapdraw.COLORS.grid[3])
-    if g.cw >= 14 and g.ch >= 10 then
-        for c = 0, g.cols do
-            out[#out + 1] = { op = 'line', x0 = g.x0 + c * g.cw,
-                              y0 = g.y0, x1 = g.x0 + c * g.cw,
-                              y1 = g.y0 + g.rows * (g.ch + g.aisle) + g.aisle - 1,
-                              w = 1, color = kc }
-        end
-        for r = 0, g.rows do
-            local y = g.y0 + (r + 1) * g.aisle + r * (g.ch + g.aisle)
-            out[#out + 1] = { op = 'line', x0 = g.x0, y0 = y, x1 = gx1, y1 = y,
-                              w = 1, color = kc }
+    if g.rows * g.cols <= 200 and g.cw >= 8 and g.ch >= 8 then
+        for r = 0, g.rows - 1 do
+            for c = 0, g.cols - 1 do
+                local x0, y0, x1, y1 = cell_rect(g, r, c)
+                out[#out + 1] = { op = 'rect', x0 = x0, y0 = y0,
+                                  x1 = x1, y1 = y1, fill = 0, color = kc }
+            end
         end
     end
 

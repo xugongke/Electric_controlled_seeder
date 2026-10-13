@@ -165,7 +165,7 @@ return function(ctx)
     ---------------------------------------------------------------- 画布预览
     -- (2026-10-13, 用户提议: 动态绘图验证可行后地图页同样上画布,
     --  对齐QT FormMap选中即出图; 视图下拉 map_view 排列/编号/密度)
-    local CANVAS_W, CANVAS_H = 294, 270
+    local CANVAS_W, CANVAS_H = 384, 396         -- 2026-10-14画面1重布局大画布
 
     local function paint_canvas()
         if not MAPDRAW then return end
@@ -178,7 +178,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density")
                    or "arrange",
-        }), 495, 4)                   -- 画布原点(画面坐标系)
+        }), 412, 30)                  -- 画布原点(画面坐标系, 2026-10-14重布局)
     end
 
     local page = {

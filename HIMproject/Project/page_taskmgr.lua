@@ -317,10 +317,12 @@ return function(ctx)
             local t, err = STORE.task_create(name, mapn, 0, 1, 0, 0, 0, NOW())
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
+                wstr(LW.NT.mapsel, "失败:" .. tostring(err))
                 wstr(LW.TM.tremark, "创建失败: " .. tostring(err))
                 return
             end
             log("INF", "任务已创建 " .. name .. " 地图=" .. mapn)
+            wstr(LW.NT.mapsel, "已创建 " .. name)
             wstr(LW.TM.tremark, "已创建 " .. name)
             -- 弹窗关闭不触发画面9 on_enter(同打开), 就地刷新列表/详情
             W.sel = math.max(0, #STORE.task_list() - 1)

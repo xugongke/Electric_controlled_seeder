@@ -67,7 +67,7 @@ __G = MD.layout(__M, 530, 380)
     ok = lua.eval('__G.x0 + __G.cw * __G.cols <= 530 and '
                   '__G.y0 + __G.rows * (__G.ch + __G.aisle) + __G.aisle <= 380')
     check(bool(ok), '整体在画布内(fit-scale)')
-    ok2 = lua.eval('__G.x0 >= 30 and __G.y0 >= 22')
+    ok2 = lua.eval('__G.x0 >= 22 and __G.y0 >= 18')   # 2026-10-14样式: LABEL 22x18+PAD
     check(bool(ok2), '标签边距预留')
 
     print('3) row_at 偏移反查')
