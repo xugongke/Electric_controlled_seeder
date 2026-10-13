@@ -1837,7 +1837,8 @@ function csv.parse_map_grid(text)
                 head_pending[section] = true
             elseif section == "信息" then
                 if a1 ~= "类型" then              -- 表头行(排长cm/过道长cm)
-                    if a1 == "名称" then m.name = f[2]   -- 地图显示名(hmi_export)
+                    if a1 == "名称" then m.name = (f[2] ~= "" and f[2]) or nil
+                        -- 地图显示名(hmi_export; 空串归nil)
                     elseif a1 == "排" then m.rows = num(f[2])
                     elseif a1 == "列" then m.cols = num(f[2])
                     elseif a1 == "小区行数" then m.block_col = num(f[2]) or 1
@@ -1894,6 +1895,24 @@ function csv.parse_map_grid(text)
         msgs[#msgs + 1] = ("E:排长需%d条实有%d"):format(m.rows, #rowlen_seq)
     else
         m.rowlen = rowlen_seq
+    end
+    -- 旧版render补0自愈(2026-10-13): D列曾在rows+1之后补0, rows<7的
+    -- 地图过道超期且尾部全0 -> 截断告警, 已损坏的落盘文件重启可恢复开播
+    if m.rows and #aisle_seq > m.rows + 1 then
+        local want = m.rows + 1
+        local pad = true
+        for i = want + 1, #aisle_seq do
+            if aisle_seq[i] ~= 0 then
+                pad = false
+                break
+            end
+        end
+        if pad then
+            local extra = #aisle_seq - want
+            for _ = 1, extra do aisle_seq[#aisle_seq] = nil end
+            msgs[#msgs + 1] = ("W:过道尾部%d条补0已截断(旧版渲染兼容)")
+                :format(extra)
+        end
     end
     if #aisle_seq ~= m.rows + 1 then
         msgs[#msgs + 1] = ("E:过道需%d条实有%d"):format(m.rows + 1, #aisle_seq)
@@ -2096,6 +2115,9 @@ function csv.render_map(m)
         L[#L + 1] = table.concat(t, ",")
     end
     row("信息", "", "", "")
+    -- 名称行(2026-10-13补, 对齐hmi_export.render_map_csv): 旧版不写,
+    -- 地图经map_save重渲染后名称丢失, 重启boot重载m.name=nil
+    if m.name and m.name ~= "" then row("名称", m.name) end
     row("类型", "播种", "排长(cm)", "过道长(cm)")
     -- 信息区: C列=排长(rows条), D列=过道(rows+1条), 标签行固定8个不够留空
     local labels = { "创建时间", "修改时间", "备注", "排", "列",
@@ -2111,7 +2133,12 @@ function csv.render_map(m)
         elseif lab == "行间距(cm)" then b = fmt_num(m.col_gap or 60) end
         local c = ""
         if i <= (m.rows or 0) then c = fmt_num(m.rowlen[i] or 0) end
-        row(lab, b, c, fmt_num(m.aisle[i] or 0))
+        -- D列仅rows+1行(2026-10-13, 对齐hmi_export): 此前行行写值,
+        -- rows<7地图回写后过道多出补0条目 -> 重启重载E: -> m.aisle空
+        -- -> start_node对nil算术炸断启动链(0x24后0x20/0x31/0x0A全不发)
+        local d = ""
+        if i <= (m.rows or 0) + 1 then d = fmt_num(m.aisle[i] or 0) end
+        row(lab, b, c, d)
     end
     row("", "", "", "")
     if m.ab then
@@ -2653,6 +2680,8 @@ function store.boot()
         local m
         if raw then m = C.parse_map(raw) end
         if m then
+            -- 旧版渲染文件无名称行(2026-10-13): 回填索引名, 与导入口径一致
+            if m.name == nil or m.name == "" then m.name = n end
             store.maps[n] = m
         else
             warns[#warns + 1] = ("地图%s装载失败已跳过"):format(n)
@@ -3178,10 +3207,19 @@ end
 
 -------------------------------------------------------------------- 下发封装
 local function send_node(row, column)
-    local p = PATHALGO.start_node(STORE.tasks[J.task], J.m, J.path, row, column, J.ab, J.fine)
-    local ok, bin = pcall(CODEC.bzcell.pack, p)
+    -- start_node纳入pcall(2026-10-13): 地图数据缺陷(如重载后aisle缺失)
+    -- 在组参期对nil算术抛错, 此前未捕获直接炸断调用链
+    local ok, p = pcall(PATHALGO.start_node, STORE.tasks[J.task], J.m,
+                        J.path, row, column, J.ab, J.fine)
     if not ok then
-        log("ERR", "startNode组包失败 r=" .. row)
+        log("ERR", "startNode组参失败 r=" .. tostring(row)
+            .. ": " .. tostring(p))
+        return false
+    end
+    local ok2, bin = pcall(CODEC.bzcell.pack, p)
+    if not ok2 then
+        log("ERR", "startNode组包失败 r=" .. tostring(row)
+            .. ": " .. tostring(bin))
         return false
     end
     PROTOCOL.send(PROTOCOL.FNC.SET_BZ_PARA, bin)
@@ -3402,13 +3440,24 @@ function jobrun.start(task_name, opts)
 
         -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
         local pn = path[J.next_idx]
+        local sent
         if (t.sow_exceed == 1) then
             J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
             J.enter_map = false
-            send_node(J.cur_read_row, J.cur_col)
+            sent = send_node(J.cur_read_row, J.cur_col)
         else
             J.enter_map = true
-            send_node(pn.row, J.cur_col)
+            sent = send_node(pn.row, J.cur_col)
+        end
+        if not sent then
+            -- 首节点未下发(地图数据缺陷等): 安全停机+清现场, 页面回就绪
+            -- 可重试, 不残留假"作业中"(2026-10-13: 用户实测重启后
+            -- 0x20/0x31/0x0A全未发而任务状态显示作业中)
+            PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)
+            jobrun.detach()
+            J = nil
+            log("ERR", "作业启动失败: 首节点未下发, 已回滚现场")
+            return
         end
         -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
         -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)

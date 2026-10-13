@@ -355,6 +355,8 @@ function store.boot()
         local m
         if raw then m = C.parse_map(raw) end
         if m then
+            -- 旧版渲染文件无名称行(2026-10-13): 回填索引名, 与导入口径一致
+            if m.name == nil or m.name == "" then m.name = n end
             store.maps[n] = m
         else
             warns[#warns + 1] = ("地图%s装载失败已跳过"):format(n)

@@ -106,10 +106,19 @@ end
 
 -------------------------------------------------------------------- 下发封装
 local function send_node(row, column)
-    local p = PATHALGO.start_node(STORE.tasks[J.task], J.m, J.path, row, column, J.ab, J.fine)
-    local ok, bin = pcall(CODEC.bzcell.pack, p)
+    -- start_node纳入pcall(2026-10-13): 地图数据缺陷(如重载后aisle缺失)
+    -- 在组参期对nil算术抛错, 此前未捕获直接炸断调用链
+    local ok, p = pcall(PATHALGO.start_node, STORE.tasks[J.task], J.m,
+                        J.path, row, column, J.ab, J.fine)
     if not ok then
-        log("ERR", "startNode组包失败 r=" .. row)
+        log("ERR", "startNode组参失败 r=" .. tostring(row)
+            .. ": " .. tostring(p))
+        return false
+    end
+    local ok2, bin = pcall(CODEC.bzcell.pack, p)
+    if not ok2 then
+        log("ERR", "startNode组包失败 r=" .. tostring(row)
+            .. ": " .. tostring(bin))
         return false
     end
     PROTOCOL.send(PROTOCOL.FNC.SET_BZ_PARA, bin)
@@ -330,13 +339,24 @@ function jobrun.start(task_name, opts)
 
         -- QT :275-300: 启动时先下发首个节点参数(图外播种=从图外排开始, 否则首排)
         local pn = path[J.next_idx]
+        local sent
         if (t.sow_exceed == 1) then
             J.cur_read_row = pn.positive and -1 or m.rows   -- 图外虚拟排
             J.enter_map = false
-            send_node(J.cur_read_row, J.cur_col)
+            sent = send_node(J.cur_read_row, J.cur_col)
         else
             J.enter_map = true
-            send_node(pn.row, J.cur_col)
+            sent = send_node(pn.row, J.cur_col)
+        end
+        if not sent then
+            -- 首节点未下发(地图数据缺陷等): 安全停机+清现场, 页面回就绪
+            -- 可重试, 不残留假"作业中"(2026-10-13: 用户实测重启后
+            -- 0x20/0x31/0x0A全未发而任务状态显示作业中)
+            PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)
+            jobrun.detach()
+            J = nil
+            log("ERR", "作业启动失败: 首节点未下发, 已回滚现场")
+            return
         end
         -- 不预置 mark_dispatched(QT state=1 仅由在播帧建立: 行程不符保护,
         -- 见 advance() 内注释; resume 扫描按 state~=2 判未完成, 不受影响)
