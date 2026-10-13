@@ -55,14 +55,18 @@ end
 local function r16(addr)
     if get_uint16 then return get_uint16(VT_LW, addr) end
 end
-local function rstr(addr, len)                   -- 读字符串变量(逐字u16小端拼
-    len = len or 32                              --   原始字节, 遇NUL终止;
-    local t = {}                                 --   2026-10-13: 旧版漏传len
-    for i = 0, len - 1 do                        --   恒读空->新建任务名
-        local v = get_uint16                     --   判空被拒(用户实测)
-                      and get_uint16(VT_LW, addr + i)
+local function rstr(addr, len)                   -- 读字符串变量(2026-10-14
+    len = len or 32                              --   三修: 启发式兼容两种
+    local t = {}                                 --   LW字串布局——1字/词
+    for i = 0, len - 1 do                        --   (set_string实测口径)与
+        local v = get_uint16                     --   双字节打包; v<=255按单
+                      and get_uint16(VT_LW, addr + i) -- 字节, 否则小端双字节
         if not v or v == 0 then break end
-        t[#t + 1] = string.pack("<H", v & 0xFFFF)
+        if v <= 255 then
+            t[#t + 1] = string.char(v)
+        else
+            t[#t + 1] = string.pack("<H", v & 0xFFFF)
+        end
     end
     return table.concat(t)
 end
@@ -6071,11 +6075,18 @@ return function(ctx)
         elseif addr == LW.NT.btn_ok then
             local name = ""
             if rstr then
-                local ok, s = pcall(rstr, LW.NT.name)
+                local ok, s = pcall(rstr, LW.NT.name, 16)
                 if ok and type(s) == "string" then name = s end
             end
             if name == "" then
-                log("ERR", "任务名不能为空")
+                -- 附地址区hex转储(如再空, 一次定位输入落址/布局)
+                local hex = ""
+                for i = 0, 7 do
+                    local v = r16 and r16(LW.NT.name + i) or -1
+                    hex = hex .. string.format("%04X ", v)
+                end
+                log("ERR", "任务名不能为空 NT.name区: " .. hex)
+                wstr(LW.NT.mapsel, "失败:任务名不能为空")
                 return
             end
             local mapn = D.items[D.sel + 1]

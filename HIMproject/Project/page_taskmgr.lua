@@ -302,11 +302,18 @@ return function(ctx)
         elseif addr == LW.NT.btn_ok then
             local name = ""
             if rstr then
-                local ok, s = pcall(rstr, LW.NT.name)
+                local ok, s = pcall(rstr, LW.NT.name, 16)
                 if ok and type(s) == "string" then name = s end
             end
             if name == "" then
-                log("ERR", "任务名不能为空")
+                -- 附地址区hex转储(如再空, 一次定位输入落址/布局)
+                local hex = ""
+                for i = 0, 7 do
+                    local v = r16 and r16(LW.NT.name + i) or -1
+                    hex = hex .. string.format("%04X ", v)
+                end
+                log("ERR", "任务名不能为空 NT.name区: " .. hex)
+                wstr(LW.NT.mapsel, "失败:任务名不能为空")
                 return
             end
             local mapn = D.items[D.sel + 1]
