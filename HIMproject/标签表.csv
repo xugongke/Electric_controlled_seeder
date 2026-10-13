@@ -6,6 +6,8 @@ a_link,LW1013,u16 链路状态 0=通信中断 1=在线(app.lua心跳判定，
 a_ver,LW1024,字符串 下位机版本号(0xA3); 实际串37字符
 a_appver,LW104A,字符串 屏端程序版本"0.5.0(2026.9.30)"=15字符，
 a_log,LW1060,字符串 调试串(0x22心跳全局刷新， GB2312直通;
+a_drawtest,LW10A0,u16 WidgetBasicGraph数据地址(on_draw模式占位)
+a_drawtest_btn,LW10A1,u16 切换图样瞬态按钮(写1触发， Lua自动复位)
 cont_density,LW1400,i32 输入 密度(株/亩)
 cont_zhuju,LW1404,i32 只读 株距cm(计算显示)
 cont_speed,LW1408,i32 只读 速度mm/s(0x21)
