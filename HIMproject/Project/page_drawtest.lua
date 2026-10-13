@@ -21,6 +21,9 @@ local function creator(ctx)
     page.addrs = { LW.A.drawtest_btn }
 
     local pattern = 0                    -- 0状态色网格 1线条圆 2文字
+    local dirty = true                  -- on_enter里redraw()时机过早无效
+                                       -- (切页回来空白, 2026-10-13实测),
+                                       -- 改由on_tick首拍补画
 
     local function rgb565(r, g, b)
         return ((r // 8) << 11) | ((g // 4) << 5) | (b // 8)
@@ -92,7 +95,14 @@ local function creator(ctx)
     end
 
     function page:on_enter()
-        if redraw then redraw() end
+        dirty = true
+    end
+
+    function page:on_tick()
+        if dirty then
+            dirty = false
+            if redraw then redraw() end
+        end
     end
 
     function page:on_update(addr, v)

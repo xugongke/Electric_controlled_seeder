@@ -130,6 +130,7 @@ map_btn_down,LW1C71,按钮 选项下移
 map_btn_sel,LW1C72,按钮 查看详情
 map_btn_del,LW1C73,按钮 删除地图
 map_btn_usb,LW1C74,按钮 扫描U盘导入
+map_view,LW1C78,u16 地图预览视图 0排列/1编号/2密度(下拉，
 map_ab_import,LW1C76,按钮 AB线导入(RW缓存绑定本图)
 map_ab_clear,LW1C77,按钮 AB线清除(解绑本图)
 abp_mode,LW1D00,u16 对话框模式 0=保存命名(需输入名称) 1=查看(只读)

@@ -24,6 +24,8 @@ return function(ctx)
 
     local LIST_ROWS = 6
     local W = { sel = 0, top = 0, items = {}, ver = -1 }
+    -- 前置声明: 画面25小节函数被画面9按钮处理器先行引用(定义在后)
+    local dlg_init, dlg_refresh
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -154,6 +156,7 @@ return function(ctx)
         id = LW.SCREEN.TASKMGR,
         poll_cmds = {},
         addrs = {
+            LW.TM.btn_new,
             LW.TM.btn_del, LW.TM.btn_imp, LW.TM.btn_exp, LW.TM.btn_reset,
             LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_sel, LW.TM.btn_start,
         },
@@ -195,6 +198,8 @@ return function(ctx)
             refresh(); render_detail(); mark_dirty()
         elseif addr == LW.TM.btn_sel then
             refresh(); render_detail(); mark_dirty()
+        elseif addr == LW.TM.btn_new then
+            dlg_init()                    -- 弹窗即将打开: 预填地图/默认名
         elseif addr == LW.TM.btn_del then
             local n = W.items[W.sel + 1]
             if not n then return end
@@ -248,7 +253,18 @@ return function(ctx)
     ---------------------------------------------------------------- 画面25 新建任务
     local D = { sel = 0, items = {} }
 
-    local function dlg_refresh()
+    dlg_init = function()
+        -- 弹窗打开路径: ButtonUsage=1弹窗不触发on_screen_change,
+        -- dlg.on_enter不可靠(2026-10-13用户实测地图数0), 由画面9侧
+        -- [新建任务]按钮执行通知(tm_btn_new)在此初始化弹窗数据
+        D.sel = 0
+        dlg_refresh()
+        local n = "任务"
+            .. tostring(#(STORE and STORE.task_list() or {}) + 1)
+        wstr(LW.NT.name, n)
+    end
+
+    dlg_refresh = function()
         D.items = STORE and STORE.map_list() or {}
         if D.sel >= #D.items then D.sel = math.max(0, #D.items - 1) end
         wstr(LW.NT.mapsel,
@@ -266,11 +282,7 @@ return function(ctx)
     }
 
     function dlg:on_enter()
-        D.sel = 0
-        dlg_refresh()
-        -- 默认名: 任务N(与原画面6口径一致, 用户可改)
-        local n = "任务" .. tostring(#(STORE and STORE.task_list() or {}) + 1)
-        wstr(LW.NT.name, n)
+        dlg_init()                       -- 弹窗若触发on_enter同样初始化
     end
 
     function dlg:on_update(addr, val)

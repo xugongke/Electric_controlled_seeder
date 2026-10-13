@@ -12,10 +12,12 @@ LW: LW.MAP (0x1C00区); AB查看按钮=功能按钮(打开对话框画面22+通知LW.ABP.req=2)。
 return function(ctx)
     local APP, LW = ctx.APP, ctx.LW
     local STORE, JOBRUN, LOGGER, FILEIO = ctx.STORE, ctx.JOBRUN, ctx.LOGGER, ctx.FILEIO
+    local MAPDRAW = ctx.MAPDRAW             -- 地图画布预览(2026-10-13)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
 
     local LIST_ROWS = 6
     local W = { sel = 0, top = 0, items = {} }
+    local canvas_dirty = true               -- 画布置脏(选中/导入变化)
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -53,6 +55,7 @@ return function(ctx)
     end
 
     local function show_detail()
+        canvas_dirty = true                 -- 选中变化即重绘画布
         local n = selected_name()
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
@@ -159,6 +162,25 @@ return function(ctx)
         end
     end
 
+    ---------------------------------------------------------------- 画布预览
+    -- (2026-10-13, 用户提议: 动态绘图验证可行后地图页同样上画布,
+    --  对齐QT FormMap选中即出图; 视图下拉 map_view 排列/编号/密度)
+    local CANVAS_W, CANVAS_H = 294, 270
+
+    local function paint_canvas()
+        if not MAPDRAW then return end
+        local n = selected_name()
+        if not n then return end
+        local m = STORE and STORE.map_get(n)
+        if not m then return end
+        local v = r16 and r16(LW.MAP.view) or 0
+        MAPDRAW.render(MAPDRAW.cmds(m, nil, {
+            w = CANVAS_W, h = CANVAS_H,
+            view = (v == 1 and "num") or (v == 2 and "density")
+                   or "arrange",
+        }))
+    end
+
     local page = {
         id = LW.SCREEN.MAP,
         poll_cmds = {},
@@ -170,11 +192,16 @@ return function(ctx)
 
     function page:on_enter()
         refresh()
+        canvas_dirty = true
     end
 
     function page:on_leave() end
 
     function page:on_frame() end
+
+    function page:on_drawctrl(cid)
+        if cid == 1 then paint_canvas() end
+    end
 
     function page:on_update(addr, val)           -- 冒号定义(app.lua 冒号调用)
         on_btn(addr, val)
@@ -182,6 +209,10 @@ return function(ctx)
 
     page.on_tick = function()
         tick_n = tick_n + 1
+        if canvas_dirty then
+            canvas_dirty = false
+            if redraw then redraw() end
+        end
         if scan_deadline and tick_n > scan_deadline then
             scan_deadline = nil
             wstr(LW.MAP.detail, "扫描无响应(未插U盘?)")

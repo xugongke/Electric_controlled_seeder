@@ -406,6 +406,8 @@ LW.MAP = {
     btn_sel    = 0x1C72, -- 按钮 查看详情
     btn_del    = 0x1C73, -- 按钮 删除地图
     btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
+    view       = 0x1C78, -- u16 地图预览视图 0排列/1编号/2密度(下拉,
+                       --   2026-10-13画布预览用)
     ab_import  = 0x1C76, -- 按钮 AB线导入(RW缓存绑定本图)
     ab_clear   = 0x1C77, -- 按钮 AB线清除(解绑本图)
 }
@@ -4181,10 +4183,12 @@ LW: LW.MAP (0x1C00区); AB查看按钮=功能按钮(打开对话框画面22+通知LW.ABP.req=2)。
 return function(ctx)
     local APP, LW = ctx.APP, ctx.LW
     local STORE, JOBRUN, LOGGER, FILEIO = ctx.STORE, ctx.JOBRUN, ctx.LOGGER, ctx.FILEIO
+    local MAPDRAW = ctx.MAPDRAW             -- 地图画布预览(2026-10-13)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
 
     local LIST_ROWS = 6
     local W = { sel = 0, top = 0, items = {} }
+    local canvas_dirty = true               -- 画布置脏(选中/导入变化)
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -4222,6 +4226,7 @@ return function(ctx)
     end
 
     local function show_detail()
+        canvas_dirty = true                 -- 选中变化即重绘画布
         local n = selected_name()
         if not (n and STORE) then return end
         local m = STORE.map_get(n)
@@ -4328,6 +4333,25 @@ return function(ctx)
         end
     end
 
+    ---------------------------------------------------------------- 画布预览
+    -- (2026-10-13, 用户提议: 动态绘图验证可行后地图页同样上画布,
+    --  对齐QT FormMap选中即出图; 视图下拉 map_view 排列/编号/密度)
+    local CANVAS_W, CANVAS_H = 294, 270
+
+    local function paint_canvas()
+        if not MAPDRAW then return end
+        local n = selected_name()
+        if not n then return end
+        local m = STORE and STORE.map_get(n)
+        if not m then return end
+        local v = r16 and r16(LW.MAP.view) or 0
+        MAPDRAW.render(MAPDRAW.cmds(m, nil, {
+            w = CANVAS_W, h = CANVAS_H,
+            view = (v == 1 and "num") or (v == 2 and "density")
+                   or "arrange",
+        }))
+    end
+
     local page = {
         id = LW.SCREEN.MAP,
         poll_cmds = {},
@@ -4339,11 +4363,16 @@ return function(ctx)
 
     function page:on_enter()
         refresh()
+        canvas_dirty = true
     end
 
     function page:on_leave() end
 
     function page:on_frame() end
+
+    function page:on_drawctrl(cid)
+        if cid == 1 then paint_canvas() end
+    end
 
     function page:on_update(addr, val)           -- 冒号定义(app.lua 冒号调用)
         on_btn(addr, val)
@@ -4351,6 +4380,10 @@ return function(ctx)
 
     page.on_tick = function()
         tick_n = tick_n + 1
+        if canvas_dirty then
+            canvas_dirty = false
+            if redraw then redraw() end
+        end
         if scan_deadline and tick_n > scan_deadline then
             scan_deadline = nil
             wstr(LW.MAP.detail, "扫描无响应(未插U盘?)")
@@ -5179,6 +5212,9 @@ local function creator(ctx)
     page.addrs = { LW.A.drawtest_btn }
 
     local pattern = 0                    -- 0状态色网格 1线条圆 2文字
+    local dirty = true                  -- on_enter里redraw()时机过早无效
+                                       -- (切页回来空白, 2026-10-13实测),
+                                       -- 改由on_tick首拍补画
 
     local function rgb565(r, g, b)
         return ((r // 8) << 11) | ((g // 4) << 5) | (b // 8)
@@ -5250,7 +5286,14 @@ local function creator(ctx)
     end
 
     function page:on_enter()
-        if redraw then redraw() end
+        dirty = true
+    end
+
+    function page:on_tick()
+        if dirty then
+            dirty = false
+            if redraw then redraw() end
+        end
     end
 
     function page:on_update(addr, v)
@@ -5569,6 +5612,8 @@ return function(ctx)
 
     local LIST_ROWS = 6
     local W = { sel = 0, top = 0, items = {}, ver = -1 }
+    -- 前置声明: 画面25小节函数被画面9按钮处理器先行引用(定义在后)
+    local dlg_init, dlg_refresh
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -5699,6 +5744,7 @@ return function(ctx)
         id = LW.SCREEN.TASKMGR,
         poll_cmds = {},
         addrs = {
+            LW.TM.btn_new,
             LW.TM.btn_del, LW.TM.btn_imp, LW.TM.btn_exp, LW.TM.btn_reset,
             LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_sel, LW.TM.btn_start,
         },
@@ -5740,6 +5786,8 @@ return function(ctx)
             refresh(); render_detail(); mark_dirty()
         elseif addr == LW.TM.btn_sel then
             refresh(); render_detail(); mark_dirty()
+        elseif addr == LW.TM.btn_new then
+            dlg_init()                    -- 弹窗即将打开: 预填地图/默认名
         elseif addr == LW.TM.btn_del then
             local n = W.items[W.sel + 1]
             if not n then return end
@@ -5793,7 +5841,18 @@ return function(ctx)
     ---------------------------------------------------------------- 画面25 新建任务
     local D = { sel = 0, items = {} }
 
-    local function dlg_refresh()
+    dlg_init = function()
+        -- 弹窗打开路径: ButtonUsage=1弹窗不触发on_screen_change,
+        -- dlg.on_enter不可靠(2026-10-13用户实测地图数0), 由画面9侧
+        -- [新建任务]按钮执行通知(tm_btn_new)在此初始化弹窗数据
+        D.sel = 0
+        dlg_refresh()
+        local n = "任务"
+            .. tostring(#(STORE and STORE.task_list() or {}) + 1)
+        wstr(LW.NT.name, n)
+    end
+
+    dlg_refresh = function()
         D.items = STORE and STORE.map_list() or {}
         if D.sel >= #D.items then D.sel = math.max(0, #D.items - 1) end
         wstr(LW.NT.mapsel,
@@ -5811,11 +5870,7 @@ return function(ctx)
     }
 
     function dlg:on_enter()
-        D.sel = 0
-        dlg_refresh()
-        -- 默认名: 任务N(与原画面6口径一致, 用户可改)
-        local n = "任务" .. tostring(#(STORE and STORE.task_list() or {}) + 1)
-        wstr(LW.NT.name, n)
+        dlg_init()                       -- 弹窗若触发on_enter同样初始化
     end
 
     function dlg:on_update(addr, val)
@@ -6228,6 +6283,7 @@ local function setup()
         FILEIO = FILEIO, STORE = STORE, JOBRUN = JOBRUN,
         PARASTORE = PARASTORE,
         LOGGER = LOGGER, PATHALGO = PATHALGO, now = now_s,
+        MAPDRAW = MAPDRAW,               -- 地图绘制(画面9/24/1画布)
     }
     for _, name in ipairs(MODULES) do
         if name:sub(1, 5) == "page_" then

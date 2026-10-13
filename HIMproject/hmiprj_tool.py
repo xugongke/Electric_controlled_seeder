@@ -184,8 +184,15 @@ def build_basic_graph(xml, overrides=None):
     ov['Type'] = 'WidgetBasicGraph'
     if overrides:
         ov.update(overrides)
-    # 公共属性基底: 用画面6的"任务状态"Text控件opening tag(纯公共属性)
-    return clone_widget(xml, tmpl_loc(xml, 6, Text='任务状态'), ov)
+    # 公共属性基底: 任一Text控件opening tag(纯公共属性); 画面6已退役,
+    # 依次尝试画面9标题/画面3(2026-10-13)
+    for base in (tmpl_loc(xml, 9, Text='任务管理'),
+                 tmpl_loc(xml, 3, Text='任务状态'),
+                 tmpl_loc(xml, 0, DestScreen='1')):
+        span = find_widget_span(xml, base)
+        if span:
+            return clone_widget(xml, base, ov)
+    raise SystemExit('BasicGraph公共属性基底控件未找到')
 
 
 def cmd_spike26():

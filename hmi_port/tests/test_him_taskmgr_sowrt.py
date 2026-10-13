@@ -150,6 +150,25 @@ wstr(LW.NT.name, "t1")
           '开始任务跳画面24')
     check(bool(lua.eval('APPX.preset_sowrt_task == "t1"')), '预选任务名传递')
 
+    # 回归: 弹窗不触发on_enter, 靠[新建任务]执行通知初始化(2026-10-13实测地图数0)
+    lua.execute('''
+wstr(LW.NT.name, "")
+w16(LW.NT.count, 0)
+P9:on_update(LW.TM.btn_new, 1)
+''')
+    check(lua.eval('REG[LW.NT.count]') == 1, 'btn_new通知初始化: 地图数=1')
+    lua.globals().__EXP = '任务2'.encode('gbk').hex()
+    lua.execute('''
+__NAMEOK = (REG[LW.NT.name] == (function(h)
+    local s = ""
+    for i = 1, #h, 2 do
+        s = s .. string.char(tonumber(h:sub(i, i + 1), 16))
+    end
+    return s
+end)(__EXP))
+''')
+    check(bool(lua.eval('__NAMEOK')), 'btn_new通知初始化: 默认名任务2(Lua侧比较)')
+
     print('3) 实时播种页(画面24)')
     lua.execute('P24:on_enter()')
     check(lua.eval('REG[LW.RT.tname]') == 't1', '任务名显示')
