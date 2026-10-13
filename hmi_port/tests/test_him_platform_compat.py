@@ -122,6 +122,13 @@ def main():
         if not fn.endswith('.lua') or fn == 'main.lua':
             continue
         text = open(os.path.join(HIM, fn), encoding='gb18030', errors='replace').read()
+        # 先剔--[[ ]]块注释(mapdraw.lua头为块注释写法, 2026-10-13)
+        while True:
+            b = text.find('--[[')
+            if b < 0:
+                break
+            e = text.find('--]]', b)
+            text = text[:b] + (text[e + 4:] if e >= 0 else '')
         code = []
         for line in text.split('\n'):
             cut = line.find('--')                      # 剔除行注释再查

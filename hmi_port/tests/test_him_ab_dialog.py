@@ -91,7 +91,7 @@ def main():
         'w16': W['w16'], 'w32': W['w32'], 'wstr': W['wstr'],
         'now': None, 'rw16': W['rw16'], 'rw16w': W['rw16w'],
         'rstr': g.__RSTR, 'r16': W['r16'],
-        'parastore': None,
+        'parastore': None, 'mapdraw': None,
     })
     prot['io']['tx'] = W['tx']
     prot['on_frame'] = APP['feed_frame']

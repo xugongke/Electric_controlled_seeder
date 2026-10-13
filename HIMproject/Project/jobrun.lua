@@ -20,7 +20,7 @@ QT 瑕疵修正(有意为之, 与C++差异点):
 
 local jobrun = {}
 
-local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW
+local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW, MAPDRAW
 local w16, w32, wstr, NOW, rw16, rw16w, RSTR, r16
 local PSTORE                    -- parastore(启动参数链, 可缺省)
 
@@ -48,6 +48,7 @@ end
 function jobrun.init(deps)
     APP, PROTOCOL, CODEC = deps.APP, deps.PROTOCOL, deps.CODEC
     STORE, PATHALGO, LOGGER, LW = deps.STORE, deps.PATHALGO, deps.LOGGER, deps.LW
+    MAPDRAW = deps.mapdraw                -- 地图绘制纯函数(可缺省: 无则不更新农机定位)
     w16, w32, wstr, NOW = deps.w16, deps.w32, deps.wstr, deps.now
     rw16, rw16w = deps.rw16, deps.rw16w
     PSTORE = deps.parastore
@@ -88,6 +89,12 @@ function jobrun.init(deps)
 end
 
 function jobrun.active() return J ~= nil end
+
+-- 画布脏计数(2026-10-13 M2): 页面on_tick比对jobrun.draw_ver变化->redraw
+jobrun.draw_ver = 0
+function jobrun.bump_draw()
+    jobrun.draw_ver = jobrun.draw_ver + 1
+end
 
 function jobrun.snapshot()
     if not J then return nil end
@@ -379,6 +386,7 @@ function jobrun.start(task_name, opts)
         PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
         PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
         J.sow_state = true
+        jobrun.bump_draw()
     end
     if PSTORE then
         PSTORE.begin("SOW", { HJ = m.col_gap }, launch_tail)
@@ -423,6 +431,7 @@ function jobrun.stop()
     end
     J.sow_state = false
     log("INF", "作业停止 " .. J.task)
+    jobrun.bump_draw()
     jobrun.detach()
     J = nil
     return true
@@ -560,12 +569,54 @@ function jobrun._feed(f)
         end
     end
 
+    -- 实时播种页数据(2026-10-13 M2): 速度/当前漏种漏肥(无作业也刷新,
+    -- 与offlen/voff/runstate同口径; 4行机末2路恒0同模拟器)
+    if LW and LW.RT then
+        if w32 then w32(LW.RT.speed, st.Speed or 0) end
+        if w16 then
+            for i = 1, 6 do
+                w16(LW.RT.cur_zh + i - 1, st.LouZHCnt[i] or 0)
+                w16(LW.RT.cur_fe + i - 1, st.LoufeiCnt[i] or 0)
+            end
+        end
+    end
+
     if not J then return end
     if st.RowNum <= -10000000 then return end        -- 未开播哨兵(QT :399)
     if not J.sow_state then return end
 
     local t = STORE.tasks[J.task]
     local m = J.m
+    -- 农机排/列近似定位+轨迹累积(2026-10-13 M2, 仅显示用; QT :373-397):
+    --   行 = (OffLen + AB参考排累计起点)反查(过道=nil不画);
+    --   列 = 当前列组 + 垂直偏移/组宽(夹取), 显示近似不影响作业逻辑
+    if MAPDRAW and J.sow_state then
+        local offq = st.OffLen or 0
+        if J.ab and J.ab.has then
+            offq = offq + PATHALGO.fwd_start(m, J.ab.a_row or 0)
+        end
+        local mrow = MAPDRAW.row_at(m, offq)
+        local bw = math.max(1, (m.block_col or 1) * (m.col_gap or 1))
+        local mcol = J.cur_col + ((st.VerticalOff or 0) // bw)
+        if mcol < 0 then mcol = 0 end
+        if mcol >= m.cols then mcol = m.cols - 1 end
+        local nm = mrow and { row = mrow, col = mcol } or nil
+        local old = J.machine
+        if (old == nil) ~= (nm == nil)
+           or (old and nm and (old.row ~= nm.row or old.col ~= nm.col)) then
+            J.machine = nm
+            if nm then
+                local lastp = J.trail and J.trail[#J.trail]
+                if not (lastp and lastp.row == nm.row
+                        and lastp.col == nm.col) then
+                    J.trail = J.trail or {}
+                    J.trail[#J.trail + 1] = { row = nm.row, col = nm.col }
+                    if #J.trail > 64 then table.remove(J.trail, 1) end
+                end
+            end
+            jobrun.bump_draw()
+        end
+    end
     local rows = m.rows
     local b = (t.sow_exceed == 1)
     local bet = PATHALGO.block_each_trip(m)
@@ -606,7 +657,10 @@ function jobrun._feed(f)
                 send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
                 J.enter_map = true
             end
-            if sow_flag then STORE.task_mark_dispatched(J.task, pn.row, J.cur_col) end
+            if sow_flag then
+                STORE.task_mark_dispatched(J.task, pn.row, J.cur_col)
+                jobrun.bump_draw()
+            end
         -- QT :459-470: 刚走完 next_idx 排 → 记结果 + 推进
         elseif (function()
                     local blk = t.blocks[pn.row] and t.blocks[pn.row][J.cur_col]
@@ -626,7 +680,16 @@ function jobrun._feed(f)
                                     end_t = now_s(), seed = seed, fert = fert }
                 end
                 STORE.task_mark_row_done(J.task, pn.row, J.cur_col, ents, now_s())
+                -- 最近完成排漏种漏肥快照(2026-10-13 M2, QT showLastBlock:
+                -- 本排最终计数, 下次0x20下发后固件清零)
+                if LW and LW.RT and w16 then
+                    for i = 1, 6 do
+                        w16(LW.RT.last_zh + i - 1, st.LouZHCnt[i] or 0)
+                        w16(LW.RT.last_fe + i - 1, st.LoufeiCnt[i] or 0)
+                    end
+                end
             end
+            jobrun.bump_draw()
             -- 推进(QT :469 + B档修正: 同步 currentColumn; 跨趟挂起见 advance)
             advance()
         end
@@ -647,6 +710,7 @@ end
 function jobrun._complete()
     J.completed = true
     J.sow_state = false                            -- 停推进, 不再下发新节点
+    jobrun.bump_draw()
     if STORE then STORE.task_save(J.task) end
     log("INF", "作业完成(待手动停止) " .. J.task)
 end

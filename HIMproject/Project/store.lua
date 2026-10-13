@@ -222,6 +222,24 @@ function store.task_list()
     return t
 end
 
+-- 重置: 全部块状态清0+结果清空(QT formtask.cpp:164-181 重置语义)
+function store.task_reset(name)
+    local t = store.tasks[name]
+    if not t then return nil, "任务不存在" end
+    local m = store.maps[t.map]
+    for r = 0, (m and m.rows or 0) - 1 do
+        local row = t.blocks[r]
+        if row then
+            for c in pairs(row) do row[c].state = 0 end
+        end
+    end
+    t.last = { r = -1, c = -1 }
+    t.state = 0
+    store.results[name] = {}
+    F.remove(p_result(name))
+    return store.task_save(name)
+end
+
 function store.task_delete(name)
     store.tasks[name], store.results[name] = nil, nil
     F.remove(p_task(name))

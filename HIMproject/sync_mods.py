@@ -20,7 +20,7 @@ MAIN = os.path.join(PROJ, 'main.lua')
 
 MODULES = ['lwmap', 'protocol', 'codec', 'csv', 'fileio', 'store', 'app',
            'pathalgo', 'jobrun', 'logger', 'parastore', 'page_task',
-           'page_map', 'page_drawtest', 'page_userparam', 'page_manuparam', 'page_continuous',
+           'page_map', 'page_drawtest', 'mapdraw', 'page_userparam', 'page_manuparam', 'page_continuous',
            'page_testdiag', 'page_history', 'page_logview']
 
 # 防再犯(2026-09-30): main.lua加载列表的模块必须在上面清单里, 否则
