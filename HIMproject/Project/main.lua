@@ -508,7 +508,9 @@ LW.RT = {
     path_type = 0x1F00, -- u16 路线 0梭形..5(6态, 与画面6同口径)
     positive  = 0x1F01, -- u16 行进方向 0反向/1正向
     sow_exceed= 0x1F02, -- u16 地图外播种 0/1(有AB线才可开)
-    gapdot    = 0x1F03, -- u16 清种时打点 0关/1开/2间隔(三态, 同config)
+    gapdot    = 0x1F03, -- u16 清种时打点 0关/1开(bool, 0x29独立下发;
+                       --   2026-10-14与过道打点0x31分离, 后者走
+                       --   config三态 pu_gappoint)
     sp_enable = 0x1F04, -- u16 更改起点使能
     sp_row    = 0x1F05, -- u16 起始排(显示号1基)
     sp_col    = 0x1F06, -- u16 起始列(显示号1基)
@@ -603,6 +605,7 @@ PROTOCOL.FNC = {
     SET_AB           = 0x24,   -- 收 BDParaType, 回 ack
     SET_TER_PARA     = 0x25,   -- 收 TerParaType, 回 ack
     GET_TER_PARA     = 0x26,   -- 空域, 回 TerParaType
+    QZDD_ENABLE      = 0x29,   -- 清种时打点开关, 收1字节(0/1), 回 ack
     SET_USER_PARA    = 0x27,   -- 收 UserParaType, 回 ack
     GET_USER_PARA    = 0x28,   -- 空域, 回 UserParaType
     QZDD_ENABLE      = 0x29,   -- 收1字节(0/1), 回 ack
@@ -3406,6 +3409,8 @@ local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW, MAPDRAW
 local w16, w32, wstr, NOW, rw16, rw16w, RSTR, r16
 local PSTORE                    -- parastore(启动参数链, 可缺省)
 
+-- 路径缓存(跨启停, 对齐QT对话框级path成员; 屏重启后重建)
+local PCACHE = { task = nil, path_type = nil, path = nil }
 -- 作业现场(单个活动任务)
 local J = nil
 -- 停止流程挂起的AB采集请求 { map, a_row, dir } (声明在前供 init 闭包引用)
@@ -3671,20 +3676,34 @@ function jobrun.start(task_name, opts)
     local m = STORE.maps[t.map]
     if not m then return nil, "地图缺失" end
 
-    local path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
-    if not path then return nil, err end
+    -- 路径缓存(2026-10-14六修, 对齐QT :209/:811-897/:234): 路径仅在任务
+    -- 或路线类型变化时重建; 正反向开关不重建(仅随下次重建生效)——此前
+    -- 每次start重建, 中途改方向会让整条路径翻转, 续作走错(用户实测)
+    local path
+    if PCACHE.path and PCACHE.task == task_name
+       and PCACHE.path_type == t.path_type then
+        path = PCACHE.path
+    else
+        local err
+        path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
+        if not path then return nil, err end
+        PCACHE.task, PCACHE.path_type, PCACHE.path =
+            task_name, t.path_type, path
+    end
 
-    -- 断点续作: 找到第一个未完成组的节点作为起点
-    local start_idx = 1
-    if opts.resume then
-        local bet = PATHALGO.block_each_trip(m)
-        for i, pn in ipairs(path) do
-            local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-            if not blk or (blk.sow == 1 and blk.state ~= 2) then
-                start_idx = i
-                break
-            end
+    -- 续作扫描(恒走, 2026-10-14六修: 对齐QT nextPathIndex跨启停延续
+    -- :275/:306-307——此前仅opts.resume才扫, 画面24开始按钮不传resume,
+    -- 二次开始回卷path[1]重播首列, e2e实锺)
+    local start_idx = nil
+    for i, pn in ipairs(path) do
+        local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+            start_idx = i
+            break
         end
+    end
+    if not start_idx then
+        return nil, "任务已完成"                  -- QT :217 path走尽开始键无效
     end
 
     -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
@@ -3973,25 +3992,59 @@ function jobrun._feed(f)
 
     local t = STORE.tasks[J.task]
     local m = J.m
-    -- 农机排/列近似定位+轨迹累积(2026-10-13 M2, 仅显示用; QT :373-397):
-    --   行 = (OffLen + AB参考排累计起点)反查(过道=nil不画);
-    --   列 = 当前列组 + 垂直偏移/组宽(夹取), 显示近似不影响作业逻辑
+    -- 农机定位重做(2026-10-14七修, 对齐QT :345-397逐式移植; 仅显示用):
+    --   voff符号: 有AB线按路线左起0/1/2且AB同向取反/右起3/4/5且反向取反
+    --   行 = row_at_edge(OffLen+AB参考排起点): 过道nil隐藏, 图外-1/rows显示
+    --   列 = 有AB: 组宽偏差=(当前列-A点列)x组宽, 拖拉机偏移=偏差-voff
+    --        (左起)/-voff-偏差(右起), 列=当前列-/+偏移截断除组宽;
+    --        无AB: 当前列+voff/组宽
+    --   dir = path[next].positive(箭头朝向, QT图标180°旋转的等价)
     if MAPDRAW and J.sow_state then
+        local pt = t.path_type or 0
+        local voff = st.VerticalOff or 0
+        local has_ab = J.ab and J.ab.has
+        if has_ab then
+            if pt <= 2 then
+                if J.ab.dir then voff = -voff end
+            else
+                if not J.ab.dir then voff = -voff end
+            end
+        end
         local offq = st.OffLen or 0
-        if J.ab and J.ab.has then
+        if has_ab then
             offq = offq + PATHALGO.fwd_start(m, J.ab.a_row or 0)
         end
-        local mrow = MAPDRAW.row_at(m, offq)
+        local mrow = MAPDRAW.row_at_edge(m, offq)
         local bw = math.max(1, (m.block_col or 1) * (m.col_gap or 1))
-        local mcol = J.cur_col + ((st.VerticalOff or 0) // bw)
+        local mcol
+        if has_ab then
+            local dcol = (J.cur_col - (J.ab.a_col or 0)) * bw
+            local toff = (pt <= 2) and (dcol - voff) or (-voff - dcol)
+            local q = toff // bw
+            if toff < 0 and toff % bw ~= 0 then q = q + 1 end
+            mcol = (pt <= 2) and (J.cur_col - q) or (J.cur_col + q)
+        else
+            mcol = J.cur_col + (voff // bw)
+        end
         if mcol < 0 then mcol = 0 end
         if mcol >= m.cols then mcol = m.cols - 1 end
-        local nm = mrow and { row = mrow, col = mcol } or nil
+        local dir = false
+        local pn0 = J.path[J.next_idx]
+        if pn0 then dir = pn0.positive and true or false end
+        local nm = nil
+        if mrow then
+            local dr = mrow
+            if dr < 0 then dr = -1
+            elseif dr > m.rows - 1 then dr = m.rows end
+            nm = { row = dr, col = mcol, dir = dir }
+        end
         local old = J.machine
-        if (old == nil) ~= (nm == nil)
-           or (old and nm and (old.row ~= nm.row or old.col ~= nm.col)) then
+        local chg = (old == nil) ~= (nm == nil)
+            or (old and nm and (old.row ~= nm.row or old.col ~= nm.col
+                                or old.dir ~= nm.dir))
+        if chg then
             J.machine = nm
-            if nm then
+            if nm and nm.row >= 0 and nm.row < m.rows then
                 local lastp = J.trail and J.trail[#J.trail]
                 if not (lastp and lastp.row == nm.row
                         and lastp.col == nm.col) then
@@ -5547,6 +5600,25 @@ function mapdraw.row_at(m, off)
     return nil
 end
 
+-- 图外感知版(QT :374-382: 过道=-999999隐藏, 图外夹取-1/rows仍显示):
+-- off<0 -> -1(图前); 越过末排终点 -> rows(图后); 排间过道 -> nil
+function mapdraw.row_at_edge(m, off)
+    if not m or not m.rows or off == nil then return nil end
+    if off < 0 then return -1 end
+    local pos = 0
+    for r = 0, m.rows - 1 do
+        local rl = m.rowlen[r + 1] or 0
+        if off < pos + rl then return r end
+        pos = pos + rl
+        local gap = m.aisle[r + 2] or 0
+        if r < m.rows - 1 and off < pos + gap then
+            return nil                        -- 排间过道(隐藏)
+        end
+        pos = pos + gap
+    end
+    return m.rows                             -- 末排之后(图后夹取)
+end
+
 -------------------------------------------------------------------- 布局
 -- fit-scale: 均匀网格 + 排间过道带(AISLE_FRAC*ch, 至少4px), 排/列标签边距
 local AISLE_FRAC = 0.22                          -- 过道带比例(收窄,
@@ -5724,18 +5796,37 @@ function mapdraw.cmds(m, t, opts)
         end
     end
 
-    -- 农机标记(当前格中心实心方块, 过道时不下画)
-    if opts.machine and opts.machine.row and opts.machine.row >= 0
-        and opts.machine.row < g.rows and opts.machine.col
+    -- 农机箭头(2026-10-14替换方块: 方向可见; row=-1/rows为图外上下边缘,
+    -- QT :377-382夹取仍显示; dir=true行号增=箭头向下)
+    if opts.machine and opts.machine.row and opts.machine.row >= -1
+        and opts.machine.row <= g.rows and opts.machine.col
         and opts.machine.col >= 0 and opts.machine.col < g.cols then
-        local x0, y0, x1, y1 = cell_rect(g, opts.machine.row, opts.machine.col)
-        local cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-        local s = math.max(5, math.min(g.cw, g.ch) // 4)
-        out[#out + 1] = { op = 'rect', x0 = cx - s, y0 = cy - s,
-                          x1 = cx + s, y1 = cy + s, fill = 1,
-                          color = mapdraw.rgb565(mapdraw.COLORS.machine[1],
-                                                 mapdraw.COLORS.machine[2],
-                                                 mapdraw.COLORS.machine[3]) }
+        local mr = opts.machine.row
+        local cy
+        if mr < 0 then
+            cy = g.y0 + g.aisle // 2
+        elseif mr >= g.rows then
+            cy = g.y0 + g.rows * (g.ch + g.aisle) + g.aisle // 2
+        else
+            local _, y0, _, y1 = cell_rect(g, mr, 0)
+            cy = (y0 + y1) // 2
+        end
+        local cx = g.x0 + opts.machine.col * g.cw + g.cw // 2
+        local s = math.max(6, math.min(g.cw, g.ch + g.aisle) // 3)
+        local mc = mapdraw.rgb565(mapdraw.COLORS.machine[1],
+                                  mapdraw.COLORS.machine[2],
+                                  mapdraw.COLORS.machine[3])
+        local sg = opts.machine.dir and 1 or -1
+        local tipy = cy + sg * s
+        local basey = cy - sg * s
+        out[#out + 1] = { op = 'line', x0 = cx, y0 = basey,
+                          x1 = cx, y1 = tipy, w = 3, color = mc }
+        out[#out + 1] = { op = 'line', x0 = cx - s // 2,
+                          y0 = tipy - sg * (s // 2),
+                          x1 = cx, y1 = tipy, w = 3, color = mc }
+        out[#out + 1] = { op = 'line', x0 = cx + s // 2,
+                          y0 = tipy - sg * (s // 2),
+                          x1 = cx, y1 = tipy, w = 3, color = mc }
     end
 
     return out, g
@@ -6152,7 +6243,7 @@ return function(ctx)
     local PROTOCOL = ctx.PROTOCOL
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
 
-    local W = { task = nil, ver = -1 }
+    local W = { task = nil, ver = -1, qzdd = -1 }
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -6172,11 +6263,8 @@ return function(ctx)
         local m = task_map(t)
         local has_ab = m and m.ab and m.ab.has
         w16(LW.RT.sow_exceed, (t.sow_exceed == 1 and has_ab) and 1 or 0)
-        local gp = 0
-        if ctx.PARASTORE and ctx.PARASTORE.load_gap then
-            gp = ctx.PARASTORE.load_gap() or 0
-        end
-        w16(LW.RT.gapdot, (gp == 1 or gp == 2) and gp or 0)
+        -- 清种时打点(bool, 会话内保持; 不再装载过道打点config 2026-10-14)
+        w16(LW.RT.gapdot, W.qzdd == 1 and 1 or 0)
         w16(LW.RT.sp_enable, 0)
         local m2 = task_map(t)
         if m2 and t.outset then
@@ -6285,6 +6373,13 @@ return function(ctx)
     end
 
     function page:on_tick()
+        -- 清种时打点开关变更即下发(0x29, bool; QT为checkbox+[设置]按钮,
+        -- 屏端无按钮通知故tick轮询变更)
+        local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
+        if qz ~= W.qzdd then
+            W.qzdd = qz
+            PROTOCOL.send(PROTOCOL.FNC.QZDD_ENABLE, string.char(qz))
+        end
         if not W.task then return end
         local d, tot, pct = STORE.task_progress(W.task)
         w16(LW.RT.pct, pct or 0)
@@ -6321,8 +6416,14 @@ return function(ctx)
                 return
             end
             if not harvest(false) then return end
-            local gp = r16(LW.RT.gapdot) or 0
-            local ok, err = JOBRUN.start(W.task, { gap = gp })
+            -- 清种时打点(0x29): 独立命令随开始一并重发(对齐QT
+            -- :499-501 setDotWhenClearSeed为bool独立下发; 过道打点
+            -- 0x31回归config三态, 不再混用gapdot 2026-10-14)
+            local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
+            PROTOCOL.send(PROTOCOL.FNC.QZDD_ENABLE,
+                          string.char(qz))
+            W.qzdd = qz
+            local ok, err = JOBRUN.start(W.task)
             log(ok and "INF" or "ERR",
                 ok and ("作业启动 " .. W.task)
                    or ("启动失败: " .. tostring(err)))

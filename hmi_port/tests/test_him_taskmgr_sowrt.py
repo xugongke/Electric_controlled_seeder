@@ -72,7 +72,8 @@ APPX = { pages = {}, goto_sid = nil,
 
 CTX = { LW = LW, APP = APPX, STORE = STR, JOBRUN = JR, MAPDRAW = MD,
         LOGGER = nil, FILEIO = FIO, PROTOCOL = {
-            FNC = { GET_BZ_STATUS = 0x21, CMD_START_BZ = 0x0A },
+            FNC = { GET_BZ_STATUS = 0x21, CMD_START_BZ = 0x0A,
+                QZDD_ENABLE = 0x29, GDDD_ENABLE = 0x31 },
             sent = {},
             send = function(fnc, p)
                 table.insert(PROTO.sent, { fnc = fnc, p = p })
@@ -185,7 +186,7 @@ P24:on_update(LW.RT.btn_start, 1)
 ''')
     st = lua.eval('JR.started')
     check(st is not None and st['name'] == 't1', 'jobrun.start(t1)被调')
-    check(st is not None and st['opts']['gap'] == 2, 'gap=2直读传递')
+
     check(lua.eval('STR.tasks["t1"].path_type') == 1
           and lua.eval('STR.tasks["t1"].positive') == 1,
           '任务参数已收(path=1/正向)')

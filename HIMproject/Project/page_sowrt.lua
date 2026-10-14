@@ -25,7 +25,7 @@ return function(ctx)
     local PROTOCOL = ctx.PROTOCOL
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
 
-    local W = { task = nil, ver = -1 }
+    local W = { task = nil, ver = -1, qzdd = -1 }
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -45,11 +45,8 @@ return function(ctx)
         local m = task_map(t)
         local has_ab = m and m.ab and m.ab.has
         w16(LW.RT.sow_exceed, (t.sow_exceed == 1 and has_ab) and 1 or 0)
-        local gp = 0
-        if ctx.PARASTORE and ctx.PARASTORE.load_gap then
-            gp = ctx.PARASTORE.load_gap() or 0
-        end
-        w16(LW.RT.gapdot, (gp == 1 or gp == 2) and gp or 0)
+        -- 清种时打点(bool, 会话内保持; 不再装载过道打点config 2026-10-14)
+        w16(LW.RT.gapdot, W.qzdd == 1 and 1 or 0)
         w16(LW.RT.sp_enable, 0)
         local m2 = task_map(t)
         if m2 and t.outset then
@@ -158,6 +155,13 @@ return function(ctx)
     end
 
     function page:on_tick()
+        -- 清种时打点开关变更即下发(0x29, bool; QT为checkbox+[设置]按钮,
+        -- 屏端无按钮通知故tick轮询变更)
+        local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
+        if qz ~= W.qzdd then
+            W.qzdd = qz
+            PROTOCOL.send(PROTOCOL.FNC.QZDD_ENABLE, string.char(qz))
+        end
         if not W.task then return end
         local d, tot, pct = STORE.task_progress(W.task)
         w16(LW.RT.pct, pct or 0)
@@ -194,8 +198,14 @@ return function(ctx)
                 return
             end
             if not harvest(false) then return end
-            local gp = r16(LW.RT.gapdot) or 0
-            local ok, err = JOBRUN.start(W.task, { gap = gp })
+            -- 清种时打点(0x29): 独立命令随开始一并重发(对齐QT
+            -- :499-501 setDotWhenClearSeed为bool独立下发; 过道打点
+            -- 0x31回归config三态, 不再混用gapdot 2026-10-14)
+            local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
+            PROTOCOL.send(PROTOCOL.FNC.QZDD_ENABLE,
+                          string.char(qz))
+            W.qzdd = qz
+            local ok, err = JOBRUN.start(W.task)
             log(ok and "INF" or "ERR",
                 ok and ("作业启动 " .. W.task)
                    or ("启动失败: " .. tostring(err)))

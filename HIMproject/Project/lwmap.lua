@@ -371,7 +371,9 @@ LW.RT = {
     path_type = 0x1F00, -- u16 路线 0梭形..5(6态, 与画面6同口径)
     positive  = 0x1F01, -- u16 行进方向 0反向/1正向
     sow_exceed= 0x1F02, -- u16 地图外播种 0/1(有AB线才可开)
-    gapdot    = 0x1F03, -- u16 清种时打点 0关/1开/2间隔(三态, 同config)
+    gapdot    = 0x1F03, -- u16 清种时打点 0关/1开(bool, 0x29独立下发;
+                       --   2026-10-14与过道打点0x31分离, 后者走
+                       --   config三态 pu_gappoint)
     sp_enable = 0x1F04, -- u16 更改起点使能
     sp_row    = 0x1F05, -- u16 起始排(显示号1基)
     sp_col    = 0x1F06, -- u16 起始列(显示号1基)

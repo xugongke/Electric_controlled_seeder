@@ -24,6 +24,8 @@ local APP, PROTOCOL, CODEC, STORE, PATHALGO, LOGGER, LW, MAPDRAW
 local w16, w32, wstr, NOW, rw16, rw16w, RSTR, r16
 local PSTORE                    -- parastore(启动参数链, 可缺省)
 
+-- 路径缓存(跨启停, 对齐QT对话框级path成员; 屏重启后重建)
+local PCACHE = { task = nil, path_type = nil, path = nil }
 -- 作业现场(单个活动任务)
 local J = nil
 -- 停止流程挂起的AB采集请求 { map, a_row, dir } (声明在前供 init 闭包引用)
@@ -289,20 +291,34 @@ function jobrun.start(task_name, opts)
     local m = STORE.maps[t.map]
     if not m then return nil, "地图缺失" end
 
-    local path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
-    if not path then return nil, err end
+    -- 路径缓存(2026-10-14六修, 对齐QT :209/:811-897/:234): 路径仅在任务
+    -- 或路线类型变化时重建; 正反向开关不重建(仅随下次重建生效)——此前
+    -- 每次start重建, 中途改方向会让整条路径翻转, 续作走错(用户实测)
+    local path
+    if PCACHE.path and PCACHE.task == task_name
+       and PCACHE.path_type == t.path_type then
+        path = PCACHE.path
+    else
+        local err
+        path, err = PATHALGO.create_path(m, t.path_type, t.positive == 1)
+        if not path then return nil, err end
+        PCACHE.task, PCACHE.path_type, PCACHE.path =
+            task_name, t.path_type, path
+    end
 
-    -- 断点续作: 找到第一个未完成组的节点作为起点
-    local start_idx = 1
-    if opts.resume then
-        local bet = PATHALGO.block_each_trip(m)
-        for i, pn in ipairs(path) do
-            local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-            if not blk or (blk.sow == 1 and blk.state ~= 2) then
-                start_idx = i
-                break
-            end
+    -- 续作扫描(恒走, 2026-10-14六修: 对齐QT nextPathIndex跨启停延续
+    -- :275/:306-307——此前仅opts.resume才扫, 画面24开始按钮不传resume,
+    -- 二次开始回卷path[1]重播首列, e2e实锺)
+    local start_idx = nil
+    for i, pn in ipairs(path) do
+        local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+            start_idx = i
+            break
         end
+    end
+    if not start_idx then
+        return nil, "任务已完成"                  -- QT :217 path走尽开始键无效
     end
 
     -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
@@ -591,25 +607,59 @@ function jobrun._feed(f)
 
     local t = STORE.tasks[J.task]
     local m = J.m
-    -- 农机排/列近似定位+轨迹累积(2026-10-13 M2, 仅显示用; QT :373-397):
-    --   行 = (OffLen + AB参考排累计起点)反查(过道=nil不画);
-    --   列 = 当前列组 + 垂直偏移/组宽(夹取), 显示近似不影响作业逻辑
+    -- 农机定位重做(2026-10-14七修, 对齐QT :345-397逐式移植; 仅显示用):
+    --   voff符号: 有AB线按路线左起0/1/2且AB同向取反/右起3/4/5且反向取反
+    --   行 = row_at_edge(OffLen+AB参考排起点): 过道nil隐藏, 图外-1/rows显示
+    --   列 = 有AB: 组宽偏差=(当前列-A点列)x组宽, 拖拉机偏移=偏差-voff
+    --        (左起)/-voff-偏差(右起), 列=当前列-/+偏移截断除组宽;
+    --        无AB: 当前列+voff/组宽
+    --   dir = path[next].positive(箭头朝向, QT图标180°旋转的等价)
     if MAPDRAW and J.sow_state then
+        local pt = t.path_type or 0
+        local voff = st.VerticalOff or 0
+        local has_ab = J.ab and J.ab.has
+        if has_ab then
+            if pt <= 2 then
+                if J.ab.dir then voff = -voff end
+            else
+                if not J.ab.dir then voff = -voff end
+            end
+        end
         local offq = st.OffLen or 0
-        if J.ab and J.ab.has then
+        if has_ab then
             offq = offq + PATHALGO.fwd_start(m, J.ab.a_row or 0)
         end
-        local mrow = MAPDRAW.row_at(m, offq)
+        local mrow = MAPDRAW.row_at_edge(m, offq)
         local bw = math.max(1, (m.block_col or 1) * (m.col_gap or 1))
-        local mcol = J.cur_col + ((st.VerticalOff or 0) // bw)
+        local mcol
+        if has_ab then
+            local dcol = (J.cur_col - (J.ab.a_col or 0)) * bw
+            local toff = (pt <= 2) and (dcol - voff) or (-voff - dcol)
+            local q = toff // bw
+            if toff < 0 and toff % bw ~= 0 then q = q + 1 end
+            mcol = (pt <= 2) and (J.cur_col - q) or (J.cur_col + q)
+        else
+            mcol = J.cur_col + (voff // bw)
+        end
         if mcol < 0 then mcol = 0 end
         if mcol >= m.cols then mcol = m.cols - 1 end
-        local nm = mrow and { row = mrow, col = mcol } or nil
+        local dir = false
+        local pn0 = J.path[J.next_idx]
+        if pn0 then dir = pn0.positive and true or false end
+        local nm = nil
+        if mrow then
+            local dr = mrow
+            if dr < 0 then dr = -1
+            elseif dr > m.rows - 1 then dr = m.rows end
+            nm = { row = dr, col = mcol, dir = dir }
+        end
         local old = J.machine
-        if (old == nil) ~= (nm == nil)
-           or (old and nm and (old.row ~= nm.row or old.col ~= nm.col)) then
+        local chg = (old == nil) ~= (nm == nil)
+            or (old and nm and (old.row ~= nm.row or old.col ~= nm.col
+                                or old.dir ~= nm.dir))
+        if chg then
             J.machine = nm
-            if nm then
+            if nm and nm.row >= 0 and nm.row < m.rows then
                 local lastp = J.trail and J.trail[#J.trail]
                 if not (lastp and lastp.row == nm.row
                         and lastp.col == nm.col) then

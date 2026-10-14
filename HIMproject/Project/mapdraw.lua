@@ -55,6 +55,25 @@ function mapdraw.row_at(m, off)
     return nil
 end
 
+-- 图外感知版(QT :374-382: 过道=-999999隐藏, 图外夹取-1/rows仍显示):
+-- off<0 -> -1(图前); 越过末排终点 -> rows(图后); 排间过道 -> nil
+function mapdraw.row_at_edge(m, off)
+    if not m or not m.rows or off == nil then return nil end
+    if off < 0 then return -1 end
+    local pos = 0
+    for r = 0, m.rows - 1 do
+        local rl = m.rowlen[r + 1] or 0
+        if off < pos + rl then return r end
+        pos = pos + rl
+        local gap = m.aisle[r + 2] or 0
+        if r < m.rows - 1 and off < pos + gap then
+            return nil                        -- 排间过道(隐藏)
+        end
+        pos = pos + gap
+    end
+    return m.rows                             -- 末排之后(图后夹取)
+end
+
 -------------------------------------------------------------------- 布局
 -- fit-scale: 均匀网格 + 排间过道带(AISLE_FRAC*ch, 至少4px), 排/列标签边距
 local AISLE_FRAC = 0.22                          -- 过道带比例(收窄,
@@ -232,18 +251,37 @@ function mapdraw.cmds(m, t, opts)
         end
     end
 
-    -- 农机标记(当前格中心实心方块, 过道时不下画)
-    if opts.machine and opts.machine.row and opts.machine.row >= 0
-        and opts.machine.row < g.rows and opts.machine.col
+    -- 农机箭头(2026-10-14替换方块: 方向可见; row=-1/rows为图外上下边缘,
+    -- QT :377-382夹取仍显示; dir=true行号增=箭头向下)
+    if opts.machine and opts.machine.row and opts.machine.row >= -1
+        and opts.machine.row <= g.rows and opts.machine.col
         and opts.machine.col >= 0 and opts.machine.col < g.cols then
-        local x0, y0, x1, y1 = cell_rect(g, opts.machine.row, opts.machine.col)
-        local cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-        local s = math.max(5, math.min(g.cw, g.ch) // 4)
-        out[#out + 1] = { op = 'rect', x0 = cx - s, y0 = cy - s,
-                          x1 = cx + s, y1 = cy + s, fill = 1,
-                          color = mapdraw.rgb565(mapdraw.COLORS.machine[1],
-                                                 mapdraw.COLORS.machine[2],
-                                                 mapdraw.COLORS.machine[3]) }
+        local mr = opts.machine.row
+        local cy
+        if mr < 0 then
+            cy = g.y0 + g.aisle // 2
+        elseif mr >= g.rows then
+            cy = g.y0 + g.rows * (g.ch + g.aisle) + g.aisle // 2
+        else
+            local _, y0, _, y1 = cell_rect(g, mr, 0)
+            cy = (y0 + y1) // 2
+        end
+        local cx = g.x0 + opts.machine.col * g.cw + g.cw // 2
+        local s = math.max(6, math.min(g.cw, g.ch + g.aisle) // 3)
+        local mc = mapdraw.rgb565(mapdraw.COLORS.machine[1],
+                                  mapdraw.COLORS.machine[2],
+                                  mapdraw.COLORS.machine[3])
+        local sg = opts.machine.dir and 1 or -1
+        local tipy = cy + sg * s
+        local basey = cy - sg * s
+        out[#out + 1] = { op = 'line', x0 = cx, y0 = basey,
+                          x1 = cx, y1 = tipy, w = 3, color = mc }
+        out[#out + 1] = { op = 'line', x0 = cx - s // 2,
+                          y0 = tipy - sg * (s // 2),
+                          x1 = cx, y1 = tipy, w = 3, color = mc }
+        out[#out + 1] = { op = 'line', x0 = cx + s // 2,
+                          y0 = tipy - sg * (s // 2),
+                          x1 = cx, y1 = tipy, w = 3, color = mc }
     end
 
     return out, g

@@ -56,6 +56,7 @@ PROTOCOL.FNC = {
     SET_AB           = 0x24,   -- 收 BDParaType, 回 ack
     SET_TER_PARA     = 0x25,   -- 收 TerParaType, 回 ack
     GET_TER_PARA     = 0x26,   -- 空域, 回 TerParaType
+    QZDD_ENABLE      = 0x29,   -- 清种时打点开关, 收1字节(0/1), 回 ack
     SET_USER_PARA    = 0x27,   -- 收 UserParaType, 回 ack
     GET_USER_PARA    = 0x28,   -- 空域, 回 UserParaType
     QZDD_ENABLE      = 0x29,   -- 收1字节(0/1), 回 ack

@@ -80,6 +80,12 @@ __G = MD.layout(__M, 530, 380)
     check(lua.eval('MD.row_at(__M, 2900)') is None, 'off=2900 越界nil')
     check(lua.eval('MD.row_at(__M, -1)') is None, '负偏移nil')
 
+    print('3b) row_at_edge 图外感知')
+    check(lua.eval('MD.row_at_edge(__M, -50)') == -1, '图前off=-50 -> -1')
+    check(lua.eval('MD.row_at_edge(__M, 500)') is None, '过道off=500 -> nil')
+    check(lua.eval('MD.row_at_edge(__M, 2900)') == 5, '图后off=2900 -> rows=5')
+    check(lua.eval('MD.row_at_edge(__M, 100)') == 0, '排内off=100 -> 0')
+
     print('4) cmds 状态色与结构')
     lua.execute('''
 __T = { name = "t1", map = "t", path_type = 0, positive = 0,
@@ -201,13 +207,12 @@ __C2 = MD.cmds(__M, __T, { w = 530, h = 380, view = "arrange",
 __MCNT, __ACNT = 0, 0
 for i = 1, #__C2 do
     local c = __C2[i]
-    if c.op == "rect" and c.fill == 1
-       and c.color == MD.rgb565(255,0,0) then __MCNT = __MCNT + 1 end
+    if c.op == "line" and c.color == MD.rgb565(255,0,0) then __MCNT = __MCNT + 1 end
     if c.op == "arect" then __ACNT = __ACNT + 1 end
 end
 ''')
     check(bool(lua.eval('__OS')), '起点标记(黄色空心框)')
-    check(lua.eval('__MCNT') == 1, '农机标记1个红色实心块')
+    check(lua.eval('__MCNT') == 3, '农机箭头3笔红色线段(杆+双翼, 替换方块)')
     check(lua.eval('__ACNT') == 2, '轨迹2格半透明叠加')
 
     print('7) 小格子降级')
