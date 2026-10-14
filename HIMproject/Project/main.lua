@@ -56,17 +56,20 @@ local function r16(addr)
     if get_uint16 then return get_uint16(VT_LW, addr) end
 end
 local function rstr(addr, len)                   -- 读字符串变量(2026-10-14
-    len = len or 32                              --   三修: 启发式兼容两种
-    local t = {}                                 --   LW字串布局——1字/词
-    for i = 0, len - 1 do                        --   (set_string实测口径)与
-        local v = get_uint16                     --   双字节打包; v<=255按单
-                      and get_uint16(VT_LW, addr + i) -- 字节, 否则小端双字节
+    -- 五修·布局实测: 用户dump "C8CE CEF1 3100"="任务1" -> 每LW字打包
+    -- 2字节且高字节在前(首字符在hi); 半字NUL即终止
+    len = len or 32
+    local t = {}
+    for i = 0, len - 1 do
+        local v = get_uint16
+                      and get_uint16(VT_LW, addr + i)
         if not v or v == 0 then break end
-        if v <= 255 then
-            t[#t + 1] = string.char(v)
-        else
-            t[#t + 1] = string.pack("<H", v & 0xFFFF)
-        end
+        local hi = (v >> 8) & 0xFF
+        local lo = v & 0xFF
+        if hi == 0 then break end
+        t[#t + 1] = string.char(hi)
+        if lo == 0 then break end
+        t[#t + 1] = string.char(lo)
     end
     return table.concat(t)
 end
@@ -6485,6 +6488,8 @@ local function setup()
     local ctx = {
         APP = APP, PROTOCOL = PROTOCOL, CODEC = CODEC, LW = LWMAP,
         w16 = w16, w32 = w32, wstr = wstr, r16 = r16, r32 = r32,
+        rstr = rstr,   -- 2026-10-14五修: 漏配致页面rstr=nil, 任务名恒空
+                       --   (PC测试harness自带rstr桩遮蔽了此漏)
         rw16 = rw16, rw16w = rw16w,
         FILEIO = FILEIO, STORE = STORE, JOBRUN = JOBRUN,
         PARASTORE = PARASTORE,

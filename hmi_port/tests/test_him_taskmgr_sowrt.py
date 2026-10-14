@@ -268,6 +268,55 @@ P9:on_update(LW.TM.btn_del, 1)
 ''')
     check(lua.eval('REG[LW.TM.count]') == 1, '删除后剩1个任务(t2)')
 
+    print('6) rstr真实布局回归(2026-10-14用户dump实证)')
+    # 源码级断言: 页面ctx必须含rstr(五修漏配曾被PC桩遮蔽)
+    msrc = open(os.path.join(HIM, 'main.lua'), 'rb').read().decode('gb18030')
+    ci = msrc.find('local ctx = {')
+    check('rstr = rstr' in msrc[ci:ci + 500], 'main.lua页面ctx含rstr注入')
+    # 从main.lua提取rstr函数体, 在lupa里以真实布局执行
+    CRLF = chr(13) + chr(10)
+    i = msrc.find('local function rstr')
+    j = msrc.find(CRLF + 'end' + CRLF, i) + len(CRLF + 'end' + CRLF)
+    fn_src = msrc[i:j] + CRLF + 'return rstr'
+    lua.globals().__FN = fn_src
+    lua.execute('''
+__RSTR = (loadstring or load)(__FN)()
+-- 用户dump: C8CE CEF1 3100 0000... = "任务1"(每字2字节高在前, 半字NUL止)
+__WORDS = { 0xC8CE, 0xCEF1, 0x3100, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000 }
+__WI = 0
+function __g16(vt, a)
+    __WI = __WI + 1
+    return __WORDS[__WI]
+end
+VT_LW = 1
+__ENV_RSTR = (function()
+    local get_uint16 = __g16
+    local f = (loadstring or load)((__FN):gsub('return rstr', ''))
+    return nil
+end)()
+''')
+    # get_uint16是全局名: 直接注入全局再重载
+    lua.execute('''
+get_uint16 = __g16
+__RSTR = (loadstring or load)(__FN)()
+function try_words(ws, len)
+    __WORDS = ws
+    __WI = 0
+    return __RSTR(0x1000, len or 16)
+end
+__GBK = try_words({ 0xC8CE, 0xCEF1, 0x3100, 0 }, 16)
+__ASCII = try_words({ 0x6162, 0x6300 }, 16)
+__EMPTY = try_words({ 0x0000 }, 16)
+__HEXG = (__GBK:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+''')
+    hexg = str(lua.eval('(__HEXG)'))
+    check(hexg == 'c8cecef131', 'dump字列解码=任务1(%s)' % hexg)
+    check(lua.eval('__ASCII') == b'abc'.decode('latin1')
+          or bytes(bytearray([ord(c) & 0xFF for c in str(lua.eval('__ASCII'))])) == b'abc',
+          'ASCII布局解码abc')
+    check(lua.eval('#__EMPTY') == 0, '空串')
+
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))
