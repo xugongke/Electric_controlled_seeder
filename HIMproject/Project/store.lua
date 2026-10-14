@@ -20,6 +20,13 @@ store.results = {}      -- [name] = { {r,c,state,start_t,end_t,seed={},fert={}} 
 store.cfg     = { fine_tune = {} }   -- {{origin,specified,enabled}}
 
 local F, C, PREFIX = nil, nil, "3:"
+local PENDING = {}   -- [任务名]={结果行...}; 停止时统一落盘
+                    -- (2026-10-15: 逐排写3:太频繁, 用户要求改)
+local function pend_add(name, line)
+    local pd = PENDING[name]
+    if not pd then pd = {}; PENDING[name] = pd end
+    pd[#pd + 1] = line
+end
 
 -------------------------------------------------------------------- 文件名ASCII化
 -- 真机实测(2026-09): 屏端文件系统对含中文(GB2312多字节)的文件名 open 直接失败,
@@ -236,6 +243,7 @@ function store.task_reset(name)
     t.last = { r = -1, c = -1 }
     t.state = 0
     store.results[name] = {}
+    PENDING[name] = nil
     F.remove(p_result(name))
     return store.task_save(name)
 end
@@ -274,10 +282,11 @@ function store.task_mark_dispatched(name, r, c0)
     if not t or not t.blocks[r] then return nil, "块不存在" end
     local m = store.maps[t.map]
     local n = m and grp(m, c0) or 1
+    -- 2026-10-15: state=1为过渡态不再逐次落盘(停止时flush统一写)
     for c = c0, c0 + n - 1 do
         if t.blocks[r][c] then t.blocks[r][c].state = 1 end
     end
-    return store.task_save(name)
+    return true
 end
 
 -- 排完成: 组内置2 + 追加结果行 + 更新断点 + 整任务落盘(排级频度)
@@ -296,13 +305,32 @@ function store.task_mark_row_done(name, r, c0, entries, now)
             lines[#lines + 1] = C.render_result_line(e) .. "\r\n"
         end
     end
-    if #lines > 0 then
-        local ok, err = F.append(p_result(name), table.concat(lines))
-        if not ok then return nil, "结果落盘失败: " .. tostring(err) end
-    end
+    -- 2026-10-15: 结果行暂存PENDING, 任务与结果均停止时统一落盘
+    for _, ln in ipairs(lines) do pend_add(name, ln) end
     t.last = { r = r, c = c0 + n - 1 }
     if now then t.last_work_time = now end
+    return true
+end
+
+-- 停止时统一落盘: 暂存结果行追加3:结果文件 + 任务定义落盘
+function store.task_flush(name)
+    local pd = PENDING[name]
+    if pd and #pd > 0 then
+        local ok, err = F.append(p_result(name),
+                                 table.concat(pd) .. "\r\n")
+        if not ok then return nil, "结果落盘失败: " .. tostring(err) end
+    end
+    PENDING[name] = nil
     return store.task_save(name)
+end
+
+-- 导出清档(2026-10-15用户要求): 结果已并入U盘task文件后, 清3:结果
+-- 文件与内存结果, 下次导出只含新完成的部分
+function store.task_export_clear(name)
+    PENDING[name] = nil
+    store.results[name] = {}
+    F.remove(p_result(name))
+    return true
 end
 
 function store.task_set_last(name, r, c, now)

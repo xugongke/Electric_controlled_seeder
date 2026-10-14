@@ -451,6 +451,11 @@ function jobrun.stop()
     end
     J.sow_state = false
     if LW and LW.RT and w16 then w16(LW.RT.running, 0) end
+    -- 停止时统一落盘(2026-10-15: 暂存结果+任务定义一次写入3:)
+    if STORE.task_flush then
+        local okf, errf = STORE.task_flush(J.task)
+        if not okf then log("ERR", "落盘失败: " .. tostring(errf)) end
+    end
     log("INF", "作业停止 " .. J.task)
     jobrun.bump_draw()
     jobrun.detach()

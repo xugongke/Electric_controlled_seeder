@@ -42,9 +42,9 @@ return function(ctx)
         if not t then return end
         w16(LW.RT.path_type, t.path_type or 0)
         w16(LW.RT.positive, t.positive or 0)
-        local m = task_map(t)
-        local has_ab = m and m.ab and m.ab.has
-        w16(LW.RT.sow_exceed, (t.sow_exceed == 1 and has_ab) and 1 or 0)
+        -- 图外播种恒默认关(2026-10-15用户要求: 此前还原任务存值,
+        -- 上次开过则本次进来是1; QT每次开窗checkbox默认不勾)
+        w16(LW.RT.sow_exceed, 0)
         -- 清种时打点(bool, 会话内保持; 不再装载过道打点config 2026-10-14)
         w16(LW.RT.gapdot, W.qzdd == 1 and 1 or 0)
         w16(LW.RT.sp_enable, 0)
@@ -224,8 +224,12 @@ return function(ctx)
                     .. (STORE.slug and STORE.slug(W.task) or W.task) .. ".csv"
                 local ok = FILEIO.write_all("2:" .. fname,
                                              STORE.export_task_text(W.task))
+                if ok and STORE.task_flush then STORE.task_flush(W.task) end
+                if ok and STORE.task_export_clear then
+                    STORE.task_export_clear(W.task)  -- 3:结果清档(已并入U盘task)
+                end
                 log(ok and "INF" or "ERR",
-                    ok and ("导出结果 " .. W.task .. " -> " .. fname)
+                    ok and ("导出任务 " .. W.task .. " -> " .. fname .. "(3:结果已清)")
                        or "导出失败")
             end
         end

@@ -2594,6 +2594,13 @@ store.results = {}      -- [name] = { {r,c,state,start_t,end_t,seed={},fert={}} 
 store.cfg     = { fine_tune = {} }   -- {{origin,specified,enabled}}
 
 local F, C, PREFIX = nil, nil, "3:"
+local PENDING = {}   -- [任务名]={结果行...}; 停止时统一落盘
+                    -- (2026-10-15: 逐排写3:太频繁, 用户要求改)
+local function pend_add(name, line)
+    local pd = PENDING[name]
+    if not pd then pd = {}; PENDING[name] = pd end
+    pd[#pd + 1] = line
+end
 
 -------------------------------------------------------------------- 文件名ASCII化
 -- 真机实测(2026-09): 屏端文件系统对含中文(GB2312多字节)的文件名 open 直接失败,
@@ -2810,6 +2817,7 @@ function store.task_reset(name)
     t.last = { r = -1, c = -1 }
     t.state = 0
     store.results[name] = {}
+    PENDING[name] = nil
     F.remove(p_result(name))
     return store.task_save(name)
 end
@@ -2848,10 +2856,11 @@ function store.task_mark_dispatched(name, r, c0)
     if not t or not t.blocks[r] then return nil, "块不存在" end
     local m = store.maps[t.map]
     local n = m and grp(m, c0) or 1
+    -- 2026-10-15: state=1为过渡态不再逐次落盘(停止时flush统一写)
     for c = c0, c0 + n - 1 do
         if t.blocks[r][c] then t.blocks[r][c].state = 1 end
     end
-    return store.task_save(name)
+    return true
 end
 
 -- 排完成: 组内置2 + 追加结果行 + 更新断点 + 整任务落盘(排级频度)
@@ -2870,13 +2879,32 @@ function store.task_mark_row_done(name, r, c0, entries, now)
             lines[#lines + 1] = C.render_result_line(e) .. "\r\n"
         end
     end
-    if #lines > 0 then
-        local ok, err = F.append(p_result(name), table.concat(lines))
-        if not ok then return nil, "结果落盘失败: " .. tostring(err) end
-    end
+    -- 2026-10-15: 结果行暂存PENDING, 任务与结果均停止时统一落盘
+    for _, ln in ipairs(lines) do pend_add(name, ln) end
     t.last = { r = r, c = c0 + n - 1 }
     if now then t.last_work_time = now end
+    return true
+end
+
+-- 停止时统一落盘: 暂存结果行追加3:结果文件 + 任务定义落盘
+function store.task_flush(name)
+    local pd = PENDING[name]
+    if pd and #pd > 0 then
+        local ok, err = F.append(p_result(name),
+                                 table.concat(pd) .. "\r\n")
+        if not ok then return nil, "结果落盘失败: " .. tostring(err) end
+    end
+    PENDING[name] = nil
     return store.task_save(name)
+end
+
+-- 导出清档(2026-10-15用户要求): 结果已并入U盘task文件后, 清3:结果
+-- 文件与内存结果, 下次导出只含新完成的部分
+function store.task_export_clear(name)
+    PENDING[name] = nil
+    store.results[name] = {}
+    F.remove(p_result(name))
+    return true
 end
 
 function store.task_set_last(name, r, c, now)
@@ -3840,6 +3868,11 @@ function jobrun.stop()
     end
     J.sow_state = false
     if LW and LW.RT and w16 then w16(LW.RT.running, 0) end
+    -- 停止时统一落盘(2026-10-15: 暂存结果+任务定义一次写入3:)
+    if STORE.task_flush then
+        local okf, errf = STORE.task_flush(J.task)
+        if not okf then log("ERR", "落盘失败: " .. tostring(errf)) end
+    end
     log("INF", "作业停止 " .. J.task)
     jobrun.bump_draw()
     jobrun.detach()
@@ -6019,8 +6052,12 @@ return function(ctx)
             local fname = "task_" .. STORE.slug(n) .. ".csv"
             local ok = FILEIO.write_all("2:" .. fname,
                                          STORE.export_task_text(n))
+            if ok and STORE.task_flush then STORE.task_flush(n) end
+            if ok and STORE.task_export_clear then
+                STORE.task_export_clear(n)      -- 3:结果清档(已并入U盘task)
+            end
             log(ok and "INF" or "ERR",
-                ok and ("导出任务 " .. n .. " -> " .. fname)
+                ok and ("导出任务 " .. n .. " -> " .. fname .. "(3:结果已清)")
                    or "任务导出失败")
         elseif addr == LW.TM.btn_reset then
             local n = W.items[W.sel + 1]
@@ -6185,9 +6222,9 @@ return function(ctx)
         if not t then return end
         w16(LW.RT.path_type, t.path_type or 0)
         w16(LW.RT.positive, t.positive or 0)
-        local m = task_map(t)
-        local has_ab = m and m.ab and m.ab.has
-        w16(LW.RT.sow_exceed, (t.sow_exceed == 1 and has_ab) and 1 or 0)
+        -- 图外播种恒默认关(2026-10-15用户要求: 此前还原任务存值,
+        -- 上次开过则本次进来是1; QT每次开窗checkbox默认不勾)
+        w16(LW.RT.sow_exceed, 0)
         -- 清种时打点(bool, 会话内保持; 不再装载过道打点config 2026-10-14)
         w16(LW.RT.gapdot, W.qzdd == 1 and 1 or 0)
         w16(LW.RT.sp_enable, 0)
@@ -6367,8 +6404,12 @@ return function(ctx)
                     .. (STORE.slug and STORE.slug(W.task) or W.task) .. ".csv"
                 local ok = FILEIO.write_all("2:" .. fname,
                                              STORE.export_task_text(W.task))
+                if ok and STORE.task_flush then STORE.task_flush(W.task) end
+                if ok and STORE.task_export_clear then
+                    STORE.task_export_clear(W.task)  -- 3:结果清档(已并入U盘task)
+                end
                 log(ok and "INF" or "ERR",
-                    ok and ("导出结果 " .. W.task .. " -> " .. fname)
+                    ok and ("导出任务 " .. W.task .. " -> " .. fname .. "(3:结果已清)")
                        or "导出失败")
             end
         end

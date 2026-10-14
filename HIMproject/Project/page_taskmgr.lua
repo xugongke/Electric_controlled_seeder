@@ -221,8 +221,12 @@ return function(ctx)
             local fname = "task_" .. STORE.slug(n) .. ".csv"
             local ok = FILEIO.write_all("2:" .. fname,
                                          STORE.export_task_text(n))
+            if ok and STORE.task_flush then STORE.task_flush(n) end
+            if ok and STORE.task_export_clear then
+                STORE.task_export_clear(n)      -- 3:结果清档(已并入U盘task)
+            end
             log(ok and "INF" or "ERR",
-                ok and ("导出任务 " .. n .. " -> " .. fname)
+                ok and ("导出任务 " .. n .. " -> " .. fname .. "(3:结果已清)")
                    or "任务导出失败")
         elseif addr == LW.TM.btn_reset then
             local n = W.items[W.sel + 1]

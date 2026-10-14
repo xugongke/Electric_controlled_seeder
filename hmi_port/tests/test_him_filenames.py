@@ -120,7 +120,10 @@ def main():
     ent['start_t'] = 'T0'
     ent['end_t'] = 'T1'
     ok2, err4 = call(store['task_mark_row_done'], '任务1', 0, 0, lua.table(ent), 'T1')
-    check(ok and ok2 is not None, '下发标记+排完成+结果追加')
+    # 2026-10-15: 落盘改停止时统一写入(flush)——模拟用户点停止
+    okf, errf = call(store['task_flush'], '任务1')
+    check(ok and ok2 is not None and okf is not None,
+          '下发标记+排完成+结果追加+停止flush: %s' % (errf or 'OK'))
     fs = g.MOCKFS
     files = [fs[k] for k in list(fs.keys())]
     names = [str(k) for k in list(fs.keys())]
