@@ -107,7 +107,6 @@ return function(ctx)
             local s = JOBRUN.snapshot()
             if s and s.task == W.task then
                 opts.machine = s.machine
-                opts.trail = s.trail
             end
         end
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 252, 32)
@@ -178,11 +177,11 @@ return function(ctx)
         if cid == 1 then paint() end
     end
 
-    local function on_startstop()
-        -- 合并开始/停止按钮(2026-10-14, 对齐QT pushButtonStart :216-229:
-        -- 作业中->stopSow, 空闲->启动链); 开关型控件写0/1均为触发
+    local function on_start()
+        -- 开始按钮(2026-10-15回撤合并: 恢复独立开始/停止, 双按钮均带
+        -- 控件权限变灰——开始仅空闲可用/停止仅作业中可用)
         if JOBRUN and JOBRUN.active() then
-            JOBRUN.stop()
+            log("WRN", "作业进行中, 请先停止")
             return
         end
         if not W.task then log("ERR", "无任务"); return end
@@ -199,12 +198,12 @@ return function(ctx)
     end
 
     function page:on_update(addr, val)
-        if addr == LW.RT.btn_start then
-            on_startstop()
-            return
-        end
         if val ~= 1 then return end
-        if addr == LW.RT.btn_abclr then
+        if addr == LW.RT.btn_start then
+            on_start()
+        elseif addr == LW.RT.btn_stop then
+            if JOBRUN then JOBRUN.stop() end
+        elseif addr == LW.RT.btn_abclr then
             local t = W.task and STORE.tasks[W.task] or nil
             local m = task_map(t)
             if m then

@@ -254,6 +254,17 @@ __EXPH = (txt:gsub(".", function(c)
     bad_time = [l for l in res_lines if len(l.split(',')) < 5
                 or not l.split(',')[2]]
     check(not bad_time, '结果行含开始时间')
+    # 计数口径(2026-10-15十一修): 每行播种计数=20/21(逐拍缓存), 不得为~1
+    cnt_ok, cnt_bad = 0, []
+    for l in res_lines:
+        f = l.split(',')
+        v = int(f[5])                       # 1行播种
+        if v in (20, 21):
+            cnt_ok += 1
+        else:
+            cnt_bad.append((f[0], f[1], v))
+    check(cnt_ok == 10, '10行计数全为20/21(实有%d, 异常%s)'
+          % (cnt_ok, cnt_bad[:3]))
 
     print()
     print('播种e2e回归: %s (%d项)' % (

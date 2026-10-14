@@ -675,13 +675,14 @@ function jobrun._feed(f)
         if J.cur_read_row == 0 or J.cur_read_row == rows - 1 then
             -- 边界排完成(2026-10-14十修: 原空ents致每趟末排结果行缺失,
             -- e2e导出10行仅8; 与图内分支同式快照计数落库)
+            local zh, fe = J.row_zh or st.LouZHCnt, J.row_fe or st.LoufeiCnt
             local ents = {}
             for i = 0, bet - 1 do
                 local seed, fert = {}, {}
                 local base = i * (m.block_col or 1)
                 for k = 0, (m.block_col or 1) - 1 do
-                    seed[k + 1] = st.LouZHCnt[base + k + 1] or 0
-                    fert[k + 1] = st.LoufeiCnt[base + k + 1] or 0
+                    seed[k + 1] = zh[base + k + 1] or 0
+                    fert[k + 1] = fe[base + k + 1] or 0
                 end
                 ents[i + 1] = { state = 2,
                                 start_t = J.result_t0 or now_s(),
@@ -689,8 +690,8 @@ function jobrun._feed(f)
             end
             if LW and LW.RT and w16 then
                 for i = 1, 6 do
-                    w16(LW.RT.last_zh + i - 1, st.LouZHCnt[i] or 0)
-                    w16(LW.RT.last_fe + i - 1, st.LoufeiCnt[i] or 0)
+                    w16(LW.RT.last_zh + i - 1, zh[i] or 0)
+                    w16(LW.RT.last_fe + i - 1, fe[i] or 0)
                 end
             end
             STORE.task_mark_row_done(J.task, J.cur_read_row, J.cur_col, ents, now_s())
@@ -722,6 +723,10 @@ function jobrun._feed(f)
 
         -- QT :446-458: 正在播 next_idx 排
         if st.RowNum == pn.row then
+            -- 逐拍缓存当前排计数(2026-10-15十一修, QT :421-424同坑:
+            -- 换排过渡帧计数已被新排清零覆盖, 完成落库须用换排前
+            -- 最后一拍的值——此前读过渡帧致非末排计数恒~1)
+            J.row_zh, J.row_fe = st.LouZHCnt, st.LoufeiCnt
             if not J.enter_map then
                 send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
                 J.enter_map = true
@@ -737,13 +742,15 @@ function jobrun._feed(f)
                 end)() then
             if sow_flag then
                 -- QT :422-445: currentResult[i] 穴数/肥数取自 LouZHCnt/LoufeiCnt
+                -- (2026-10-15十一修: 用逐拍缓存J.row_zh/fe, 过渡帧已清零)
+                local zh, fe = J.row_zh or st.LouZHCnt, J.row_fe or st.LoufeiCnt
                 local ents = {}
                 for i = 0, bet - 1 do
                     local seed, fert = {}, {}
                     local base = i * (m.block_col or 1)
                     for k = 0, (m.block_col or 1) - 1 do
-                        seed[k + 1] = st.LouZHCnt[base + k + 1] or 0
-                        fert[k + 1] = st.LoufeiCnt[base + k + 1] or 0
+                        seed[k + 1] = zh[base + k + 1] or 0
+                        fert[k + 1] = fe[base + k + 1] or 0
                     end
                     ents[i + 1] = { state = 2, start_t = J.result_t0 or now_s(),
                                     end_t = now_s(), seed = seed, fert = fert }
@@ -752,9 +759,11 @@ function jobrun._feed(f)
                 -- 最近完成排漏种漏肥快照(2026-10-13 M2, QT showLastBlock:
                 -- 本排最终计数, 下次0x20下发后固件清零)
                 if LW and LW.RT and w16 then
+                    local zh, fe = J.row_zh or st.LouZHCnt,
+                                  J.row_fe or st.LoufeiCnt
                     for i = 1, 6 do
-                        w16(LW.RT.last_zh + i - 1, st.LouZHCnt[i] or 0)
-                        w16(LW.RT.last_fe + i - 1, st.LoufeiCnt[i] or 0)
+                        w16(LW.RT.last_zh + i - 1, zh[i] or 0)
+                        w16(LW.RT.last_fe + i - 1, fe[i] or 0)
                     end
                 end
             end

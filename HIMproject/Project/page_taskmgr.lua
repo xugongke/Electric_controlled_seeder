@@ -99,7 +99,6 @@ return function(ctx)
             local s = JOBRUN.snapshot()
             if s and s.task == n then
                 opts.machine = s.machine
-                opts.trail = s.trail
             end
         end
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
