@@ -103,12 +103,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
         }
-        if JOBRUN and JOBRUN.active() then
-            local s = JOBRUN.snapshot()
-            if s and s.task == W.task then
-                opts.machine = s.machine
-            end
-        end
+        -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 252, 32)
     end
 
@@ -223,7 +218,9 @@ return function(ctx)
             APP.goto_screen(LW.SCREEN.HISTORY)
         elseif addr == LW.RT.btn_exp then
             if W.task and FILEIO then
-                local fname = "result_"
+                -- 2026-10-15: 导出即任务文件task_*.csv(信息+状态+是否播种+
+                -- 结果一体, 只含实际存在的排列表行, 不复刻QT的脏输出)
+                local fname = "task_"
                     .. (STORE.slug and STORE.slug(W.task) or W.task) .. ".csv"
                 local ok = FILEIO.write_all("2:" .. fname,
                                              STORE.export_task_text(W.task))

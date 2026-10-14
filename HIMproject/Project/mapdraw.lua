@@ -237,55 +237,7 @@ function mapdraw.cmds(m, t, opts)
 
     -- 轨迹显示已移除(2026-10-14用户要求: 只显示小车位置, 经过小区不变色)
 
-    -- 农机实心三角形(2026-10-14九修: 箭头改三角形; 四周图外显示——
-    -- 行夹取-1/rows画首末过道带, 列夹取<0/>=cols画左右边缘(QT
-    -- :377-383+columnToShowGroup同义); dir=true行号增=尖朝下;
-    -- 扫描线填充实心)
-    if opts.machine and opts.machine.row and opts.machine.row >= -1
-        and opts.machine.row <= g.rows and opts.machine.col then
-        local mr = opts.machine.row
-        local cy
-        if mr < 0 then
-            cy = g.y0 + g.aisle // 2
-        elseif mr >= g.rows then
-            cy = g.y0 + g.rows * (g.ch + g.aisle) + g.aisle // 2
-        else
-            local _, y0, _, y1 = cell_rect(g, mr, 0)
-            cy = (y0 + y1) // 2
-        end
-        local mc0 = opts.machine.col
-        local cx
-        if mc0 < 0 then
-            cx = g.x0 - g.aisle // 2            -- 图左(标签槽)
-        elseif mc0 >= g.cols then
-            cx = g.x0 + g.cols * g.cw + g.aisle // 2  -- 图右
-        else
-            cx = g.x0 + mc0 * g.cw + g.cw // 2
-        end
-        local s = math.max(5, math.min(g.cw, g.ch + g.aisle) // 3)
-        local mc = mapdraw.rgb565(mapdraw.COLORS.machine[1],
-                                  mapdraw.COLORS.machine[2],
-                                  mapdraw.COLORS.machine[3])
-        local sg = opts.machine.dir and 1 or -1
-        local tipy = cy + sg * s
-        local basey = cy - sg * (s * 7 // 10)
-        local step = 2
-        if tipy > basey then
-            for yy = basey, tipy, step do
-                local t = (yy - basey) / (tipy - basey)
-                local hw = math.floor(s * 7 // 10 * t + 0.5)
-                out[#out + 1] = { op = 'line', x0 = cx - hw, y0 = yy,
-                                  x1 = cx + hw, y1 = yy, w = 2, color = mc }
-            end
-        else
-            for yy = tipy, basey, step do
-                local t = (basey - yy) / (basey - tipy)
-                local hw = math.floor(s * 7 // 10 * t + 0.5)
-                out[#out + 1] = { op = 'line', x0 = cx - hw, y0 = yy,
-                                  x1 = cx + hw, y1 = yy, w = 2, color = mc }
-            end
-        end
-    end
+    -- 农机标记与四周图外显示已删除(2026-10-15用户要求)
 
     return out, g
 end

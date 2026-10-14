@@ -212,8 +212,7 @@ for i = 1, #__C2 do
 end
 ''')
     check(bool(lua.eval('__OS')), '起点标记(黄色空心框)')
-    check(lua.eval('__MCNT') >= 3, '农机实心三角形红色扫描线(>=3笔)')
-    # 图外四周: row=-1/rows与col越界仍出指令
+    check(lua.eval('__MCNT') == 0, '农机标记已删除(无红色线段, 2026-10-15用户要求)')
     lua.execute('''
 __EDGE = MD.cmds(__M, __T, { w = 530, h = 380, view = "arrange",
     machine = { row = -1, col = -1, dir = true } })
@@ -224,7 +223,7 @@ for i = 1, #__EDGE do
     end
 end
 ''')
-    check(lua.eval('__EDGECNT') >= 3, '图外(行-1/列-1)三角形仍显示')
+    check(lua.eval('__EDGECNT') == 0, '图外显示已删除')
     check(lua.eval('__ACNT') == 0, '轨迹已移除(无半透明叠加, 用户要求)')
 
     print('7) 小格子降级')

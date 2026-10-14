@@ -110,9 +110,6 @@ function jobrun.snapshot()
         sow_state = J.sow_state,
         trip_wait = J.trip_wait and true or false,
         completed = J.completed and true or false,
-        machine = J.machine,                    -- 农机近似位置(地图绘制用;
-                                              --   轨迹显示2026-10-14按用户
-                                              --   要求移除, 仅保留位置)
     }
 end
 
@@ -577,7 +574,13 @@ function jobrun._feed(f)
     -- QT :345-356 有AB线时 VerticalOff 显示前符号翻转
     --   (pathType 0/1/2且AB同向取反; 3/4/5且AB反向取反), 无AB线/无作业原值
     if w16 then
-        w16(LW.A.runstate, st.RunState)
+        -- RunState字节=状态位|电机位(固件口径): 播种中随电机组合变(如
+        -- 1|0x14=21), QT :332-344仅认0/1/0x81且其余保持上一态——此前
+        -- 直写致3态灯ValueMap无匹配而空白(2026-10-15十二修)
+        local rs = st.RunState or 0
+        if rs == 0 or rs == 1 or rs == 0x81 then
+            w16(LW.A.runstate, rs)
+        end
         if w32 then
             local voff = st.VerticalOff
             if J and J.ab and J.ab.has and STORE and STORE.tasks[J.task] then
@@ -611,61 +614,6 @@ function jobrun._feed(f)
 
     local t = STORE.tasks[J.task]
     local m = J.m
-    -- 农机定位重做(2026-10-14七修, 对齐QT :345-397逐式移植; 仅显示用):
-    --   voff符号: 有AB线按路线左起0/1/2且AB同向取反/右起3/4/5且反向取反
-    --   行 = row_at_edge(OffLen+AB参考排起点): 过道nil隐藏, 图外-1/rows显示
-    --   列 = 有AB: 组宽偏差=(当前列-A点列)x组宽, 拖拉机偏移=偏差-voff
-    --        (左起)/-voff-偏差(右起), 列=当前列-/+偏移截断除组宽;
-    --        无AB: 当前列+voff/组宽
-    --   dir = path[next].positive(箭头朝向, QT图标180°旋转的等价)
-    if MAPDRAW and J.sow_state then
-        local pt = t.path_type or 0
-        local voff = st.VerticalOff or 0
-        local has_ab = J.ab and J.ab.has
-        if has_ab then
-            if pt <= 2 then
-                if J.ab.dir then voff = -voff end
-            else
-                if not J.ab.dir then voff = -voff end
-            end
-        end
-        local offq = st.OffLen or 0
-        if has_ab then
-            offq = offq + PATHALGO.fwd_start(m, J.ab.a_row or 0)
-        end
-        local mrow = MAPDRAW.row_at_edge(m, offq)
-        local bw = math.max(1, (m.block_col or 1) * (m.col_gap or 1))
-        local mcol
-        if has_ab then
-            local dcol = (J.cur_col - (J.ab.a_col or 0)) * bw
-            local toff = (pt <= 2) and (dcol - voff) or (-voff - dcol)
-            local q = toff // bw
-            if toff < 0 and toff % bw ~= 0 then q = q + 1 end
-            mcol = (pt <= 2) and (J.cur_col - q) or (J.cur_col + q)
-        else
-            mcol = J.cur_col + (voff // bw)
-        end
-        -- 列不夹取(2026-10-14八修: 图外左右由mapdraw边缘显示, 对齐QT
-        -- columnToShowGroup夹取到边缘列)
-        local dir = false
-        local pn0 = J.path[J.next_idx]
-        if pn0 then dir = pn0.positive and true or false end
-        local nm = nil
-        if mrow then
-            local dr = mrow
-            if dr < 0 then dr = -1
-            elseif dr > m.rows - 1 then dr = m.rows end
-            nm = { row = dr, col = mcol, dir = dir }
-        end
-        local old = J.machine
-        local chg = (old == nil) ~= (nm == nil)
-            or (old and nm and (old.row ~= nm.row or old.col ~= nm.col
-                                or old.dir ~= nm.dir))
-        if chg then
-            J.machine = nm
-            jobrun.bump_draw()
-        end
-    end
     local rows = m.rows
     local b = (t.sow_exceed == 1)
     local bet = PATHALGO.block_each_trip(m)

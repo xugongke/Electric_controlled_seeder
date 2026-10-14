@@ -95,12 +95,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
         }
-        if JOBRUN and JOBRUN.active() then
-            local s = JOBRUN.snapshot()
-            if s and s.task == n then
-                opts.machine = s.machine
-            end
-        end
+        -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
     end
 
