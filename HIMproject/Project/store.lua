@@ -111,7 +111,10 @@ local function index_write()
     for _, n in ipairs(names) do L[#L + 1] = "T," .. n end
     local s = table.concat(L, "\r\n")
     if #L > 0 then s = s .. "\r\n" end
-    F.write_all(p_index(), s)
+    -- 2026-10-16: index重写结果上报(删除后index.txt仍含旧名时可见)
+    local ok = F.write_all(p_index(), s)
+    store.last_index_ok = ok
+    return ok
 end
 
 -------------------------------------------------------------------- 地图
@@ -167,8 +170,12 @@ end
 function store.map_delete(name)
     store.maps[name] = nil
     local ok, err = F.remove(p_map(name))
-    index_write()
-    -- 2026-10-15: remove如实返回(旧恒true), 供页面记日志
+    local oki = index_write()
+    -- 2026-10-15: remove如实返回(旧恒true), 供页面记日志;
+    --   index重写失败并入err(2026-10-16)
+    if not oki then
+        err = (err and (err .. "; ") or "") .. "index重写失败"
+    end
     return ok, err
 end
 
@@ -289,7 +296,10 @@ function store.task_delete(name)
     PENDING[name] = nil
     local ok1 = F.remove(p_task(name))
     local ok2, err2 = F.remove(p_result(name))
-    index_write()
+    local oki = index_write()
+    if not oki then
+        err2 = (err2 and (err2 .. "; ") or "") .. "index重写失败"
+    end
     return ok1 and ok2, err2
 end
 
