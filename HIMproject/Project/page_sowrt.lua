@@ -26,7 +26,8 @@ return function(ctx)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
-    local W = { task = nil, ver = -1, qzdd = -1 }
+    local W = { task = nil, ver = -1, qzdd = -1,
+                last_pt = -1, last_pos = -1 }
 
     local function fname_stamp(s)
         -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
@@ -122,6 +123,15 @@ return function(ctx)
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
+        -- 起点V方向: 起点列的行进方向(路径首到达该列的节点positive)
+        if ctx.PATHALGO and t.outset then
+            local pp = ctx.PATHALGO.create_path(m, t.path_type,
+                                              t.positive == 1)
+            if pp then
+                opts.outset_dir = ctx.PATHALGO.column_direction(
+                    pp, t.outset.c)
+            end
+        end
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 252, 32)
     end
 
@@ -144,6 +154,35 @@ return function(ctx)
         return lst[#lst]
     end
 
+    -- 方向/路线切换联动(2026-10-16十六修, 对齐QT :150-183方向单选触发
+    -- 当前路线handler + :806-821 clearOutset+createPath+outset=path[0]):
+    -- 重建路径, 播种起点重置为新路径首节点(手动改的起点随之失效)
+    local function relink_outset(pt, pos)
+        local t = W.task and STORE.tasks[W.task]
+        if not t then return end
+        local m = task_map(t)
+        if not m then return end
+        t.path_type = pt
+        t.positive = pos
+        if JOBRUN and JOBRUN.reset_path then JOBRUN.reset_path() end
+        local path = ctx.PATHALGO and ctx.PATHALGO.create_path
+                    and ctx.PATHALGO.create_path(m, pt, pos == 1)
+        if path and path[1] then
+            t.outset = { r = path[1].row, c = path[1].column }
+        end
+        STORE.task_save(W.task)
+        if m and t.outset then
+            w16(LW.RT.sp_row, math.max(1, m.rows - t.outset.r))
+            w16(LW.RT.sp_col, t.outset.c + 1)
+        end
+        w16(LW.RT.path_type, pt)
+        w16(LW.RT.positive, pos)
+        W.ver = -1
+        log("INF", ("路线/方向联动: 起点=%d,%d"):format(
+            t.outset and (m.rows - t.outset.r) or 0,
+            t.outset and (t.outset.c + 1) or 0))
+    end
+
     local page = {
         id = LW.SCREEN.SOWRT,
         poll_cmds = { PROTOCOL and PROTOCOL.FNC.GET_BZ_STATUS or nil },
@@ -163,12 +202,22 @@ return function(ctx)
         else
             wstr(LW.RT.tname, "(无任务)")
         end
+        W.last_pt = r16(LW.RT.path_type) or 0
+        W.last_pos = (r16(LW.RT.positive) == 1) and 1 or 0
         W.ver = -1
     end
 
     function page:on_tick()
-        -- 清种时打点开关变更即下发(0x29, bool; QT为checkbox+[设置]按钮,
-        -- 屏端无按钮通知故tick轮询变更)
+        -- 方向/路线切换联动起点(仅空闲; 作业中控件已被权限禁触,
+        -- 双保险仍判active)
+        local pt = r16(LW.RT.path_type) or 0
+        local pos = (r16(LW.RT.positive) == 1) and 1 or 0
+        if W.last_pt >= 0 and (pt ~= W.last_pt or pos ~= W.last_pos)
+           and not (JOBRUN and JOBRUN.active()) then
+            relink_outset(pt, pos)
+        end
+        W.last_pt, W.last_pos = pt, pos
+        -- 清种时打点开关变更即下发(0x29, bool)
         local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
         if qz ~= W.qzdd then
             W.qzdd = qz

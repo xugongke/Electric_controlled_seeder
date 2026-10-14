@@ -195,11 +195,11 @@ end
     print('6) 起点标记/轨迹/农机')
     # 起点(1,2): 黄色空心框; 轨迹/农机
     lua.execute('''
-__OS = false
+__OS = 0
 for i = 1, #__CMDS do
     local c = __CMDS[i]
-    if c.op == "rect" and c.fill == 0
-       and c.color == MD.rgb565(255,200,0) then __OS = true end
+    if c.op == "line" and c.w == 3
+       and c.color == MD.rgb565(255,200,0) then __OS = __OS + 1 end
 end
 __C2 = MD.cmds(__M, __T, { w = 530, h = 380, view = "arrange",
                            machine = { row = 2, col = 1 },
@@ -211,7 +211,7 @@ for i = 1, #__C2 do
     if c.op == "arect" then __ACNT = __ACNT + 1 end
 end
 ''')
-    check(bool(lua.eval('__OS')), '起点标记(黄色空心框)')
+    check(lua.eval('__OS') >= 4, '起点粗框4线w=3(黄色)')
     check(lua.eval('__MCNT') == 0, '农机标记已删除(无红色线段, 2026-10-15用户要求)')
     lua.execute('''
 __EDGE = MD.cmds(__M, __T, { w = 530, h = 380, view = "arrange",

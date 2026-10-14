@@ -112,6 +112,14 @@ return function(ctx)
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
+        if ctx.PATHALGO and t.outset then
+            local pp = ctx.PATHALGO.create_path(m, t.path_type,
+                                              t.positive == 1)
+            if pp then
+                opts.outset_dir = ctx.PATHALGO.column_direction(
+                    pp, t.outset.c)
+            end
+        end
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
     end
 

@@ -94,6 +94,11 @@ function jobrun.active() return J ~= nil end
 
 -- 画布脏计数(2026-10-13 M2): 页面on_tick比对jobrun.draw_ver变化->redraw
 jobrun.draw_ver = 0
+-- 方向/路线切换后由页面调用: 清路径缓存, 下次start按新参数重建
+function jobrun.reset_path()
+    PCACHE.task, PCACHE.path_type, PCACHE.path = nil, nil, nil
+end
+
 function jobrun.bump_draw()
     jobrun.draw_ver = jobrun.draw_ver + 1
 end
@@ -304,18 +309,29 @@ function jobrun.start(task_name, opts)
             task_name, t.path_type, path
     end
 
-    -- 续作扫描(恒走, 2026-10-14六修: 对齐QT nextPathIndex跨启停延续
-    -- :275/:306-307——此前仅opts.resume才扫, 画面24开始按钮不传resume,
-    -- 二次开始回卷path[1]重播首列, e2e实锺)
+    -- 起点定位扫描(2026-10-16十六修, 对齐QT showOutset->nextPathIndex=
+    -- getIndex(outsetRow,outsetColumn) :653): 从任务的播种起点节点起,
+    -- 向后跳过已完成节点——起点之前的小区永不下发不计数(不漏种漏肥,
+    -- 用户要求); 续作时自然落在首个未完成处(等价QT指针延续)
+    local osr = (t.outset and t.outset.r) or 0
+    local osc = (t.outset and t.outset.c) or 0
     local start_idx = nil
     for i, pn in ipairs(path) do
-        local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+        if pn.row == osr and pn.column == osc then
             start_idx = i
             break
         end
     end
-    if not start_idx then
+    if not start_idx then start_idx = 1 end      -- 起点不在路径内: 从头
+    while start_idx <= #path do
+        local pn = path[start_idx]
+        local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+            break
+        end
+        start_idx = start_idx + 1
+    end
+    if start_idx > #path then
         return nil, "任务已完成"                  -- QT :217 path走尽开始键无效
     end
 

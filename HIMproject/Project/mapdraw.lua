@@ -224,15 +224,35 @@ function mapdraw.cmds(m, t, opts)
         end
     end
 
-    -- 起点标记(黄色空心框)
+    -- 起点标记(2026-10-16十六修: 粗框4线w=3 + V形指示行进方向,
+    -- outset_dir=true行号增=V尖朝下; 小格退化为粗框无V)
     local os_ = opts.outset or (t and t.outset or nil)
-    if os_ and os_.r >= 0 and os_.r < g.rows and os_.c >= 0 and os_.c < g.cols then
+    if os_ and os_.r >= 0 and os_.r < g.rows and os_.c >= 0
+       and os_.c < g.cols then
         local x0, y0, x1, y1 = cell_rect(g, os_.r, os_.c)
-        out[#out + 1] = { op = 'rect', x0 = x0 + 1, y0 = y0 + 1,
-                          x1 = x1 - 1, y1 = y1 - 1, fill = 0,
-                          color = mapdraw.rgb565(mapdraw.COLORS.outset[1],
-                                                 mapdraw.COLORS.outset[2],
-                                                 mapdraw.COLORS.outset[3]) }
+        local oc = mapdraw.rgb565(mapdraw.COLORS.outset[1],
+                                  mapdraw.COLORS.outset[2],
+                                  mapdraw.COLORS.outset[3])
+        out[#out + 1] = { op = 'line', x0 = x0, y0 = y0,
+                          x1 = x1, y1 = y0, w = 3, color = oc }
+        out[#out + 1] = { op = 'line', x0 = x0, y0 = y1,
+                          x1 = x1, y1 = y1, w = 3, color = oc }
+        out[#out + 1] = { op = 'line', x0 = x0, y0 = y0,
+                          x1 = x0, y1 = y1, w = 3, color = oc }
+        out[#out + 1] = { op = 'line', x0 = x1, y0 = y0,
+                          x1 = x1, y1 = y1, w = 3, color = oc }
+        if g.cw >= 16 and g.ch >= 12 then
+            local cx = (x0 + x1) // 2
+            local sg = opts.outset_dir and 1 or -1
+            local cy = (y0 + y1) // 2
+            local h = g.ch // 4
+            out[#out + 1] = { op = 'line', x0 = cx - h,
+                              y0 = cy - sg * h, x1 = cx, y1 = cy + sg * h,
+                              w = 3, color = oc }
+            out[#out + 1] = { op = 'line', x0 = cx + h,
+                              y0 = cy - sg * h, x1 = cx, y1 = cy + sg * h,
+                              w = 3, color = oc }
+        end
     end
 
     -- 轨迹显示已移除(2026-10-14用户要求: 只显示小车位置, 经过小区不变色)

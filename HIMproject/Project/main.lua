@@ -3553,6 +3553,11 @@ function jobrun.active() return J ~= nil end
 
 -- 画布脏计数(2026-10-13 M2): 页面on_tick比对jobrun.draw_ver变化->redraw
 jobrun.draw_ver = 0
+-- 方向/路线切换后由页面调用: 清路径缓存, 下次start按新参数重建
+function jobrun.reset_path()
+    PCACHE.task, PCACHE.path_type, PCACHE.path = nil, nil, nil
+end
+
 function jobrun.bump_draw()
     jobrun.draw_ver = jobrun.draw_ver + 1
 end
@@ -3763,18 +3768,29 @@ function jobrun.start(task_name, opts)
             task_name, t.path_type, path
     end
 
-    -- 续作扫描(恒走, 2026-10-14六修: 对齐QT nextPathIndex跨启停延续
-    -- :275/:306-307——此前仅opts.resume才扫, 画面24开始按钮不传resume,
-    -- 二次开始回卷path[1]重播首列, e2e实锺)
+    -- 起点定位扫描(2026-10-16十六修, 对齐QT showOutset->nextPathIndex=
+    -- getIndex(outsetRow,outsetColumn) :653): 从任务的播种起点节点起,
+    -- 向后跳过已完成节点——起点之前的小区永不下发不计数(不漏种漏肥,
+    -- 用户要求); 续作时自然落在首个未完成处(等价QT指针延续)
+    local osr = (t.outset and t.outset.r) or 0
+    local osc = (t.outset and t.outset.c) or 0
     local start_idx = nil
     for i, pn in ipairs(path) do
-        local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+        if pn.row == osr and pn.column == osc then
             start_idx = i
             break
         end
     end
-    if not start_idx then
+    if not start_idx then start_idx = 1 end      -- 起点不在路径内: 从头
+    while start_idx <= #path do
+        local pn = path[start_idx]
+        local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
+        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+            break
+        end
+        start_idx = start_idx + 1
+    end
+    if start_idx > #path then
         return nil, "任务已完成"                  -- QT :217 path走尽开始键无效
     end
 
@@ -5821,15 +5837,35 @@ function mapdraw.cmds(m, t, opts)
         end
     end
 
-    -- 起点标记(黄色空心框)
+    -- 起点标记(2026-10-16十六修: 粗框4线w=3 + V形指示行进方向,
+    -- outset_dir=true行号增=V尖朝下; 小格退化为粗框无V)
     local os_ = opts.outset or (t and t.outset or nil)
-    if os_ and os_.r >= 0 and os_.r < g.rows and os_.c >= 0 and os_.c < g.cols then
+    if os_ and os_.r >= 0 and os_.r < g.rows and os_.c >= 0
+       and os_.c < g.cols then
         local x0, y0, x1, y1 = cell_rect(g, os_.r, os_.c)
-        out[#out + 1] = { op = 'rect', x0 = x0 + 1, y0 = y0 + 1,
-                          x1 = x1 - 1, y1 = y1 - 1, fill = 0,
-                          color = mapdraw.rgb565(mapdraw.COLORS.outset[1],
-                                                 mapdraw.COLORS.outset[2],
-                                                 mapdraw.COLORS.outset[3]) }
+        local oc = mapdraw.rgb565(mapdraw.COLORS.outset[1],
+                                  mapdraw.COLORS.outset[2],
+                                  mapdraw.COLORS.outset[3])
+        out[#out + 1] = { op = 'line', x0 = x0, y0 = y0,
+                          x1 = x1, y1 = y0, w = 3, color = oc }
+        out[#out + 1] = { op = 'line', x0 = x0, y0 = y1,
+                          x1 = x1, y1 = y1, w = 3, color = oc }
+        out[#out + 1] = { op = 'line', x0 = x0, y0 = y0,
+                          x1 = x0, y1 = y1, w = 3, color = oc }
+        out[#out + 1] = { op = 'line', x0 = x1, y0 = y0,
+                          x1 = x1, y1 = y1, w = 3, color = oc }
+        if g.cw >= 16 and g.ch >= 12 then
+            local cx = (x0 + x1) // 2
+            local sg = opts.outset_dir and 1 or -1
+            local cy = (y0 + y1) // 2
+            local h = g.ch // 4
+            out[#out + 1] = { op = 'line', x0 = cx - h,
+                              y0 = cy - sg * h, x1 = cx, y1 = cy + sg * h,
+                              w = 3, color = oc }
+            out[#out + 1] = { op = 'line', x0 = cx + h,
+                              y0 = cy - sg * h, x1 = cx, y1 = cy + sg * h,
+                              w = 3, color = oc }
+        end
     end
 
     -- 轨迹显示已移除(2026-10-14用户要求: 只显示小车位置, 经过小区不变色)
@@ -5986,6 +6022,14 @@ return function(ctx)
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
+        if ctx.PATHALGO and t.outset then
+            local pp = ctx.PATHALGO.create_path(m, t.path_type,
+                                              t.positive == 1)
+            if pp then
+                opts.outset_dir = ctx.PATHALGO.column_direction(
+                    pp, t.outset.c)
+            end
+        end
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
     end
 
@@ -6273,7 +6317,8 @@ return function(ctx)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
-    local W = { task = nil, ver = -1, qzdd = -1 }
+    local W = { task = nil, ver = -1, qzdd = -1,
+                last_pt = -1, last_pos = -1 }
 
     local function fname_stamp(s)
         -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
@@ -6369,6 +6414,15 @@ return function(ctx)
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
+        -- 起点V方向: 起点列的行进方向(路径首到达该列的节点positive)
+        if ctx.PATHALGO and t.outset then
+            local pp = ctx.PATHALGO.create_path(m, t.path_type,
+                                              t.positive == 1)
+            if pp then
+                opts.outset_dir = ctx.PATHALGO.column_direction(
+                    pp, t.outset.c)
+            end
+        end
         MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 252, 32)
     end
 
@@ -6391,6 +6445,35 @@ return function(ctx)
         return lst[#lst]
     end
 
+    -- 方向/路线切换联动(2026-10-16十六修, 对齐QT :150-183方向单选触发
+    -- 当前路线handler + :806-821 clearOutset+createPath+outset=path[0]):
+    -- 重建路径, 播种起点重置为新路径首节点(手动改的起点随之失效)
+    local function relink_outset(pt, pos)
+        local t = W.task and STORE.tasks[W.task]
+        if not t then return end
+        local m = task_map(t)
+        if not m then return end
+        t.path_type = pt
+        t.positive = pos
+        if JOBRUN and JOBRUN.reset_path then JOBRUN.reset_path() end
+        local path = ctx.PATHALGO and ctx.PATHALGO.create_path
+                    and ctx.PATHALGO.create_path(m, pt, pos == 1)
+        if path and path[1] then
+            t.outset = { r = path[1].row, c = path[1].column }
+        end
+        STORE.task_save(W.task)
+        if m and t.outset then
+            w16(LW.RT.sp_row, math.max(1, m.rows - t.outset.r))
+            w16(LW.RT.sp_col, t.outset.c + 1)
+        end
+        w16(LW.RT.path_type, pt)
+        w16(LW.RT.positive, pos)
+        W.ver = -1
+        log("INF", ("路线/方向联动: 起点=%d,%d"):format(
+            t.outset and (m.rows - t.outset.r) or 0,
+            t.outset and (t.outset.c + 1) or 0))
+    end
+
     local page = {
         id = LW.SCREEN.SOWRT,
         poll_cmds = { PROTOCOL and PROTOCOL.FNC.GET_BZ_STATUS or nil },
@@ -6410,12 +6493,22 @@ return function(ctx)
         else
             wstr(LW.RT.tname, "(无任务)")
         end
+        W.last_pt = r16(LW.RT.path_type) or 0
+        W.last_pos = (r16(LW.RT.positive) == 1) and 1 or 0
         W.ver = -1
     end
 
     function page:on_tick()
-        -- 清种时打点开关变更即下发(0x29, bool; QT为checkbox+[设置]按钮,
-        -- 屏端无按钮通知故tick轮询变更)
+        -- 方向/路线切换联动起点(仅空闲; 作业中控件已被权限禁触,
+        -- 双保险仍判active)
+        local pt = r16(LW.RT.path_type) or 0
+        local pos = (r16(LW.RT.positive) == 1) and 1 or 0
+        if W.last_pt >= 0 and (pt ~= W.last_pt or pos ~= W.last_pos)
+           and not (JOBRUN and JOBRUN.active()) then
+            relink_outset(pt, pos)
+        end
+        W.last_pt, W.last_pos = pt, pos
+        -- 清种时打点开关变更即下发(0x29, bool)
         local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
         if qz ~= W.qzdd then
             W.qzdd = qz
