@@ -228,7 +228,8 @@ return function(ctx)
             end
             local okd, errd = STORE.task_delete(n)
             log(okd and "INF" or "ERR",
-                okd and ("删除任务 " .. n .. (errd and ("(" .. errd .. ")") or ""))
+                okd and ("删除任务 " .. n .. (errd and ("(" .. errd .. ")")
+                                                  or "(已验证)"))
                    or ("删除任务失败 " .. n .. ": " .. tostring(errd)))
             log("INF", "删除任务 " .. n)
             refresh(); render_detail(); mark_dirty()

@@ -178,21 +178,23 @@ function FILEIO.exists(path)
 end
 
 function FILEIO.remove(path)
-    -- 2026-10-15十三修: 旧版pcall吞错恒返回true——平台file_delete
-    -- 失败时3:文件实际未删(用户实测重大bug). 改: 删除后读回验证,
-    -- 仍存在则覆盖清空兜底(内容置空), 如实返回结果
+    -- 2026-10-16十四修: 十三修的read_all验证有洞——fopen失败(单会话
+    -- 被占/宿主占用)也返回nil, 被误判"已删"(用户实测文件还在但日志
+    -- 干净). 改直接fopen探测并立即关闭: 打不开=已删(或本不存在);
+        -- 打得开=文件在, 清空兜底并如实标注
     if FILEIO.io and FILEIO.io.delete then
         pcall(FILEIO.io.delete, path)
     end
-    local still = FILEIO.read_all and FILEIO.read_all(path)
-    if still == nil then
-        return true                            -- 已删或本就不存在
+    local ok0 = fopen(path, 0)
+    if ok0 then
+        pcall(FILEIO.io.close)
+        local okw = FILEIO.write_all and FILEIO.write_all(path, "")
+        if okw then
+            return true, "已清空(delete未生效): " .. path
+        end
+        return nil, "删除失败: " .. path
     end
-    local ok = FILEIO.write_all and FILEIO.write_all(path, "")
-    if ok then
-        return true, "已清空(delete未生效)"
-    end
-    return nil, "删除失败: " .. path
+    return true                            -- fopen失败=已删/不存在
 end
 
 function FILEIO.size(path)

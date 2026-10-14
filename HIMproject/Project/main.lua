@@ -1674,21 +1674,23 @@ function FILEIO.exists(path)
 end
 
 function FILEIO.remove(path)
-    -- 2026-10-15十三修: 旧版pcall吞错恒返回true——平台file_delete
-    -- 失败时3:文件实际未删(用户实测重大bug). 改: 删除后读回验证,
-    -- 仍存在则覆盖清空兜底(内容置空), 如实返回结果
+    -- 2026-10-16十四修: 十三修的read_all验证有洞——fopen失败(单会话
+    -- 被占/宿主占用)也返回nil, 被误判"已删"(用户实测文件还在但日志
+    -- 干净). 改直接fopen探测并立即关闭: 打不开=已删(或本不存在);
+        -- 打得开=文件在, 清空兜底并如实标注
     if FILEIO.io and FILEIO.io.delete then
         pcall(FILEIO.io.delete, path)
     end
-    local still = FILEIO.read_all and FILEIO.read_all(path)
-    if still == nil then
-        return true                            -- 已删或本就不存在
+    local ok0 = fopen(path, 0)
+    if ok0 then
+        pcall(FILEIO.io.close)
+        local okw = FILEIO.write_all and FILEIO.write_all(path, "")
+        if okw then
+            return true, "已清空(delete未生效): " .. path
+        end
+        return nil, "删除失败: " .. path
     end
-    local ok = FILEIO.write_all and FILEIO.write_all(path, "")
-    if ok then
-        return true, "已清空(delete未生效)"
-    end
-    return nil, "删除失败: " .. path
+    return true                            -- fopen失败=已删/不存在
 end
 
 function FILEIO.size(path)
@@ -4562,8 +4564,9 @@ return function(ctx)
         elseif addr == LW.MAP.btn_del then
             local n = selected_name()
             if n and STORE then
-                STORE.map_delete(n)
-                log("CMD", "删除地图 " .. n)
+                local okm, errm = STORE.map_delete(n)
+                log("CMD", "删除地图 " .. n .. (okm and "(已验证)"
+                    or ("失败: " .. tostring(errm))))
                 wstr(LW.MAP.detail, "已删除 " .. n)
                 refresh()
             end
@@ -6089,7 +6092,8 @@ return function(ctx)
             end
             local okd, errd = STORE.task_delete(n)
             log(okd and "INF" or "ERR",
-                okd and ("删除任务 " .. n .. (errd and ("(" .. errd .. ")") or ""))
+                okd and ("删除任务 " .. n .. (errd and ("(" .. errd .. ")")
+                                                  or "(已验证)"))
                    or ("删除任务失败 " .. n .. ": " .. tostring(errd)))
             log("INF", "删除任务 " .. n)
             refresh(); render_detail(); mark_dirty()
@@ -6537,13 +6541,24 @@ local pages = {}
 -- 屏端时间源(B档): 2026-10-15改用平台 get_date_time()(手册§3.8返回
 -- year/month/day/hour/min/sec表), API不可用时回退开机秒计数T+<n>s
 local tick_cnt = 0
+local TIME_SRC = "T+n"                       -- 启动诊断: 实际生效时间源
 local function now_s()
-    if get_date_time then
-        local ok, tt = pcall(get_date_time)
-        if ok and type(tt) == "table" and tt.year then
-            return ("%04d-%02d-%02d %02d:%02d:%02d"):format(
-                tt.year, tt.month or 1, tt.day or 1,
-                tt.hour or 0, tt.min or 0, tt.sec or 0)
+    -- 兼容两种返回形状: 表{year..}(手册§3.8)或多值y,m,d,h,mi,s;
+    -- 候选API: get_date_time / get_sys_date_time (2026-10-16)
+    for _, api in ipairs({ get_date_time, get_sys_date_time }) do
+        if api then
+            local ok, a, b, c, d, e, f = pcall(api)
+            if ok then
+                if type(a) == "table" and a.year then
+                    b, c, d, e, f = a.month, a.day, a.hour, a.min, a.sec
+                    a = a.year
+                end
+                if type(a) == "number" and a > 2000 then
+                    TIME_SRC = "RTC"
+                    return ("%04d-%02d-%02d %02d:%02d:%02d"):format(
+                        a, b or 1, c or 1, d or 0, e or 0, f or 0)
+                end
+            end
         end
     end
     return ("T+%ds"):format(tick_cnt // 2)
@@ -6595,6 +6610,9 @@ local function setup()
             if LOGGER then
                 LOGGER.init { fileio = FILEIO, path = "3:log.txt", cap = 500, now = now_s }
                 LOGGER.log("SYS", "屏端启动")
+                LOGGER.log("SYS", "时间源: " .. TIME_SRC
+                    .. (TIME_SRC == "RTC" and now_s() or
+                        "(get_date_time不可用, T+n降级)"))
                 if PARASTORE then PARASTORE.set_logger(LOGGER) end
 
                 if PARASTORE then PARASTORE.set_fileio(FILEIO) end

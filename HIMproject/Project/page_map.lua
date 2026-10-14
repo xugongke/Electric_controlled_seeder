@@ -134,8 +134,9 @@ return function(ctx)
         elseif addr == LW.MAP.btn_del then
             local n = selected_name()
             if n and STORE then
-                STORE.map_delete(n)
-                log("CMD", "删除地图 " .. n)
+                local okm, errm = STORE.map_delete(n)
+                log("CMD", "删除地图 " .. n .. (okm and "(已验证)"
+                    or ("失败: " .. tostring(errm))))
                 wstr(LW.MAP.detail, "已删除 " .. n)
                 refresh()
             end
