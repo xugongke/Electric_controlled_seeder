@@ -188,7 +188,7 @@ nt_btn_down,LW1ED5,按钮 地图下移
 rt_path_type,LW1F00,u16 路线 0梭形..5(6态， 与画面6同口径)
 rt_positive,LW1F01,u16 行进方向 0反向/1正向
 rt_sow_exceed,LW1F02,u16 地图外播种 0/1(有AB线才可开)
-rt_gapdot,LW1F03,u16 清种时打点 0关/1开/2间隔(三态， 同config)
+rt_gapdot,LW1F03,u16 清种时打点 0关/1开(bool， 0x29独立下发;
 rt_sp_enable,LW1F04,u16 更改起点使能
 rt_sp_row,LW1F05,u16 起始排(显示号1基)
 rt_sp_col,LW1F06,u16 起始列(显示号1基)
@@ -202,6 +202,7 @@ rt_tname,LW1F38,字符串 当前任务名显示(占0x1F38~0x1F47， 16字)
 rt_pct,LW1F58,u16 完成率%(页面on_tick刷新)
 rt_done,LW1F59,u16 已完成块数
 rt_tot,LW1F5A,u16 总块数
+rt_running,LW1F5C,u16 作业进行中0/1(jobrun启停写; 合并开始/
 rt_btn_start,LW1F60,按钮 开始(下发作业链)
 rt_btn_stop,LW1F61,按钮 停止
 rt_btn_result,LW1F62,按钮 任务结果(跳画面7并预选)

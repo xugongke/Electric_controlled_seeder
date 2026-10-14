@@ -688,8 +688,10 @@ function csv.render_task_xlsx(t)
     for i = 1, 6 do hd[#hd + 1] = i .. "行播种" end
     for i = 1, 6 do hd[#hd + 1] = i .. "行漏肥" end
     L[#L + 1] = table.concat(hd, ",")
+    -- 排=显示排号(rows-内部行, 对齐QT :324 blockVector.size()-row;
+    --   2026-10-14修正: 原r+1与QT口径相反); 列=1基
     for _, e in ipairs(t.results or {}) do
-        local vals = { e.r + 1, e.c + 1, e.start_t or "", e.end_t or "",
+        local vals = { rows - e.r, e.c + 1, e.start_t or "", e.end_t or "",
                        e.state or 0 }
         for i = 1, 6 do vals[#vals + 1] = (e.seed or {})[i] or 0 end
         for i = 1, 6 do vals[#vals + 1] = (e.fert or {})[i] or 0 end

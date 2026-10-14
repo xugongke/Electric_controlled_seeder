@@ -110,8 +110,9 @@ function jobrun.snapshot()
         sow_state = J.sow_state,
         trip_wait = J.trip_wait and true or false,
         completed = J.completed and true or false,
-        machine = J.machine,                    -- 农机近似位置(地图绘制用)
-        trail = J.trail,                        -- 本次作业轨迹(64点环形)
+        machine = J.machine,                    -- 农机近似位置(地图绘制用;
+                                              --   轨迹显示2026-10-14按用户
+                                              --   要求移除, 仅保留位置)
     }
 end
 
@@ -378,6 +379,7 @@ function jobrun.start(task_name, opts)
             -- 可重试, 不残留假"作业中"(2026-10-13: 用户实测重启后
             -- 0x20/0x31/0x0A全未发而任务状态显示作业中)
             PROTOCOL.send(PROTOCOL.FNC.CMD_STOP_BZ)
+            if LW and LW.RT and w16 then w16(LW.RT.running, 0) end
             jobrun.detach()
             J = nil
             log("ERR", "作业启动失败: 首节点未下发, 已回滚现场")
@@ -406,6 +408,7 @@ function jobrun.start(task_name, opts)
         PROTOCOL.send(PROTOCOL.FNC.GDDD_ENABLE, string.char(gp_on))
         PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)       -- 0x0A
         J.sow_state = true
+        if LW and LW.RT and w16 then w16(LW.RT.running, 1) end
         jobrun.bump_draw()
     end
     if PSTORE then
@@ -450,6 +453,7 @@ function jobrun.stop()
         end
     end
     J.sow_state = false
+    if LW and LW.RT and w16 then w16(LW.RT.running, 0) end
     log("INF", "作业停止 " .. J.task)
     jobrun.bump_draw()
     jobrun.detach()
@@ -641,8 +645,8 @@ function jobrun._feed(f)
         else
             mcol = J.cur_col + (voff // bw)
         end
-        if mcol < 0 then mcol = 0 end
-        if mcol >= m.cols then mcol = m.cols - 1 end
+        -- 列不夹取(2026-10-14八修: 图外左右由mapdraw边缘显示, 对齐QT
+        -- columnToShowGroup夹取到边缘列)
         local dir = false
         local pn0 = J.path[J.next_idx]
         if pn0 then dir = pn0.positive and true or false end
@@ -659,15 +663,6 @@ function jobrun._feed(f)
                                 or old.dir ~= nm.dir))
         if chg then
             J.machine = nm
-            if nm and nm.row >= 0 and nm.row < m.rows then
-                local lastp = J.trail and J.trail[#J.trail]
-                if not (lastp and lastp.row == nm.row
-                        and lastp.col == nm.col) then
-                    J.trail = J.trail or {}
-                    J.trail[#J.trail + 1] = { row = nm.row, col = nm.col }
-                    if #J.trail > 64 then table.remove(J.trail, 1) end
-                end
-            end
             jobrun.bump_draw()
         end
     end
@@ -678,7 +673,27 @@ function jobrun._feed(f)
     if st.RowNum < 0 or st.RowNum >= rows then
         ---- 图外: 边界排完成(QT :403-409, 仅 setBlockState=2, 不推进不下发)
         if J.cur_read_row == 0 or J.cur_read_row == rows - 1 then
-            STORE.task_mark_row_done(J.task, J.cur_read_row, J.cur_col, {}, now_s())
+            -- 边界排完成(2026-10-14十修: 原空ents致每趟末排结果行缺失,
+            -- e2e导出10行仅8; 与图内分支同式快照计数落库)
+            local ents = {}
+            for i = 0, bet - 1 do
+                local seed, fert = {}, {}
+                local base = i * (m.block_col or 1)
+                for k = 0, (m.block_col or 1) - 1 do
+                    seed[k + 1] = st.LouZHCnt[base + k + 1] or 0
+                    fert[k + 1] = st.LoufeiCnt[base + k + 1] or 0
+                end
+                ents[i + 1] = { state = 2,
+                                start_t = J.result_t0 or now_s(),
+                                end_t = now_s(), seed = seed, fert = fert }
+            end
+            if LW and LW.RT and w16 then
+                for i = 1, 6 do
+                    w16(LW.RT.last_zh + i - 1, st.LouZHCnt[i] or 0)
+                    w16(LW.RT.last_fe + i - 1, st.LoufeiCnt[i] or 0)
+                end
+            end
+            STORE.task_mark_row_done(J.task, J.cur_read_row, J.cur_col, ents, now_s())
             -- 2026-09-11 二修(用户联调暴露: sim 重启行程归零后仍推到100%):
             --  此前此处补 advance() 想让"趟末出图帧即挂起", 但 QT 没有 ——
             --  sim 无 0x20 时按里程自走, RowNum 涨过边界 -> 图外 advance ->

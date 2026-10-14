@@ -212,8 +212,20 @@ for i = 1, #__C2 do
 end
 ''')
     check(bool(lua.eval('__OS')), '起点标记(黄色空心框)')
-    check(lua.eval('__MCNT') == 3, '农机箭头3笔红色线段(杆+双翼, 替换方块)')
-    check(lua.eval('__ACNT') == 2, '轨迹2格半透明叠加')
+    check(lua.eval('__MCNT') >= 3, '农机实心三角形红色扫描线(>=3笔)')
+    # 图外四周: row=-1/rows与col越界仍出指令
+    lua.execute('''
+__EDGE = MD.cmds(__M, __T, { w = 530, h = 380, view = "arrange",
+    machine = { row = -1, col = -1, dir = true } })
+__EDGECNT = 0
+for i = 1, #__EDGE do
+    if __EDGE[i].op == "line" and __EDGE[i].color == MD.rgb565(255,0,0) then
+        __EDGECNT = __EDGECNT + 1
+    end
+end
+''')
+    check(lua.eval('__EDGECNT') >= 3, '图外(行-1/列-1)三角形仍显示')
+    check(lua.eval('__ACNT') == 0, '轨迹已移除(无半透明叠加, 用户要求)')
 
     print('7) 小格子降级')
     lua.execute('''

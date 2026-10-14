@@ -235,27 +235,14 @@ function mapdraw.cmds(m, t, opts)
                                                  mapdraw.COLORS.outset[3]) }
     end
 
-    -- 轨迹叠加(半透明绿 + 边框)
-    if opts.trail then
-        local tc = mapdraw.rgb565(mapdraw.COLORS.trail[1],
-                                  mapdraw.COLORS.trail[2],
-                                  mapdraw.COLORS.trail[3])
-        for _, p in ipairs(opts.trail) do
-            if p.row >= 0 and p.row < g.rows and p.col >= 0 and p.col < g.cols then
-                local x0, y0, x1, y1 = cell_rect(g, p.row, p.col)
-                out[#out + 1] = { op = 'arect', x0 = x0 + 1, y0 = y0 + 1,
-                                  x1 = x1 - 1, y1 = y1 - 1, alpha = 70 }
-                out[#out + 1] = { op = 'rect', x0 = x0 + 1, y0 = y0 + 1,
-                                  x1 = x1 - 1, y1 = y1 - 1, fill = 0, color = tc }
-            end
-        end
-    end
+    -- 轨迹显示已移除(2026-10-14用户要求: 只显示小车位置, 经过小区不变色)
 
-    -- 农机箭头(2026-10-14替换方块: 方向可见; row=-1/rows为图外上下边缘,
-    -- QT :377-382夹取仍显示; dir=true行号增=箭头向下)
+    -- 农机实心三角形(2026-10-14九修: 箭头改三角形; 四周图外显示——
+    -- 行夹取-1/rows画首末过道带, 列夹取<0/>=cols画左右边缘(QT
+    -- :377-383+columnToShowGroup同义); dir=true行号增=尖朝下;
+    -- 扫描线填充实心)
     if opts.machine and opts.machine.row and opts.machine.row >= -1
-        and opts.machine.row <= g.rows and opts.machine.col
-        and opts.machine.col >= 0 and opts.machine.col < g.cols then
+        and opts.machine.row <= g.rows and opts.machine.col then
         local mr = opts.machine.row
         local cy
         if mr < 0 then
@@ -266,22 +253,38 @@ function mapdraw.cmds(m, t, opts)
             local _, y0, _, y1 = cell_rect(g, mr, 0)
             cy = (y0 + y1) // 2
         end
-        local cx = g.x0 + opts.machine.col * g.cw + g.cw // 2
-        local s = math.max(6, math.min(g.cw, g.ch + g.aisle) // 3)
+        local mc0 = opts.machine.col
+        local cx
+        if mc0 < 0 then
+            cx = g.x0 - g.aisle // 2            -- 图左(标签槽)
+        elseif mc0 >= g.cols then
+            cx = g.x0 + g.cols * g.cw + g.aisle // 2  -- 图右
+        else
+            cx = g.x0 + mc0 * g.cw + g.cw // 2
+        end
+        local s = math.max(5, math.min(g.cw, g.ch + g.aisle) // 3)
         local mc = mapdraw.rgb565(mapdraw.COLORS.machine[1],
                                   mapdraw.COLORS.machine[2],
                                   mapdraw.COLORS.machine[3])
         local sg = opts.machine.dir and 1 or -1
         local tipy = cy + sg * s
-        local basey = cy - sg * s
-        out[#out + 1] = { op = 'line', x0 = cx, y0 = basey,
-                          x1 = cx, y1 = tipy, w = 3, color = mc }
-        out[#out + 1] = { op = 'line', x0 = cx - s // 2,
-                          y0 = tipy - sg * (s // 2),
-                          x1 = cx, y1 = tipy, w = 3, color = mc }
-        out[#out + 1] = { op = 'line', x0 = cx + s // 2,
-                          y0 = tipy - sg * (s // 2),
-                          x1 = cx, y1 = tipy, w = 3, color = mc }
+        local basey = cy - sg * (s * 7 // 10)
+        local step = 2
+        if tipy > basey then
+            for yy = basey, tipy, step do
+                local t = (yy - basey) / (tipy - basey)
+                local hw = math.floor(s * 7 // 10 * t + 0.5)
+                out[#out + 1] = { op = 'line', x0 = cx - hw, y0 = yy,
+                                  x1 = cx + hw, y1 = yy, w = 2, color = mc }
+            end
+        else
+            for yy = tipy, basey, step do
+                local t = (basey - yy) / (basey - tipy)
+                local hw = math.floor(s * 7 // 10 * t + 0.5)
+                out[#out + 1] = { op = 'line', x0 = cx - hw, y0 = yy,
+                                  x1 = cx + hw, y1 = yy, w = 2, color = mc }
+            end
+        end
     end
 
     return out, g

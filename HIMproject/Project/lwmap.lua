@@ -387,6 +387,8 @@ LW.RT = {
     pct       = 0x1F58, -- u16 完成率%(页面on_tick刷新)
     done      = 0x1F59, -- u16 已完成块数
     tot       = 0x1F5A, -- u16 总块数
+    running   = 0x1F5C, -- u16 作业进行中0/1(jobrun启停写; 合并开始/
+                       --   停止按钮显示+返回等控件权限条件地址)
     btn_start = 0x1F60, -- 按钮 开始(下发作业链)
     btn_stop  = 0x1F61, -- 按钮 停止
     btn_result= 0x1F62, -- 按钮 任务结果(跳画面7并预选)

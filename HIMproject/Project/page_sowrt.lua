@@ -178,40 +178,33 @@ return function(ctx)
         if cid == 1 then paint() end
     end
 
+    local function on_startstop()
+        -- 合并开始/停止按钮(2026-10-14, 对齐QT pushButtonStart :216-229:
+        -- 作业中->stopSow, 空闲->启动链); 开关型控件写0/1均为触发
+        if JOBRUN and JOBRUN.active() then
+            JOBRUN.stop()
+            return
+        end
+        if not W.task then log("ERR", "无任务"); return end
+        if not harvest(false) then return end
+        -- 清种时打点(0x29): 独立命令随开始一并重发(对齐QT :499-501
+        -- setDotWhenClearSeed为bool独立下发; 过道打点0x31回归config)
+        local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
+        PROTOCOL.send(PROTOCOL.FNC.QZDD_ENABLE, string.char(qz))
+        W.qzdd = qz
+        local ok, err = JOBRUN.start(W.task)
+        log(ok and "INF" or "ERR",
+            ok and ("作业启动 " .. W.task)
+               or ("启动失败: " .. tostring(err)))
+    end
+
     function page:on_update(addr, val)
-        if val ~= 1 then return end
         if addr == LW.RT.btn_start then
-            if not W.task then log("ERR", "无任务"); return end
-            if JOBRUN and JOBRUN.active() then
-                local s = JOBRUN.snapshot()
-                if s and s.task == W.task then
-                    if s.trip_wait then
-                        log("WRN", "本趟已完成, 请先[停止]后掉头再开始(续趟)")
-                    else
-                        -- 作业进行中再按开始 = 续趟裸发0x0A(原画面6口径)
-                        PROTOCOL.send(PROTOCOL.FNC.CMD_START_BZ)
-                        log("INF", "续趟 0x0A 已下发")
-                    end
-                    return
-                end
-                log("ERR", "已有其他作业进行中: " .. tostring(s and s.task))
-                return
-            end
-            if not harvest(false) then return end
-            -- 清种时打点(0x29): 独立命令随开始一并重发(对齐QT
-            -- :499-501 setDotWhenClearSeed为bool独立下发; 过道打点
-            -- 0x31回归config三态, 不再混用gapdot 2026-10-14)
-            local qz = (r16(LW.RT.gapdot) == 1) and 1 or 0
-            PROTOCOL.send(PROTOCOL.FNC.QZDD_ENABLE,
-                          string.char(qz))
-            W.qzdd = qz
-            local ok, err = JOBRUN.start(W.task)
-            log(ok and "INF" or "ERR",
-                ok and ("作业启动 " .. W.task)
-                   or ("启动失败: " .. tostring(err)))
-        elseif addr == LW.RT.btn_stop then
-            if JOBRUN then JOBRUN.stop() end
-        elseif addr == LW.RT.btn_abclr then
+            on_startstop()
+            return
+        end
+        if val ~= 1 then return end
+        if addr == LW.RT.btn_abclr then
             local t = W.task and STORE.tasks[W.task] or nil
             local m = task_map(t)
             if m then

@@ -233,6 +233,28 @@ end
     lua.execute('local a,b,c = STR.task_progress("t1"); __P = c')
     check(lua.eval('__P') == 100, '任务完成率100%%(实有%d%%)' % lua.eval('__P'))
 
+    print('3) 导出结果校验(显示排号口径, QT :324)')
+    lua.execute('''
+local txt = STR.export_task_text("t1")
+__EXPH = (txt:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+''')
+    exp = bytes.fromhex(str(lua.eval('(__EXPH)'))).decode('gbk')
+    CRLF = chr(13) + chr(10)
+    res_lines = [l for l in exp.split(CRLF)
+                 if l and len(l.split(',')) == 17
+                 and l.split(',')[0].isdigit()]
+    check(len(res_lines) == 10, '结果行数10(实有%d)' % len(res_lines))
+    pairs = set()
+    for l in res_lines:
+        f = l.split(',')
+        pairs.add((int(f[0]), int(f[1])))
+    check(pairs == {(r, c) for r in (1, 2, 3, 4, 5) for c in (1, 2)},
+          '结果覆盖显示排1-5x列1-2(显示排号口径)')
+    bad_time = [l for l in res_lines if len(l.split(',')) < 5
+                or not l.split(',')[2]]
+    check(not bad_time, '结果行含开始时间')
+
     print()
     print('播种e2e回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))
