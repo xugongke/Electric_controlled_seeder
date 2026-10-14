@@ -2659,7 +2659,14 @@ end
 local function p_map(n)    return PREFIX .. "map_" .. store.slug(n) .. ".csv" end
 local function p_task(n)   return PREFIX .. "task_" .. store.slug(n) .. ".csv" end
 local function p_result(n) return PREFIX .. "result_" .. store.slug(n) .. ".csv" end
-local function p_index()   return PREFIX .. "index.txt" end
+-- index代际文件(2026-10-16十五修): 实测虚拟屏宿主同步只覆盖新建/
+-- 追加, 覆写与删除均不同步(index整表重写不落盘/删除文件残留)。
+-- 改为每次整表写新代文件index01~99(新建必同步), boot取最大代;
+-- 旧代尝试删除(实体屏生效, 虚拟屏残留无害——boot只认最大代)。
+local function p_index(gen)
+    if gen == 0 then return PREFIX .. "index.txt" end
+    return PREFIX .. "index" .. ("%02d"):format(gen) .. ".txt"
+end
 
 -- 旧命名兼容: 早期版本曾用原名直拼文件名(仅ASCII名能落盘成功)。
 -- boot 读取时 slug 路径不存在则回退旧路径, 避免升级后旧数据失联。
@@ -2700,8 +2707,16 @@ local function index_write()
     for _, n in ipairs(names) do L[#L + 1] = "T," .. n end
     local s = table.concat(L, "\r\n")
     if #L > 0 then s = s .. "\r\n" end
-    -- 2026-10-16: index重写结果上报(删除后index.txt仍含旧名时可见)
-    local ok = F.write_all(p_index(), s)
+    if #s == 0 then s = "#" end               -- 空表占位(空文件判不存在)
+    -- 十五修: 写新代文件(新建通道, 虚拟屏也同步); 结果上报
+    local old = store.index_gen or 0
+    local gen = old % 99 + 1
+    local ok = F.write_all(p_index(gen), s)
+    if ok then
+        store.index_gen = gen
+        if old > 0 then F.remove(p_index(old)) end
+        if gen >= 2 then F.remove(p_index(0)) end -- 旧版index.txt退役
+    end
     store.last_index_ok = ok
     return ok
 end
@@ -3019,7 +3034,17 @@ function store.boot()
     local warns = {}
     store.maps, store.tasks, store.results = {}, {}, {}
 
-    local text = F.read_all(p_index())
+    -- 十五修: 从高到低探测代际index, 首个非空即当前代
+    local text = nil
+    for g = 99, 1, -1 do
+        local t = F.read_all(p_index(g))
+        if t and #t > 0 then
+            text = t
+            store.index_gen = g
+            break
+        end
+    end
+    if not text then text = F.read_all(p_index(0)) end   -- 旧版兼容
     if not text or #text == 0 then
         return { maps = 0, tasks = 0, warns = { "空片或无index" } }
     end
@@ -4345,8 +4370,11 @@ return function(ctx)
             elseif addr == LW.HIST.btn_del then
                 local n = selected_name()
                 if n then
-                    STORE.task_delete(n)
-                    log("CMD", "删除任务 " .. n)
+                    local okd, errd = STORE.task_delete(n)
+                    log(okd and "CMD" or "ERR",
+                        "删除任务 " .. n
+                        .. (okd and "(已验证)"
+                            or (": " .. tostring(errd))))
                     if S.sel > 0 then S.sel = S.sel - 1 end
                     refresh_list(); render_detail()
                 end

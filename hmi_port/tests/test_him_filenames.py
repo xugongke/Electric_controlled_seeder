@@ -152,6 +152,10 @@ def main():
           '块状态(完成=2)与结果记录保留: state=%s 结果%d条' % (blk_state, len(res)))
 
     print('4) 旧命名兼容回退')
+    # 十五修代际index: 先清全部代际文件, 仅留旧版index.txt验回退
+    for k in [k for k in list(g.MOCKFS.keys())
+              if str(k).startswith('3:index')]:
+        del g.MOCKFS[k]
     g.MOCKFS['3:map_field.csv'] = MAP_CSV.replace('对照田', 'field')
     g.MOCKFS['3:index.txt'] = 'M,field\r\n'
     for k in [k for k in list(g.MOCKFS.keys())

@@ -222,8 +222,9 @@ end
     rtA.execute('__SAVED = store.map_save(__MAP)')
     check(bool(rtA.globals().__SAVED), 'map_save重渲染落盘(等价AB保存路径)')
     fs = dump_fs(rtA)
-    check(sum(1 for k in fs if 'map_' in k) == 1 and '3:index.txt' in fs,
-          '文件系统含地图与index(%d文件)' % len(fs))
+    check(sum(1 for k in fs if 'map_' in k) == 1
+          and any(k.startswith('3:index') for k in fs),
+          '文件系统含地图与index(%d文件, 代际index01)' % len(fs))
 
     print('4) 会话2"重启"全链路: boot->建任务->start->0x20/0x0A')
     rtB = new_rt()
