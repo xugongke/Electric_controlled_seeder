@@ -178,8 +178,21 @@ function FILEIO.exists(path)
 end
 
 function FILEIO.remove(path)
-    if FILEIO.io and FILEIO.io.delete then pcall(FILEIO.io.delete, path) end
-    return true
+    -- 2026-10-15十三修: 旧版pcall吞错恒返回true——平台file_delete
+    -- 失败时3:文件实际未删(用户实测重大bug). 改: 删除后读回验证,
+    -- 仍存在则覆盖清空兜底(内容置空), 如实返回结果
+    if FILEIO.io and FILEIO.io.delete then
+        pcall(FILEIO.io.delete, path)
+    end
+    local still = FILEIO.read_all and FILEIO.read_all(path)
+    if still == nil then
+        return true                            -- 已删或本就不存在
+    end
+    local ok = FILEIO.write_all and FILEIO.write_all(path, "")
+    if ok then
+        return true, "已清空(delete未生效)"
+    end
+    return nil, "删除失败: " .. path
 end
 
 function FILEIO.size(path)

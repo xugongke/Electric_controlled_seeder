@@ -24,8 +24,26 @@ return function(ctx)
     local MAPDRAW, LOGGER, FILEIO = ctx.MAPDRAW, ctx.LOGGER, ctx.FILEIO
     local PROTOCOL = ctx.PROTOCOL
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
+    local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
     local W = { task = nil, ver = -1, qzdd = -1 }
+
+    local function fname_stamp(s)
+        -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
+        local out = {}
+        for i = 1, #s do
+            local c = string.sub(s, i, i)
+            local b = string.byte(c)
+            if (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+               or (b >= 97 and b <= 122) then
+                out[#out + 1] = c
+            else
+                out[#out + 1] = "_"
+            end
+        end
+        return table.concat(out)
+    end
+
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -220,8 +238,11 @@ return function(ctx)
             if W.task and FILEIO then
                 -- 2026-10-15: 导出即任务文件task_*.csv(信息+状态+是否播种+
                 -- 结果一体, 只含实际存在的排列表行, 不复刻QT的脏输出)
-                local fname = "task_"
-                    .. (STORE.slug and STORE.slug(W.task) or W.task) .. ".csv"
+                -- 2026-10-15: 文件名带时间戳(同任务可多次导出不覆盖)
+                local nm2 = STORE.slug_head and STORE.slug_head(W.task)
+                          or (STORE.slug and STORE.slug(W.task) or W.task)
+                local fname = "task_" .. nm2 .. "_"
+                    .. fname_stamp(NOW()) .. ".csv"
                 local ok = FILEIO.write_all("2:" .. fname,
                                              STORE.export_task_text(W.task))
                 if ok and STORE.task_flush then STORE.task_flush(W.task) end

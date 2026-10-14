@@ -41,6 +41,20 @@ local function fnv1a(s)
     return h
 end
 
+-- 任务名ASCII段(导出文件名可读片, 2026-10-15)
+function store.slug_head(name)
+    local ascii = {}
+    for i = 1, #name do
+        local c = string.byte(name, i)
+        if (c >= 48 and c <= 57) or (c >= 65 and c <= 90)
+           or (c >= 97 and c <= 122) then
+            if #ascii < 16 then ascii[#ascii + 1] = string.char(c) end
+        end
+    end
+    if #ascii == 0 then return "n" end
+    return table.concat(ascii)
+end
+
 function store.slug(name)
     local ascii = {}
     for i = 1, #name do
@@ -152,8 +166,10 @@ end
 
 function store.map_delete(name)
     store.maps[name] = nil
-    F.remove(p_map(name))
+    local ok, err = F.remove(p_map(name))
     index_write()
+    -- 2026-10-15: remove如实返回(旧恒true), 供页面记日志
+    return ok, err
 end
 
 function store.map_get(name) return store.maps[name] end
@@ -270,9 +286,11 @@ end
 
 function store.task_delete(name)
     store.tasks[name], store.results[name] = nil, nil
-    F.remove(p_task(name))
-    F.remove(p_result(name))
+    PENDING[name] = nil
+    local ok1 = F.remove(p_task(name))
+    local ok2, err2 = F.remove(p_result(name))
     index_write()
+    return ok1 and ok2, err2
 end
 
 -- startNode 下发后标记: 组内 c0..c0+bet-1 置1 (对齐 QT setBlockState(row,col,1))
@@ -329,8 +347,7 @@ end
 function store.task_export_clear(name)
     PENDING[name] = nil
     store.results[name] = {}
-    F.remove(p_result(name))
-    return true
+    return F.remove(p_result(name))
 end
 
 function store.task_set_last(name, r, c, now)

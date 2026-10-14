@@ -31,6 +31,22 @@ return function(ctx)
         if LOGGER then LOGGER.log(tag, msg) end
     end
 
+    local function fname_stamp(s)
+        -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
+        local out = {}
+        for i = 1, #s do
+            local c = string.sub(s, i, i)
+            local b = string.byte(c)
+            if (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+               or (b >= 97 and b <= 122) then
+                out[#out + 1] = c
+            else
+                out[#out + 1] = "_"
+            end
+        end
+        return table.concat(out)
+    end
+
     local function trim16(s)
         return string.sub(tostring(s or ""), 1, 16)
     end
@@ -210,7 +226,10 @@ return function(ctx)
                     return
                 end
             end
-            STORE.task_delete(n)
+            local okd, errd = STORE.task_delete(n)
+            log(okd and "INF" or "ERR",
+                okd and ("删除任务 " .. n .. (errd and ("(" .. errd .. ")") or ""))
+                   or ("删除任务失败 " .. n .. ": " .. tostring(errd)))
             log("INF", "删除任务 " .. n)
             refresh(); render_detail(); mark_dirty()
         elseif addr == LW.TM.btn_imp then
@@ -218,7 +237,11 @@ return function(ctx)
         elseif addr == LW.TM.btn_exp then
             local n = W.items[W.sel + 1]
             if not n or not FILEIO then return end
-            local fname = "task_" .. STORE.slug(n) .. ".csv"
+            -- 2026-10-15: 文件名带时间戳(同任务可多次导出不覆盖)
+            local nm = STORE.slug_head and STORE.slug_head(n)
+                      or STORE.slug(n)
+            local fname = "task_" .. nm .. "_"
+                .. fname_stamp(NOW()) .. ".csv"
             local ok = FILEIO.write_all("2:" .. fname,
                                          STORE.export_task_text(n))
             if ok and STORE.task_flush then STORE.task_flush(n) end

@@ -1674,8 +1674,21 @@ function FILEIO.exists(path)
 end
 
 function FILEIO.remove(path)
-    if FILEIO.io and FILEIO.io.delete then pcall(FILEIO.io.delete, path) end
-    return true
+    -- 2026-10-15十三修: 旧版pcall吞错恒返回true——平台file_delete
+    -- 失败时3:文件实际未删(用户实测重大bug). 改: 删除后读回验证,
+    -- 仍存在则覆盖清空兜底(内容置空), 如实返回结果
+    if FILEIO.io and FILEIO.io.delete then
+        pcall(FILEIO.io.delete, path)
+    end
+    local still = FILEIO.read_all and FILEIO.read_all(path)
+    if still == nil then
+        return true                            -- 已删或本就不存在
+    end
+    local ok = FILEIO.write_all and FILEIO.write_all(path, "")
+    if ok then
+        return true, "已清空(delete未生效)"
+    end
+    return nil, "删除失败: " .. path
 end
 
 function FILEIO.size(path)
@@ -2615,6 +2628,20 @@ local function fnv1a(s)
     return h
 end
 
+-- 任务名ASCII段(导出文件名可读片, 2026-10-15)
+function store.slug_head(name)
+    local ascii = {}
+    for i = 1, #name do
+        local c = string.byte(name, i)
+        if (c >= 48 and c <= 57) or (c >= 65 and c <= 90)
+           or (c >= 97 and c <= 122) then
+            if #ascii < 16 then ascii[#ascii + 1] = string.char(c) end
+        end
+    end
+    if #ascii == 0 then return "n" end
+    return table.concat(ascii)
+end
+
 function store.slug(name)
     local ascii = {}
     for i = 1, #name do
@@ -2726,8 +2753,10 @@ end
 
 function store.map_delete(name)
     store.maps[name] = nil
-    F.remove(p_map(name))
+    local ok, err = F.remove(p_map(name))
     index_write()
+    -- 2026-10-15: remove如实返回(旧恒true), 供页面记日志
+    return ok, err
 end
 
 function store.map_get(name) return store.maps[name] end
@@ -2844,9 +2873,11 @@ end
 
 function store.task_delete(name)
     store.tasks[name], store.results[name] = nil, nil
-    F.remove(p_task(name))
-    F.remove(p_result(name))
+    PENDING[name] = nil
+    local ok1 = F.remove(p_task(name))
+    local ok2, err2 = F.remove(p_result(name))
     index_write()
+    return ok1 and ok2, err2
 end
 
 -- startNode 下发后标记: 组内 c0..c0+bet-1 置1 (对齐 QT setBlockState(row,col,1))
@@ -2903,8 +2934,7 @@ end
 function store.task_export_clear(name)
     PENDING[name] = nil
     store.results[name] = {}
-    F.remove(p_result(name))
-    return true
+    return F.remove(p_result(name))
 end
 
 function store.task_set_last(name, r, c, now)
@@ -5862,6 +5892,22 @@ return function(ctx)
         if LOGGER then LOGGER.log(tag, msg) end
     end
 
+    local function fname_stamp(s)
+        -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
+        local out = {}
+        for i = 1, #s do
+            local c = string.sub(s, i, i)
+            local b = string.byte(c)
+            if (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+               or (b >= 97 and b <= 122) then
+                out[#out + 1] = c
+            else
+                out[#out + 1] = "_"
+            end
+        end
+        return table.concat(out)
+    end
+
     local function trim16(s)
         return string.sub(tostring(s or ""), 1, 16)
     end
@@ -6041,7 +6087,10 @@ return function(ctx)
                     return
                 end
             end
-            STORE.task_delete(n)
+            local okd, errd = STORE.task_delete(n)
+            log(okd and "INF" or "ERR",
+                okd and ("删除任务 " .. n .. (errd and ("(" .. errd .. ")") or ""))
+                   or ("删除任务失败 " .. n .. ": " .. tostring(errd)))
             log("INF", "删除任务 " .. n)
             refresh(); render_detail(); mark_dirty()
         elseif addr == LW.TM.btn_imp then
@@ -6049,7 +6098,11 @@ return function(ctx)
         elseif addr == LW.TM.btn_exp then
             local n = W.items[W.sel + 1]
             if not n or not FILEIO then return end
-            local fname = "task_" .. STORE.slug(n) .. ".csv"
+            -- 2026-10-15: 文件名带时间戳(同任务可多次导出不覆盖)
+            local nm = STORE.slug_head and STORE.slug_head(n)
+                      or STORE.slug(n)
+            local fname = "task_" .. nm .. "_"
+                .. fname_stamp(NOW()) .. ".csv"
             local ok = FILEIO.write_all("2:" .. fname,
                                          STORE.export_task_text(n))
             if ok and STORE.task_flush then STORE.task_flush(n) end
@@ -6204,8 +6257,26 @@ return function(ctx)
     local MAPDRAW, LOGGER, FILEIO = ctx.MAPDRAW, ctx.LOGGER, ctx.FILEIO
     local PROTOCOL = ctx.PROTOCOL
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
+    local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
     local W = { task = nil, ver = -1, qzdd = -1 }
+
+    local function fname_stamp(s)
+        -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
+        local out = {}
+        for i = 1, #s do
+            local c = string.sub(s, i, i)
+            local b = string.byte(c)
+            if (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+               or (b >= 97 and b <= 122) then
+                out[#out + 1] = c
+            else
+                out[#out + 1] = "_"
+            end
+        end
+        return table.concat(out)
+    end
+
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -6400,8 +6471,11 @@ return function(ctx)
             if W.task and FILEIO then
                 -- 2026-10-15: 导出即任务文件task_*.csv(信息+状态+是否播种+
                 -- 结果一体, 只含实际存在的排列表行, 不复刻QT的脏输出)
-                local fname = "task_"
-                    .. (STORE.slug and STORE.slug(W.task) or W.task) .. ".csv"
+                -- 2026-10-15: 文件名带时间戳(同任务可多次导出不覆盖)
+                local nm2 = STORE.slug_head and STORE.slug_head(W.task)
+                          or (STORE.slug and STORE.slug(W.task) or W.task)
+                local fname = "task_" .. nm2 .. "_"
+                    .. fname_stamp(NOW()) .. ".csv"
                 local ok = FILEIO.write_all("2:" .. fname,
                                              STORE.export_task_text(W.task))
                 if ok and STORE.task_flush then STORE.task_flush(W.task) end
@@ -6460,11 +6534,19 @@ local APP, PROTOCOL, CODEC, LWMAP
 local FILEIO, CSV, STORE, PATHALGO, LOGGER, PARASTORE, JOBRUN
 local pages = {}
 
--- 屏端时间源(B档): 平台时间 API 未验证, 退化为开机秒计数 "T+<n>s"
--- (仅进日志/结果时间字段, 不参与业务计算; 实物验证项: 替换为官方 RTC)
+-- 屏端时间源(B档): 2026-10-15改用平台 get_date_time()(手册§3.8返回
+-- year/month/day/hour/min/sec表), API不可用时回退开机秒计数T+<n>s
 local tick_cnt = 0
 local function now_s()
-    return ("T+%ds"):format(tick_cnt // 2)   -- POLL_MS=500 -> 2次/秒
+    if get_date_time then
+        local ok, tt = pcall(get_date_time)
+        if ok and type(tt) == "table" and tt.year then
+            return ("%04d-%02d-%02d %02d:%02d:%02d"):format(
+                tt.year, tt.month or 1, tt.day or 1,
+                tt.hour or 0, tt.min or 0, tt.sec or 0)
+        end
+    end
+    return ("T+%ds"):format(tick_cnt // 2)
 end
 
 local function setup()
