@@ -131,11 +131,8 @@ return function(ctx)
             elseif addr == LW.HIST.btn_del then
                 local n = selected_name()
                 if n then
-                    local okd, errd = STORE.task_delete(n)
-                    log(okd and "CMD" or "ERR",
-                        "删除任务 " .. n
-                        .. (okd and "(已验证)"
-                            or (": " .. tostring(errd))))
+                    STORE.task_delete(n)
+                    log("CMD", "删除任务 " .. n)
                     if S.sel > 0 then S.sel = S.sel - 1 end
                     refresh_list(); render_detail()
                 end
