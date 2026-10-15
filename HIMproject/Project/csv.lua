@@ -660,7 +660,7 @@ function csv.render_task_xlsx(t)
     row("排", rows)
     row("列", cols)
     row("路线类型", t.path_type or 0)
-    row("路线方向", (t.positive == 1) and "正" or "反")
+    row("路线方向", (t.positive == 1) and "反" or "正")  -- 十八修: 值1=反(QT语义)
     row("起点排列", (t.outset and t.outset.r) or 0,
         (t.outset and t.outset.c) or 0)
     row("最近完成排列", (t.last and t.last.r) or -1,
@@ -727,7 +727,7 @@ function csv.parse_task_xlsx(text)
                     local v = num(f[2])
                     if v and v >= 0 and v <= 5 then t.path_type = v end
                 elseif a1 == "路线方向" then
-                    t.positive = (f[2] == "正") and 1 or 0
+                    t.positive = (f[2] == "反") and 1 or 0  -- 十八修
                 elseif a1 == "起点排列" then
                     t.outset = { r = num(f[2]) or 0, c = num(f[3]) or 0 }
                 elseif a1 == "最近完成排列" then

@@ -38,7 +38,7 @@ local MODULES = {
     "fileio.lua", "csv.lua", "store.lua", "pathalgo.lua", "logger.lua", "parastore.lua", "jobrun.lua",
     "page_taskmgr.lua", "page_sowrt.lua",   -- 2026-10-13拆页: 任务管理(画面9+新建25弹窗)/实时播种(画面24); page_task退役
     "page_history.lua", "page_logview.lua",
-    "page_map.lua", "page_drawtest.lua", "mapdraw.lua",                            -- 地图导入页(2026-09-24新增, 画面9)
+    "page_map.lua", "mapdraw.lua",                            -- 地图导入页(2026-09-24新增, 画面9)
 }
 
 --================ 平台适配层 =================
@@ -192,8 +192,6 @@ LW.SCREEN = {
     SOWRT      = 24,  -- 实时播种页(拆页: 左信息栏+右地图画布+启停;
                       --   自任务管理页[开始任务]进入)
     NEWTASK    = 25,  -- 新建任务对话框(名称+地图选择, 对齐QT DialogNewTask)
-    DRAWTEST   = 26,  -- 绘图试验页(2026-10-13 M1: BasicGraph/on_draw底座
-                      --   验证, 任务向导拆页重构的前置验证, 验收后可撤)
 }
 
 --==================== 全局状态区(0x1002~0x102F) ====================
@@ -223,10 +221,7 @@ LW.A = {
                        --   main启动写一次; 与log留6字隔离, 画面配16)
     log      = 0x1060, -- 字符串 调试串(0x22心跳全局刷新, GB2312直通;
                        --   占0x1060~0x109F 共64字, 文本控件字数配64)
-    -- 绘图试验页(画面26, 2026-10-13 M1绘图底座验证; 0x10A0起为原全局
-    -- 扩展预留区, 后续任务向导拆页若需全局绘图地址从此段顺延)
-    drawtest     = 0x10A0, -- u16 WidgetBasicGraph数据地址(on_draw模式占位)
-    drawtest_btn = 0x10A1, -- u16 切换图样瞬态按钮(写1触发, Lua自动复位)
+    -- 0x10A0~0x10FF空闲(绘图试验页画面26已删除, 2026-10-16)
 }
 
 -- 全局按钮区 LW.B(0x1100~0x1103)已删除(2026-09-24): 主页改为纯导航,
@@ -2470,7 +2465,7 @@ function csv.render_task_xlsx(t)
     row("排", rows)
     row("列", cols)
     row("路线类型", t.path_type or 0)
-    row("路线方向", (t.positive == 1) and "正" or "反")
+    row("路线方向", (t.positive == 1) and "反" or "正")  -- 十八修: 值1=反(QT语义)
     row("起点排列", (t.outset and t.outset.r) or 0,
         (t.outset and t.outset.c) or 0)
     row("最近完成排列", (t.last and t.last.r) or -1,
@@ -2537,7 +2532,7 @@ function csv.parse_task_xlsx(text)
                     local v = num(f[2])
                     if v and v >= 0 and v <= 5 then t.path_type = v end
                 elseif a1 == "路线方向" then
-                    t.positive = (f[2] == "正") and 1 or 0
+                    t.positive = (f[2] == "反") and 1 or 0  -- 十八修
                 elseif a1 == "起点排列" then
                     t.outset = { r = num(f[2]) or 0, c = num(f[3]) or 0 }
                 elseif a1 == "最近完成排列" then
@@ -4235,10 +4230,17 @@ return jobrun
 
 _MODS["page_history.lua"] = [==[
 --[[
-page_history.lua —— 历史记录页(0x1900~, 画面7, B档)
+page_history.lua —— 历史记录页(0x1900~, 画面7; 2026-10-16十八修重设计)
 ================================================================================
-任务列表(多行字符串+上下移) → 查看明细(各排结果) / 导出U盘 / 删除。
-明细: 任务规格 + 已完成排的结果摘要(起止时间/穴肥合计)。
+对齐QT FormHistory样式(裁剪到800x480):
+  顶行: 任务总数/选中项 + [导出U盘][删除]
+  左栏: 任务列表(名+完成度) + 上移/下移 + 刷新
+  右区: 结果表(等宽字体对齐, wqyMicroHeiMono):
+        排|列|状|播1-6|肥1-6 逐行 + 表头 + 任务摘要(地图/路径/方向/完成率)
+        + 起止时间行(选中行), 上下翻页浏览全部结果。
+数据记录组件评估(2026-10-16): 其数据源=资料取样(Flash采样)/配方数据,
+官方对动态数据的推荐方案即"字符串表格+Lua拼接"——本页采用后者,
+虚拟屏也可联调(资料取样走Flash存储虚拟屏不支持)。
 --]]
 
 return function(ctx)
@@ -4248,22 +4250,30 @@ return function(ctx)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
-    local LIST_ROWS = 6
-    local S = { sel = 0, top = 0, items = {} }
+    local LIST_ROWS = 10
+    local TBL_ROWS = 13                -- 结果表可见行数(含表头)
+    local S = { sel = 0, top = 0, items = {}, ttop = 1 }
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
     end
 
     local function task_names()
-        return STORE and STORE.task_list() or {}   -- B档数据层降级容错
+        return STORE and STORE.task_list() or {}
+    end
+
+    -- 等宽填充: 数字右对齐定宽(n字符), 中文按2宽
+    local function pad_n(v, w)
+        local s = tostring(v or 0)
+        while #s < w do s = " " .. s end
+        return s
     end
 
     local function refresh_list()
         S.items = {}
         for _, n in ipairs(task_names()) do
             local d, tot, pct = STORE.task_progress(n)
-            S.items[#S.items + 1] = ("%s %d/%d"):format(n, d, tot)
+            S.items[#S.items + 1] = ("%s %d%%"):format(n, pct or 0)
         end
         local lines = {}
         for i = S.top + 1, math.min(S.top + LIST_ROWS, #S.items) do
@@ -4273,9 +4283,7 @@ return function(ctx)
         if #lines == 0 then lines[1] = " 无记录" end
         wstr(LW.HIST.list, table.concat(lines, "\r\n"))
         w16(LW.HIST.count, #S.items)
-        -- 2026-09-10 修: 回写选中项/列表首项(此前只写列表文本, 画面数值控件恒0)
         w16(LW.HIST.selidx, S.sel)
-        w16(LW.HIST.listtop, S.top)
     end
 
     local function selected_name()
@@ -4285,28 +4293,50 @@ return function(ctx)
 
     local function render_detail()
         local n = selected_name()
-        if not n then wstr(LW.HIST.detail, " "); return end
+        if not n then
+            wstr(LW.HIST.detail, " 无任务")
+            return
+        end
         local t = STORE.task_get(n)
-        local lines = { ("%s 地图=%s"):format(n, t and t.map or "?") }
-        if t then
-            lines[#lines + 1] = ("路径%d 方向%d 起点%d,%d"):format(
-                t.path_type or 0, t.positive or 0,
-                (t.outset and t.outset.r or 0) + 1,
-                (t.outset and t.outset.c or 0) + 1)
-            -- 结果摘要: 最近几条(旧->新取尾部)
-            local res = STORE.results[n] or {}
-            local from = math.max(1, #res - 5)
-            for i = from, #res do
-                local e = res[i]
-                local ss, fs = 0, 0
-                for _, v in ipairs(e.seed or {}) do ss = ss + v end
-                for _, v in ipairs(e.fert or {}) do fs = fs + v end
-                lines[#lines + 1] = ("排%s 穴%d 肥%d %s"):format(
-                    tostring(e.row), ss, fs,
-                    (e.end_t or ""):sub(1, 10))
-            end
-            local d, tot, pct = STORE.task_progress(n)
-            lines[#lines + 1] = ("完成 %d/%d %d%%"):format(d, tot, pct)
+        local m = t and STORE.maps[t.map]
+        local lines = {}
+        -- 摘要行
+        local dir = (t and t.positive == 1) and "反" or "正"
+        lines[#lines + 1] = ("%s %d排x%d列 路%d %s"):format(
+            (t and t.map or "?"), m and m.rows or 0, m and m.cols or 0,
+            t and t.path_type or 0, dir)
+        local d, tot, pct = STORE.task_progress(n)
+        lines[#lines + 1] = ("完成 %d/%d %d%% 共%d条"):format(
+            d or 0, tot or 0, pct or 0,
+            #(STORE.results[n] or {}))
+        -- 表头: 排 列 状 播1..6 肥1..6
+        local hd = { "排", "列", "状" }
+        for i = 1, 6 do hd[#hd + 1] = "播" .. i end
+        for i = 1, 6 do hd[#hd + 1] = "肥" .. i end
+        lines[#lines + 1] = table.concat(hd, " ")
+        -- 结果行(等宽对齐; 排/列显示号口径)
+        local res = STORE.results[n] or {}
+        local rows = m and m.rows or 5
+        local from = S.ttop
+        local to = math.min(S.ttop + TBL_ROWS - 1, #res)
+        for i = from, to do
+            local e = res[i]
+            local ss, fs = 0, 0
+            for _, v in ipairs(e.seed or {}) do ss = ss + v end
+            for _, v in ipairs(e.fert or {}) do fs = fs + v end
+            local f = {
+                pad_n(rows - (e.r or 0), 2),
+                pad_n((e.c or 0) + 1, 2),
+                pad_n(e.state or 0, 1),
+            }
+            for k = 1, 6 do f[#f + 1] = pad_n((e.seed or {})[k], 3) end
+            for k = 1, 6 do f[#f + 1] = pad_n((e.fert or {})[k], 3) end
+            lines[#lines + 1] = table.concat(f, " ")
+        end
+        if #res == 0 then
+            lines[#lines + 1] = " (暂无结果记录)"
+        elseif to < #res then
+            lines[#lines + 1] = (" ...还有%d条 [刷新]翻页"):format(#res - to)
         end
         wstr(LW.HIST.detail, table.concat(lines, "\r\n"))
     end
@@ -4316,19 +4346,34 @@ return function(ctx)
         if not n then return end
         if not FILEIO then log("ERR", "fileio未注入"); return end
         local txt = STORE.export_task_text(n)
-        -- U盘文件名必须纯ASCII(屏端文件系统限制, 真机实测), 用 store.slug;
-        -- 导出的CSV内容里 #TASK 行仍是中文显示名
-        local fname = "result_" .. (STORE.slug and STORE.slug(n) or n) .. ".csv"
+        local nm = STORE.slug_head and STORE.slug_head(n)
+                  or (STORE.slug and STORE.slug(n) or n)
+        local ts = NOW()
+        local stamp = {}
+        for i = 1, #ts do
+            local c = string.sub(ts, i, i)
+            local b = string.byte(c)
+            if (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+               or (b >= 97 and b <= 122) then
+                stamp[#stamp + 1] = c
+            else
+                stamp[#stamp + 1] = "_"
+            end
+        end
+        local fname = "task_" .. nm .. "_" .. table.concat(stamp) .. ".csv"
         local ok, err = FILEIO.write_all("2:" .. fname, txt)
+        if ok and STORE.task_flush then STORE.task_flush(n) end
+        if ok and STORE.task_export_clear then
+            STORE.task_export_clear(n)
+        end
         log(ok and "INF" or "ERR",
-            ok and ("导出任务 " .. n .. " -> " .. fname)
+            ok and ("导出任务 " .. n .. " -> " .. fname .. "(3:结果已清)")
                or ("导出失败 " .. tostring(err)))
     end
 
     local page = {
-        id = LW.SCREEN.HISTORY,                   -- 画面号(数字, APP.set_screen 路由)
+        id = LW.SCREEN.HISTORY,
         on_enter = function()
-            -- 外部预选(2026-10-13 M3): 实时播种页[任务结果]跳转携带任务名
             if APP and APP.preset_hist_task then
                 local want = APP.preset_hist_task
                 APP.preset_hist_task = nil
@@ -4340,35 +4385,52 @@ return function(ctx)
                     end
                 end
             end
+            S.ttop = 1
             refresh_list()
             render_detail()
         end,
         on_leave = function() end,
         poll_cmds = {},
         on_frame = function() end,
-        addrs = {                                 -- 按钮地址声明(APP.by_addr 路由必需)
+        addrs = {
             LW.HIST.btn_up, LW.HIST.btn_down, LW.HIST.btn_view,
             LW.HIST.btn_exp, LW.HIST.btn_del,
         },
         on_update = function(self, addr, val)
             if val ~= 1 then return end
-            if addr == LW.HIST.btn_up and S.sel > 0 then
-                S.sel = S.sel - 1
-                if S.sel < S.top then S.top = S.sel end
-                refresh_list(); render_detail()
-            elseif addr == LW.HIST.btn_down and S.sel < #S.items - 1 then
-                S.sel = S.sel + 1
-                if S.sel >= S.top + LIST_ROWS then S.top = S.sel - LIST_ROWS + 1 end
-                refresh_list(); render_detail()
+            if addr == LW.HIST.btn_up then
+                if S.sel > 0 then
+                    S.sel = S.sel - 1
+                    if S.sel < S.top then S.top = S.sel end
+                    S.ttop = 1
+                    refresh_list(); render_detail()
+                end
+            elseif addr == LW.HIST.btn_down then
+                if S.sel < #S.items - 1 then
+                    S.sel = S.sel + 1
+                    if S.sel >= S.top + LIST_ROWS then
+                        S.top = S.sel - LIST_ROWS + 1
+                    end
+                    S.ttop = 1
+                    refresh_list(); render_detail()
+                end
             elseif addr == LW.HIST.btn_view then
+                -- 刷新=结果表翻页(到底回卷)
+                local n = selected_name()
+                local res = n and (STORE.results[n] or {}) or {}
+                S.ttop = S.ttop + TBL_ROWS - 1
+                if S.ttop > #res then S.ttop = 1 end
                 render_detail()
             elseif addr == LW.HIST.btn_exp then
                 export_usb()
             elseif addr == LW.HIST.btn_del then
                 local n = selected_name()
                 if n then
-                    STORE.task_delete(n)
-                    log("CMD", "删除任务 " .. n)
+                    local okd, errd = STORE.task_delete(n)
+                    log(okd and "CMD" or "ERR",
+                        "删除任务 " .. n
+                        .. (okd and "(已验证)"
+                            or (": " .. tostring(errd))))
                     if S.sel > 0 then S.sel = S.sel - 1 end
                     refresh_list(); render_detail()
                 end
@@ -5480,141 +5542,6 @@ end
 return parastore
 ]==]
 
-_MODS["page_drawtest.lua"] = [==[
---[[
-page_drawtest.lua —— 画面26 绘图试验页(2026-10-13 M1绘图底座验证)
-================================================================================
-目的: 虚拟屏/真机验证 WidgetBasicGraph + on_draw + draw_* API 底座:
-  ① 重绘模式(PaintMode=0)下 on_draw 全量重画成立性(切图样/切画面恢复)
-  ② draw_rect 填充/边框, draw_line 线宽, draw_circle(注意: fill=0实心),
-     draw_text(GBK charcode=1)
-  ③ RGB565 颜色自算口径
-  ④ redraw() 触发时机(on_enter/on_update后生效)
-图样0=状态色网格(任务地图色系) 1=线宽/圆/边框 2=文字规格。
-布局: 画布控件ID=1 (50,40,700,360) ReadAddr=LW.A.drawtest;
-      [切换图样]瞬态按钮 LW.A.drawtest_btn; [主页]返回;
-      主页(511,159)临时入口(拆页重构完成后随本页一并撤或留作诊断)。
-平台注意: set_pen_color等绘图API仅真机/虚拟屏存在, PC测试环境跳过绘制。
---]]
-
-local function creator(ctx)
-    local LW = ctx.LW
-    local page = {}
-    page.id = LW.SCREEN.DRAWTEST
-    page.addrs = { LW.A.drawtest_btn }
-
-    local pattern = 0                    -- 0状态色网格 1线条圆 2文字
-    local dirty = true                  -- on_enter里redraw()时机过早无效
-                                       -- (切页回来空白, 2026-10-13实测),
-                                       -- 改由on_tick首拍补画
-
-    local function rgb565(r, g, b)
-        return ((r // 8) << 11) | ((g // 4) << 5) | (b // 8)
-    end
-
-    -- 画布原点包装(2026-10-13: draw_*为整画面坐标系, 画布在(50,40))
-    local OX, OY = 50, 40
-    local function d_rect(x0, y0, x1, y1, f)
-        draw_rect(x0 + OX, y0 + OY, x1 + OX, y1 + OY, f)
-    end
-    local function d_line(x0, y0, x1, y1, w)
-        draw_line(x0 + OX, y0 + OY, x1 + OX, y1 + OY, w)
-    end
-    local function d_circle(x, y, r, f)
-        draw_circle(x + OX, y + OY, r, f)
-    end
-    local function d_text(s, x, y, w, h, f0, size, col, al, cc)
-        draw_text(s, x + OX, y + OY, w, h, f0, size, col, al, cc)
-    end
-
-    local function draw_pat0()
-        local cols = { { 192, 192, 192, "待播" }, { 0, 112, 192, "下发" },
-                       { 34, 139, 34, "完成" }, { 237, 108, 36, "中断" },
-                       { 64, 64, 64, "不播" }, { 255, 0, 0, "农机" } }
-        for r = 0, 2 do
-            for c = 0, 5 do
-                local e = cols[c + 1]
-                local x0, y0 = 20 + c * 110, 20 + r * 110
-                set_pen_color(rgb565(e[1], e[2], e[3]))
-                d_rect(x0, y0, x0 + 100, y0 + 100, 1)
-                d_text(e[4], x0, y0 + 40, 100, 30, 0, 20,
-                          rgb565(255, 255, 255), 1, 1)
-            end
-        end
-        set_pen_color(0)
-        d_text("图样0 状态色网格 RGB565自算", 20, 350, 420, 24, 0, 16, 0, 0, 1)
-    end
-
-    local function draw_pat1()
-        for i = 1, 8 do
-            set_pen_color(rgb565(255, 0, 0))
-            d_line(20, 20 + i * 20, 300, 20 + i * 20, i)
-        end
-        set_pen_color(rgb565(0, 112, 192))
-        d_circle(120, 220, 60, 0)          -- 实心(fill=0)
-        set_pen_color(rgb565(34, 139, 34))
-        d_circle(300, 220, 60, 3)          -- 空心(线厚3)
-        set_pen_color(0)
-        d_rect(400, 160, 650, 300, 0)      -- 边框
-        d_text("图样1 线宽1-8/实心圆/空心圆/边框", 20, 350, 500, 24, 0, 16,
-                  0, 0, 1)
-    end
-
-    local function draw_pat2()
-        set_pen_color(0)
-        d_rect(20, 20, 660, 340, 1)        -- 黑底
-        d_text("16号字-左对齐", 30, 30, 300, 20, 0, 16,
-                  rgb565(255, 255, 255), 0, 1)
-        d_text("24号字-居中", 30, 70, 400, 30, 0, 24,
-                  rgb565(255, 255, 0), 1, 1)
-        d_text("32号字-右对齐", 30, 120, 500, 40, 0, 32,
-                  rgb565(0, 255, 128), 2, 1)
-        d_text("排列行程 12.34m 速度 1.5m/s", 30, 200, 400, 30, 0, 24,
-                  rgb565(255, 255, 255), 0, 1)
-        d_text("排5-2 列3 密度4000 编号17", 30, 250, 400, 30, 0, 24,
-                  rgb565(255, 255, 255), 0, 1)
-        d_text("图样2 文字规格", 30, 310, 300, 24, 0, 16,
-                  rgb565(255, 255, 255), 0, 1)
-    end
-
-    local function paint()
-        if set_pen_color == nil then return end
-        if pattern == 0 then
-            draw_pat0()
-        elseif pattern == 1 then
-            draw_pat1()
-        else
-            draw_pat2()
-        end
-    end
-
-    function page:on_drawctrl(cid)
-        if cid == 1 then paint() end           -- 画布控件ID=1
-    end
-
-    function page:on_enter()
-        dirty = true
-    end
-
-    function page:on_tick()
-        if dirty then
-            dirty = false
-            if redraw then redraw() end
-        end
-    end
-
-    function page:on_update(addr, v)
-        if addr == LW.A.drawtest_btn then
-            pattern = (pattern + 1) % 3
-            if redraw then redraw() end
-        end
-    end
-
-    return page
-end
-
-return creator
-]==]
 
 _MODS["mapdraw.lua"] = [==[
 --[[
