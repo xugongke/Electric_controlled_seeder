@@ -143,7 +143,7 @@ pwd_ok,LW1D22,u16 解锁标志 1=已解锁(厂家参数页进入校验)
 hist_count,LW1900,u16 任务总数
 hist_selidx,LW1901,u16 选中任务(0基)
 hist_list,LW1910,字符串 任务列表(规划占0x1910~0x194F， 64字≈6行)
-hist_detail,LW1950,字符串 任务明细多行(规划占0x1950~0x19BF， 112字≈8行: 各排穴数/肥数)
+hist_detail,LW2000,字符串 结果表(2026-10-16十九修移大字符串区:
 hist_btn_up,LW19C0,按钮 上移
 hist_btn_down,LW19C1,按钮 下移
 hist_btn_view,LW19C2,按钮 查看明细

@@ -67,6 +67,17 @@ function store.slug(name)
     return head .. "_" .. string.format("%08X", fnv1a(name))
 end
 
+-- 自然排序(2026-10-16十九修): 字典序会把"任务10"排在"任务2"之后(用户实测
+-- 任务10插到任务1下面); 同前缀+尾数字按数值比, 其余字典序
+local function nat_less(a, b)
+    local pa, na = a:match("^(.-)(%d+)$")
+    local pb, nb = b:match("^(.-)(%d+)$")
+    if pa and pb and pa == pb then
+        return tonumber(na) < tonumber(nb)
+    end
+    return a < b
+end
+
 local function p_map(n)    return PREFIX .. "map_" .. store.slug(n) .. ".csv" end
 local function p_task(n)   return PREFIX .. "task_" .. store.slug(n) .. ".csv" end
 local function p_result(n) return PREFIX .. "result_" .. store.slug(n) .. ".csv" end
@@ -103,11 +114,11 @@ local function index_write()
     local L = {}
     local names = {}
     for n in pairs(store.maps) do names[#names + 1] = n end
-    table.sort(names)
+    table.sort(names, nat_less)
     for _, n in ipairs(names) do L[#L + 1] = "M," .. n end
     names = {}
     for n in pairs(store.tasks) do names[#names + 1] = n end
-    table.sort(names)
+    table.sort(names, nat_less)
     for _, n in ipairs(names) do L[#L + 1] = "T," .. n end
     local s = table.concat(L, "\r\n")
     if #L > 0 then s = s .. "\r\n" end
@@ -184,7 +195,7 @@ function store.map_get(name) return store.maps[name] end
 function store.map_list()
     local t = {}
     for n in pairs(store.maps) do t[#t + 1] = n end
-    table.sort(t)
+    table.sort(t, nat_less)
     return t
 end
 
@@ -248,7 +259,7 @@ function store.task_get(name) return store.tasks[name] end
 function store.task_list()
     local t = {}
     for n in pairs(store.tasks) do t[#t + 1] = n end
-    table.sort(t)
+    table.sort(t, nat_less)
     return t
 end
 

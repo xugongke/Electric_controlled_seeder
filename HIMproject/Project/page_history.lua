@@ -19,8 +19,10 @@ return function(ctx)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
-    local LIST_ROWS = 10
-    local TBL_ROWS = 13                -- 结果表可见行数(含表头)
+    -- 列表行数保守取9(330px高/约35px行; 十九修: 用户反馈10行时末行
+    -- 可能被截且窗口不跟随, 取小确保可视+滚动跟随生效)
+    local LIST_ROWS = 9
+    local TBL_ROWS = 16                -- 结果表可见行数(detail加宽后)
     local S = { sel = 0, top = 0, items = {}, ttop = 1 }
 
     local function log(tag, msg)

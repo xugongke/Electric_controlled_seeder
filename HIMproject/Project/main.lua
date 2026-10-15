@@ -444,7 +444,9 @@ LW.HIST = {
     count    = 0x1900, -- u16 任务总数
     selidx   = 0x1901, -- u16 选中任务(0基)
     list     = 0x1910, -- 字符串 任务列表(规划占0x1910~0x194F, 64字≈6行)
-    detail   = 0x1950, -- 字符串 任务明细多行(规划占0x1950~0x19BF, 112字≈8行: 各排穴数/肥数)
+    detail   = 0x2000, -- 字符串 结果表(2026-10-16十九修移大字符串区:
+                       --   规划0x2000~0x2BFF共3072字; 原0x1950区112字
+                       --   装不下14列x多行, 0x1950~0x19BF释放空闲)
     btn_up   = 0x19C0, -- 按钮 上移
     btn_down = 0x19C1, -- 按钮 下移
     btn_view = 0x19C2, -- 按钮 查看明细
@@ -2657,6 +2659,17 @@ function store.slug(name)
     return head .. "_" .. string.format("%08X", fnv1a(name))
 end
 
+-- 自然排序(2026-10-16十九修): 字典序会把"任务10"排在"任务2"之后(用户实测
+-- 任务10插到任务1下面); 同前缀+尾数字按数值比, 其余字典序
+local function nat_less(a, b)
+    local pa, na = a:match("^(.-)(%d+)$")
+    local pb, nb = b:match("^(.-)(%d+)$")
+    if pa and pb and pa == pb then
+        return tonumber(na) < tonumber(nb)
+    end
+    return a < b
+end
+
 local function p_map(n)    return PREFIX .. "map_" .. store.slug(n) .. ".csv" end
 local function p_task(n)   return PREFIX .. "task_" .. store.slug(n) .. ".csv" end
 local function p_result(n) return PREFIX .. "result_" .. store.slug(n) .. ".csv" end
@@ -2693,11 +2706,11 @@ local function index_write()
     local L = {}
     local names = {}
     for n in pairs(store.maps) do names[#names + 1] = n end
-    table.sort(names)
+    table.sort(names, nat_less)
     for _, n in ipairs(names) do L[#L + 1] = "M," .. n end
     names = {}
     for n in pairs(store.tasks) do names[#names + 1] = n end
-    table.sort(names)
+    table.sort(names, nat_less)
     for _, n in ipairs(names) do L[#L + 1] = "T," .. n end
     local s = table.concat(L, "\r\n")
     if #L > 0 then s = s .. "\r\n" end
@@ -2774,7 +2787,7 @@ function store.map_get(name) return store.maps[name] end
 function store.map_list()
     local t = {}
     for n in pairs(store.maps) do t[#t + 1] = n end
-    table.sort(t)
+    table.sort(t, nat_less)
     return t
 end
 
@@ -2838,7 +2851,7 @@ function store.task_get(name) return store.tasks[name] end
 function store.task_list()
     local t = {}
     for n in pairs(store.tasks) do t[#t + 1] = n end
-    table.sort(t)
+    table.sort(t, nat_less)
     return t
 end
 
@@ -4250,8 +4263,10 @@ return function(ctx)
     local w16, wstr, r16 = ctx.w16, ctx.wstr, ctx.r16
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
-    local LIST_ROWS = 10
-    local TBL_ROWS = 13                -- 结果表可见行数(含表头)
+    -- 列表行数保守取9(330px高/约35px行; 十九修: 用户反馈10行时末行
+    -- 可能被截且窗口不跟随, 取小确保可视+滚动跟随生效)
+    local LIST_ROWS = 9
+    local TBL_ROWS = 16                -- 结果表可见行数(detail加宽后)
     local S = { sel = 0, top = 0, items = {}, ttop = 1 }
 
     local function log(tag, msg)
