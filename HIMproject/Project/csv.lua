@@ -158,7 +158,9 @@ function csv.parse_map_grid(text)
                     local rr = a1:match("^(%d+)排$")
                     local r = rr and tonumber(rr)
                     if r and m.rows and r >= 1 and r <= m.rows then
-                        local r0 = r - 1
+                        -- 2026-10-16十七修: N排->内部rows-N(QT :55-83内部0
+                        -- 在顶部表头'排N'; 旧N-1映射致文件1排=屏上N排翻转)
+                        local r0 = m.rows - r
                         if not m.blocks[r0] then m.blocks[r0] = {} end
                         for c = 2, #f do
                             local c0 = c - 2
@@ -468,7 +470,7 @@ function csv.render_map(m)
         for r = m.rows, 1, -1 do
             local vals = { r .. "排" }
             for c = 1, m.cols do
-                local b = (m.blocks[r - 1] or {})[c - 1]
+                local b = (m.blocks[m.rows - r] or {})[c - 1]  -- 十七修: 标签N排<-内部rows-N
                            or { num = 0, density = 0, sow = 1 }
                 vals[c + 1] = get(b)
             end
@@ -672,7 +674,7 @@ function csv.render_task_xlsx(t)
         for r = rows, 1, -1 do
             local vals = { r .. "排" }
             for c = 1, cols do
-                local b = (t.blocks[r - 1] or {})[c - 1]
+                local b = (t.blocks[rows - r] or {})[c - 1]  -- 十七修
                 vals[c + 1] = get(b)
             end
             L[#L + 1] = table.concat(vals, ",")
@@ -755,7 +757,9 @@ function csv.parse_task_xlsx(text)
             elseif section == "结果" then
                 local e = parse_result_line(f)
                 if e then
-                    e.r, e.c = e.r - 1, e.c - 1     -- 1基->0基
+                    -- 十七修: 排=显示号(1基)->内部nrows-显示; 列1基->0基
+                    e.c = e.c - 1
+                    e.r = nrows and (nrows - e.r) or (e.r - 1)
                     if e.r >= 0 and e.c >= 0 then
                         t.results[#t.results + 1] = e
                     end
