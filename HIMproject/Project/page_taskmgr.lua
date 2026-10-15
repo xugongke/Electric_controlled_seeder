@@ -351,7 +351,7 @@ return function(ctx)
                 log("ERR", "无地图可选")
                 return
             end
-            local t, err = STORE.task_create(name, mapn, 0, 1, 0, 0, 0, NOW())
+            local t, err = STORE.task_create(name, mapn, 0, 0, 0, 0, 0, NOW())  -- 十七修: 默认正(QT新任务positive=false)
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
                 wstr(LW.NT.mapsel, "失败:" .. tostring(err))

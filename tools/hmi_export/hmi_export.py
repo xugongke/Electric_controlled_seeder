@@ -169,7 +169,8 @@ def render_map_csv(m):
         for r in range(m.rows, 0, -1):
             vals = ['%d排' % r]
             for c in range(m.cols):
-                b = m.blocks[r - 1][c]
+                # 2026-10-16十七修: 标签N排<-内部rows-N(对齐QT内部0在顶部表头'排N')
+                b = m.blocks[m.rows - r][c]
                 vals.append(get(b))
             L.append(','.join(str(v) for v in vals))
         row('', '', '', '')

@@ -734,8 +734,10 @@ function csv.parse_task_xlsx(text)
             elseif (section == "状态" or section == "是否播种") then
                 local rr = a1:match("^(%d+)排$")
                 if rr then
-                    local r0 = tonumber(rr) - 1
-                    if r0 >= 0 then
+                    -- 十七修: N排->内部nrows-N(与地图/QT口径一致)
+                    local r0 = nrows and (nrows - tonumber(rr))
+                                or (tonumber(rr) - 1)
+                    if r0 and r0 >= 0 then
                         if not t.blocks[r0] then t.blocks[r0] = {} end
                         for c = 2, #f do
                             local c0 = c - 2
