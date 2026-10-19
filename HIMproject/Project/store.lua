@@ -69,9 +69,21 @@ end
 
 -- 自然排序(2026-10-16十九修): 字典序会把"任务10"排在"任务2"之后(用户实测
 -- 任务10插到任务1下面); 同前缀+尾数字按数值比, 其余字典序
+local function digit_tail(s)
+    -- 尾部连续数字手写提取(二十一修: (.-)(%d+)$复杂match屏端不可靠)
+    local e = #s
+    while e >= 1 do
+        local b = string.byte(s, e)
+        if b < 48 or b > 57 then break end
+        e = e - 1
+    end
+    if e == #s then return nil end
+    return string.sub(s, 1, e), tonumber(string.sub(s, e + 1))
+end
+
 local function nat_less(a, b)
-    local pa, na = a:match("^(.-)(%d+)$")
-    local pb, nb = b:match("^(.-)(%d+)$")
+    local pa, na = digit_tail(a)
+    local pb, nb = digit_tail(b)
     if pa and pb and pa == pb then
         return tonumber(na) < tonumber(nb)
     end

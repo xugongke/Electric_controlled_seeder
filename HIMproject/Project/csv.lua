@@ -89,7 +89,13 @@ end
 function csv.check_name(s)
     if type(s) ~= "string" or #s == 0 then return false, "空名字" end
     if #s > 31 then return false, "名字超31字节" end
-    if s:find("[,\r\n]") then return false, "名字含逗号或换行" end
+    -- 手写字节扫描(二十一修: 字符类find屏端不可靠)
+    for i = 1, #s do
+        local b = string.byte(s, i)
+        if b == 44 or b == 13 or b == 10 then
+            return false, "名字含逗号或换行"
+        end
+    end
     return true
 end
 
@@ -109,6 +115,22 @@ local function fmt_num(v)
         return string.format("%d", v)
     end
     return trim_zeros(string.format("%.8f", v))  -- 8位小数=GPS毫米级, 去尾零
+end
+
+-- "N排"标签手写解析(2026-10-19二十一修: ^(%d+)排$复杂match屏端不可靠)
+local function row_label_num(a1)
+    local bl, bh = string.byte("排", 1, 2)
+    local n = #a1
+    if n < 3 then return nil end
+    if string.byte(a1, n - 1) ~= bl or string.byte(a1, n) ~= bh then
+        return nil
+    end
+    local digits = string.sub(a1, 1, n - 2)
+    for i = 1, #digits do
+        local b = string.byte(digits, i)
+        if b < 48 or b > 57 then return nil end
+    end
+    return tonumber(digits)
 end
 
 -------------------------------------------------------------------- 区块式解析(2026-10-08)
@@ -155,7 +177,7 @@ function csv.parse_map_grid(text)
                 if head_pending[section] and a1 == "" then
                     head_pending[section] = false  -- ",1列,2列"表头行
                 else
-                    local rr = a1:match("^(%d+)排$")
+                    local rr = row_label_num(a1)            -- 二十一修手写
                     local r = rr and tonumber(rr)
                     if r and m.rows and r >= 1 and r <= m.rows then
                         -- 2026-10-16十七修: N排->内部rows-N(QT :55-83内部0
@@ -734,7 +756,7 @@ function csv.parse_task_xlsx(text)
                     t.last = { r = num(f[2]) or -1, c = num(f[3]) or -1 }
                 end
             elseif (section == "状态" or section == "是否播种") then
-                local rr = a1:match("^(%d+)排$")
+                local rr = row_label_num(a1)            -- 二十一修手写
                 if rr then
                     -- 十七修: N排->内部nrows-N(与地图/QT口径一致)
                     local r0 = nrows and (nrows - tonumber(rr))

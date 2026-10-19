@@ -73,11 +73,46 @@ local function write_lines(ls)
     return FILEIO.write_all(CFG_PATH, table.concat(ls, "\r\n") .. "\r\n") == true
 end
 
+-- 组头/键值手写解析(2026-10-19二十一修: 屏端match复杂模式不可靠
+-- ——%[(%w+)]捕获在真机失败致cur恒nil, 全部键回默认, 6行机变
+-- 4行机+"配置文件缺失"假象, 用户实测; 官方仅保证%d+级简单模式)
+local function head_group(ln)
+    if #ln < 3 then return nil end
+    if string.byte(ln, 1) ~= 91 or string.byte(ln, #ln) ~= 93 then
+        return nil                          -- 非[...]形
+    end
+    local inner = string.sub(ln, 2, #ln - 1)
+    for i = 1, #inner do
+        local b = string.byte(inner, i)
+        if b == 91 or b == 93 or b == 61 then return nil end
+    end
+    return inner
+end
+
+local function split_kv(ln)
+    local eq = string.find(ln, "=", 1, true)   -- plain查找
+    if not eq or eq <= 1 then return nil end
+    local k = string.sub(ln, 1, eq - 1)
+    for i = 1, #k do
+        local b = string.byte(k, i)
+        local okc = (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+                  or (b >= 97 and b <= 122) or b == 95 or b == 92
+        if not okc then return nil end
+    end
+    local v = string.sub(ln, eq + 1)
+    while #v > 0 and (string.byte(v, #v) == 32
+                      or string.byte(v, #v) == 9) do
+        v = string.sub(v, 1, #v - 1)
+    end
+    return k, v
+end
+
 -- 组内键值替换(保留其他组与键): 键序由keys给定, kv={键=值串}
 local function edit_group(ls, group, kv, keys)
     local gstart = nil
     for i, ln in ipairs(ls) do
-        if ln:match("^%[" .. group .. "%]") then gstart = i break end
+        -- 组头比较手写化(二十一修, 同val_of根因)
+        if head_group(ln) == group then gstart = i break end
     end
     if not gstart then
         if #ls > 0 and ls[#ls] ~= "" then ls[#ls + 1] = "" end
@@ -109,13 +144,12 @@ end
 local function val_of(ls, group, key)
     local cur = nil
     for _, ln in ipairs(ls) do
-        local g = ln:match("^%[(%w+)%]")
+        local g = head_group(ln)
         if g then cur = g end
-        local k, v = ln:match("^([%w\\]+)=(.-)%s*$")
+        local k, v = split_kv(ln)
         if cur == group and k == key then return v end
     end
 end
-
 local function unesc2(utf, esc, s)
     if s == nil then return nil end
     for k, v in pairs(utf) do if v == s then return k end end

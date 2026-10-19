@@ -24,7 +24,9 @@ VT_LW = 1    --变量地址
 VT_RW = 2    --FLASH存储
 
 --================ 运行配置 =================
-local UART_CH       = 0      -- 主串口（下位机接线口）
+local UART_CH       = 2      -- 副RS232(2026-10-19二十一修: HMI80480KM070通道表
+                               --   0=主RS485 1=UART2 TTL未初始化 2=副RS232;
+                               --   UartSetup=0须Lua显式uart_setup, 否则崩屏)
 local POLL_MS       = 200    -- 状态轮询周期 ms(2026-10-15: 500->200对齐QT STATUSINTERVAL, 修末拍计数少1)
 local ROWS          = 4      -- 下位机行数: 4=hd3005a1源码 / 6=平板版; 联调模拟器默认4
 local TX_ONE_BASED  = true   -- 发送字节数组下标约定: true=从1起(大彩文档用法)
@@ -1627,6 +1629,9 @@ end
 function FILEIO.write_all(path, data)
     local fd, err = fopen(path, 1)
     if not fd then return nil, err end
+    -- 写指针归零(2026-10-19二十一修: 覆写模式打开指针不归零,
+    -- 单会话残留偏移致已写盘回读不一致, 用户实测)
+    if FILEIO.io.seek then pcall(FILEIO.io.seek, 0) end
     if #data == 0 then                           -- 空串: 建空文件即返回
         pcall(FILEIO.io.close)
         return true
@@ -1901,7 +1906,13 @@ end
 function csv.check_name(s)
     if type(s) ~= "string" or #s == 0 then return false, "空名字" end
     if #s > 31 then return false, "名字超31字节" end
-    if s:find("[,\r\n]") then return false, "名字含逗号或换行" end
+    -- 手写字节扫描(二十一修: 字符类find屏端不可靠)
+    for i = 1, #s do
+        local b = string.byte(s, i)
+        if b == 44 or b == 13 or b == 10 then
+            return false, "名字含逗号或换行"
+        end
+    end
     return true
 end
 
@@ -1921,6 +1932,22 @@ local function fmt_num(v)
         return string.format("%d", v)
     end
     return trim_zeros(string.format("%.8f", v))  -- 8位小数=GPS毫米级, 去尾零
+end
+
+-- "N排"标签手写解析(2026-10-19二十一修: ^(%d+)排$复杂match屏端不可靠)
+local function row_label_num(a1)
+    local bl, bh = string.byte("排", 1, 2)
+    local n = #a1
+    if n < 3 then return nil end
+    if string.byte(a1, n - 1) ~= bl or string.byte(a1, n) ~= bh then
+        return nil
+    end
+    local digits = string.sub(a1, 1, n - 2)
+    for i = 1, #digits do
+        local b = string.byte(digits, i)
+        if b < 48 or b > 57 then return nil end
+    end
+    return tonumber(digits)
 end
 
 -------------------------------------------------------------------- 区块式解析(2026-10-08)
@@ -1967,7 +1994,7 @@ function csv.parse_map_grid(text)
                 if head_pending[section] and a1 == "" then
                     head_pending[section] = false  -- ",1列,2列"表头行
                 else
-                    local rr = a1:match("^(%d+)排$")
+                    local rr = row_label_num(a1)            -- 二十一修手写
                     local r = rr and tonumber(rr)
                     if r and m.rows and r >= 1 and r <= m.rows then
                         -- 2026-10-16十七修: N排->内部rows-N(QT :55-83内部0
@@ -2546,7 +2573,7 @@ function csv.parse_task_xlsx(text)
                     t.last = { r = num(f[2]) or -1, c = num(f[3]) or -1 }
                 end
             elseif (section == "状态" or section == "是否播种") then
-                local rr = a1:match("^(%d+)排$")
+                local rr = row_label_num(a1)            -- 二十一修手写
                 if rr then
                     -- 十七修: N排->内部nrows-N(与地图/QT口径一致)
                     local r0 = nrows and (nrows - tonumber(rr))
@@ -2666,9 +2693,21 @@ end
 
 -- 自然排序(2026-10-16十九修): 字典序会把"任务10"排在"任务2"之后(用户实测
 -- 任务10插到任务1下面); 同前缀+尾数字按数值比, 其余字典序
+local function digit_tail(s)
+    -- 尾部连续数字手写提取(二十一修: (.-)(%d+)$复杂match屏端不可靠)
+    local e = #s
+    while e >= 1 do
+        local b = string.byte(s, e)
+        if b < 48 or b > 57 then break end
+        e = e - 1
+    end
+    if e == #s then return nil end
+    return string.sub(s, 1, e), tonumber(string.sub(s, e + 1))
+end
+
 local function nat_less(a, b)
-    local pa, na = a:match("^(.-)(%d+)$")
-    local pb, nb = b:match("^(.-)(%d+)$")
+    local pa, na = digit_tail(a)
+    local pb, nb = digit_tail(b)
     if pa and pb and pa == pb then
         return tonumber(na) < tonumber(nb)
     end
@@ -4639,7 +4678,10 @@ return function(ctx)
             end
             local imported, msgs = 0, {}
             for _, fnm in ipairs(list) do
-                if type(fnm) == "string" and fnm:match("^map_.+%.csv$") then
+                -- 文件名过滤手写(二十一修: 复杂match屏端不可靠)
+                if type(fnm) == "string"
+                   and string.sub(fnm, 1, 4) == "map_"
+                   and string.sub(fnm, #fnm - 3) == ".csv" then
                     local name = fnm:sub(5, -5)
                     local ok2, w2 = STORE.map_import_file("2:" .. fnm, name)
                     if ok2 then imported = imported + 1 else msgs[#msgs + 1] = w2 end
@@ -5198,11 +5240,46 @@ local function write_lines(ls)
     return FILEIO.write_all(CFG_PATH, table.concat(ls, "\r\n") .. "\r\n") == true
 end
 
+-- 组头/键值手写解析(2026-10-19二十一修: 屏端match复杂模式不可靠
+-- ——%[(%w+)]捕获在真机失败致cur恒nil, 全部键回默认, 6行机变
+-- 4行机+"配置文件缺失"假象, 用户实测; 官方仅保证%d+级简单模式)
+local function head_group(ln)
+    if #ln < 3 then return nil end
+    if string.byte(ln, 1) ~= 91 or string.byte(ln, #ln) ~= 93 then
+        return nil                          -- 非[...]形
+    end
+    local inner = string.sub(ln, 2, #ln - 1)
+    for i = 1, #inner do
+        local b = string.byte(inner, i)
+        if b == 91 or b == 93 or b == 61 then return nil end
+    end
+    return inner
+end
+
+local function split_kv(ln)
+    local eq = string.find(ln, "=", 1, true)   -- plain查找
+    if not eq or eq <= 1 then return nil end
+    local k = string.sub(ln, 1, eq - 1)
+    for i = 1, #k do
+        local b = string.byte(k, i)
+        local okc = (b >= 48 and b <= 57) or (b >= 65 and b <= 90)
+                  or (b >= 97 and b <= 122) or b == 95 or b == 92
+        if not okc then return nil end
+    end
+    local v = string.sub(ln, eq + 1)
+    while #v > 0 and (string.byte(v, #v) == 32
+                      or string.byte(v, #v) == 9) do
+        v = string.sub(v, 1, #v - 1)
+    end
+    return k, v
+end
+
 -- 组内键值替换(保留其他组与键): 键序由keys给定, kv={键=值串}
 local function edit_group(ls, group, kv, keys)
     local gstart = nil
     for i, ln in ipairs(ls) do
-        if ln:match("^%[" .. group .. "%]") then gstart = i break end
+        -- 组头比较手写化(二十一修, 同val_of根因)
+        if head_group(ln) == group then gstart = i break end
     end
     if not gstart then
         if #ls > 0 and ls[#ls] ~= "" then ls[#ls + 1] = "" end
@@ -5234,13 +5311,12 @@ end
 local function val_of(ls, group, key)
     local cur = nil
     for _, ln in ipairs(ls) do
-        local g = ln:match("^%[(%w+)%]")
+        local g = head_group(ln)
         if g then cur = g end
-        local k, v = ln:match("^([%w\\]+)=(.-)%s*$")
+        local k, v = split_kv(ln)
         if cur == group and k == key then return v end
     end
 end
-
 local function unesc2(utf, esc, s)
     if s == nil then return nil end
     for k, v in pairs(utf) do if v == s then return k end end
@@ -6012,7 +6088,10 @@ return function(ctx)
             end
             local cnt = 0
             for _, fn in ipairs(list) do
-                if type(fn) == "string" and fn:match("^task_.+%.csv$") then
+                -- 文件名过滤手写(二十一修: 复杂match屏端不可靠)
+                if type(fn) == "string"
+                   and string.sub(fn, 1, 5) == "task_"
+                   and string.sub(fn, #fn - 3) == ".csv" then
                     local txt = FILEIO.read_all("2:" .. fn)
                     if txt then
                         local t, err = STORE.task_import_text(txt)
@@ -6735,6 +6814,9 @@ function on_init()
         .. " uart_send=" .. type(uart_send) .. " uart_send_data=" .. type(uart_send_data))
 
     uart_free_protocol = 1                 -- 开启自由串口协议(被动回调模式)
+    -- 串口显式初始化(二十一修: UartSetup=0工程IDE不自动初始化串口参数,
+    -- 往未初始化通道发帧直接崩屏重启; 参数对齐官方示例8N1)
+    if uart_setup then pcall(uart_setup, UART_CH, 115200, 8, 0, 0) end
     if uart_set_timeout then uart_set_timeout(UART_CH, 0) end
 
     -- 发送函数探测(模块加载前先排除平台API问题)

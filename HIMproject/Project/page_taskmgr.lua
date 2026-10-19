@@ -149,7 +149,10 @@ return function(ctx)
             end
             local cnt = 0
             for _, fn in ipairs(list) do
-                if type(fn) == "string" and fn:match("^task_.+%.csv$") then
+                -- 文件名过滤手写(二十一修: 复杂match屏端不可靠)
+                if type(fn) == "string"
+                   and string.sub(fn, 1, 5) == "task_"
+                   and string.sub(fn, #fn - 3) == ".csv" then
                     local txt = FILEIO.read_all("2:" .. fn)
                     if txt then
                         local t, err = STORE.task_import_text(txt)

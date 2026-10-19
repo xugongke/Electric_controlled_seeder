@@ -95,7 +95,10 @@ return function(ctx)
             end
             local imported, msgs = 0, {}
             for _, fnm in ipairs(list) do
-                if type(fnm) == "string" and fnm:match("^map_.+%.csv$") then
+                -- 文件名过滤手写(二十一修: 复杂match屏端不可靠)
+                if type(fnm) == "string"
+                   and string.sub(fnm, 1, 4) == "map_"
+                   and string.sub(fnm, #fnm - 3) == ".csv" then
                     local name = fnm:sub(5, -5)
                     local ok2, w2 = STORE.map_import_file("2:" .. fnm, name)
                     if ok2 then imported = imported + 1 else msgs[#msgs + 1] = w2 end

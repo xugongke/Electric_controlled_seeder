@@ -129,6 +129,9 @@ end
 function FILEIO.write_all(path, data)
     local fd, err = fopen(path, 1)
     if not fd then return nil, err end
+    -- 写指针归零(2026-10-19二十一修: 覆写模式打开指针不归零,
+    -- 单会话残留偏移致已写盘回读不一致, 用户实测)
+    if FILEIO.io.seek then pcall(FILEIO.io.seek, 0) end
     if #data == 0 then                           -- 空串: 建空文件即返回
         pcall(FILEIO.io.close)
         return true
