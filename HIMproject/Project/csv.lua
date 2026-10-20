@@ -620,7 +620,10 @@ function csv.render_task(t)
     L[#L + 1] = ("#TASK,%s"):format(t.name)
     L[#L + 1] = ("#MAP,%s"):format(t.map)
     L[#L + 1] = ("#PATH,%d,%d"):format(t.path_type, t.positive)
-    L[#L + 1] = ("#EXCEED,%d"):format(t.sow_exceed and 1 or 0)
+    -- 2026-10-21零值真值修复: LUA中0为真, 旧式(and 1 or 0)使0也写1,
+    -- 任何落盘->重启后图外播种开关被静默置1, 续作误走图外虚拟排
+    -- (用户实测: 重启后一直模拟当前趟不切换/从-700起驶)
+    L[#L + 1] = ("#EXCEED,%d"):format(t.sow_exceed == 1 and 1 or 0)
     L[#L + 1] = ("#OUTSET,%d,%d"):format(t.outset.r, t.outset.c)
     L[#L + 1] = ("#LAST,%d,%d"):format(t.last.r, t.last.c)
     L[#L + 1] = ("#STATE,%d"):format(t.state)

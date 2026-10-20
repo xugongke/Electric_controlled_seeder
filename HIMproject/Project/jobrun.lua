@@ -317,7 +317,9 @@ function jobrun.start(task_name, opts)
     while start_idx <= #path do
         local pn = path[start_idx]
         local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
-        if not blk or (blk.sow == 1 and blk.state ~= 2) then
+        -- 中断(3)与完成(2)同跳: isSow对3为false->密度0驶过不补播(QT同),
+        -- 否则半趟停止后续作永远锚在半趟块上, 同一趟无限重走(2026-10-21实测)
+        if not blk or (blk.sow == 1 and blk.state ~= 2 and blk.state ~= 3) then
             break
         end
         start_idx = start_idx + 1
@@ -485,6 +487,21 @@ function jobrun.stop()
     end
     J.sow_state = false
     if LW and LW.RT and w16 then w16(LW.RT.running, 0) end
+    -- 停止即中断标红(2026-10-21用户要求): 进行中(1)->中断(3), 与boot掉电
+    -- 转换(store.boot 1->3, QT task.cpp:44加载时转换)同口径; QT本体在重新
+    -- 打开对话框重载任务时才转红, 屏端任务常驻内存无重载时机, 故提前到停止
+    local tt = STORE.tasks[J.task]
+    if tt then
+        local n3 = 0
+        for _, row in pairs(tt.blocks) do
+            for _, b in pairs(row) do
+                if b.state == 1 then b.state = 3; n3 = n3 + 1 end
+            end
+        end
+        if n3 > 0 then
+            log("INF", ("中断小区%d块已标红(停止)"):format(n3))
+        end
+    end
     -- 停止时统一落盘(2026-10-15: 暂存结果+任务定义一次写入3:)
     if STORE.task_flush then
         local okf, errf = STORE.task_flush(J.task)
