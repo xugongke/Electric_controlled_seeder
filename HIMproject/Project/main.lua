@@ -3850,12 +3850,16 @@ function jobrun.start(task_name, opts)
     end
     if start_idx > #path then
         -- 任务100%完成: 开始键照常可用(2026-10-20用户澄清, M23误读已撤回
-        -- 致歉)。QT :306-307停止续作指针=tempIndex(最后作业位置+1, 越尾
-        -- 回绕:415-417)——100%后每次开始按选定路径顺序走下一趟(趟1->趟2
-        -- ->回绕趟1), 而非每次都回播种起点(用户实测QT行为); 已完成小区
-        -- isSow=false->密度0驶过(不播不漏计), 图外开出图后按出图前小区
-        -- 参数继续播。t.last无效时退回播种起点(M24兜底)
-        local lr, lc = t.last and t.last.r or -1, t.last and t.last.c or -1
+        -- 致歉)。QT :306-307停止续作指针=tempIndex=getIndex(bzst.RowNum,
+        -- currentColumn)+1(机器实时位置+1, 越尾回绕:415-417)——100%后每次
+        -- 开始按选定路径顺序走下一趟(趟1->趟2->回绕趟1)。锚点必须用机器
+        -- 实时上报位置(_feed逐帧更新的t.last_r/last_c): 重驶不再产生落库,
+        -- 落库位置t.last恒停在趟2末尾会使回绕失效(实测每次都重走趟1,
+        -- 用户报告"-700到3000重复"); t.last仅作掉电后实时位置丢失的兜底。
+        -- 已完成小区isSow=false->密度0驶过(不播不漏计不重记), 图外开出图
+        -- 后按出图前小区参数继续播
+        local lr = t.last_r or (t.last and t.last.r) or -1
+        local lc = t.last_c or (t.last and t.last.c) or -1
         local ti = nil
         if lr >= 0 then
             for i, pn in ipairs(path) do
