@@ -28,7 +28,9 @@ local UART_CH       = 2      -- 副RS232(2026-10-19二十一修: HMI80480KM070通道表
                                --   0=主RS485 1=UART2 TTL未初始化 2=副RS232;
                                --   UartSetup=0须Lua显式uart_setup, 否则崩屏)
 local POLL_MS       = 200    -- 状态轮询周期 ms(2026-10-15: 500->200对齐QT STATUSINTERVAL, 修末拍计数少1)
-local ROWS          = 4      -- 下位机行数: 4=hd3005a1源码 / 6=平板版; 联调模拟器默认4
+local ROWS          = 6      -- 下位机行数(2026-10-20默认6: hd3005a2固件LINE_NUM=6六路数组,
+                           -- 漏肥/漏株5/6路首启即写即显; 模拟器无0x26应答,默认4致5/6路恒0
+                           -- (用户实测); 真4行机仍由厂家页0x26应答Resv1=4动态纠正)
 local TX_ONE_BASED  = true   -- 发送字节数组下标约定: true=从1起(大彩文档用法)
 
 -- 模块清单(新页面在此追加, deploy_screen.py 同步扫描同列表)
@@ -788,7 +790,8 @@ C 结构体自然对齐无填充, string.pack 紧凑排列与其内存镜像一致。
 local string = string
 local codec = {}
 
-local ROWS = 4   -- 业务有效行数(4/6), 不影响结构体布局
+local ROWS = 6   -- 业务有效行数(4/6; 2026-10-20默认6对齐hd3005a2六行固件,
+                 --   页面6路计数首启即写; 4行机由0x26应答Resv1动态纠正), 不影响结构体布局
 
 -- 平台兼容: string.rep 屏端不可用(文档LUA/000_Lua_Api), 手写等价实现
 -- (定义须在 codec.init 之前, init 的函数体词法引用本局部)

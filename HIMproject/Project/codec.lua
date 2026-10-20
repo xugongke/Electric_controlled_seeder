@@ -20,7 +20,8 @@ C 结构体自然对齐无填充, string.pack 紧凑排列与其内存镜像一致。
 local string = string
 local codec = {}
 
-local ROWS = 4   -- 业务有效行数(4/6), 不影响结构体布局
+local ROWS = 6   -- 业务有效行数(4/6; 2026-10-20默认6对齐hd3005a2六行固件,
+                 --   页面6路计数首启即写; 4行机由0x26应答Resv1动态纠正), 不影响结构体布局
 
 -- 平台兼容: string.rep 屏端不可用(文档LUA/000_Lua_Api), 手写等价实现
 -- (定义须在 codec.init 之前, init 的函数体词法引用本局部)
