@@ -142,32 +142,22 @@ local function send_node(row, column)
 end
 
 -------------------------------------------------------------------- 推进(共用)
--- 图内(:264 刚走完 next_idx 排)与图外(边界排落库后)两处殊途同归:
---   同趟下一排 -> 自动预置(QT :469); 跨列组 -> trip_wait 挂起(对齐 QT 现场
---   实操: 播完一趟手动按停止, 掉头后再按开始续播); path 走完 -> 完成态收口
+-- 图内(:473 刚走完 next_idx 排)与图外(出图帧, 2026-10-20新增)两处殊途同归:
+--   指针无条件推进并下发下一节点; 跨列组自动续发下一趟首节点——对齐QT
+--   :473-474(推进无跨趟检查/无挂起)。旧trip_wait挂起系误读QT"现场实操",
+--   致100%重驶卡在趟1、趟2永不发送(2026-10-20用户实测QT模拟器按选定路径
+--   连续走完两趟后撤除)
 local function advance()
     if J.next_idx < #J.path then
         J.next_idx = J.next_idx + 1
         local np = J.path[J.next_idx]
-        if np.column ~= J.cur_col then
-            -- 跨趟(列组切换): 断点推进到下一趟首节点后挂起, 不自动下发,
-            -- 0x21 只刷显示, 等待主页 停止->开始 (续播参数等价 QT :276/:299
-            -- 由 start(resume) 重新下发, 而非复用 QT :469 的旧列自动 startNode)
-            J.cur_col = np.column
-            J.enter_map = false
-            J.trip_wait = true
-            J.sow_state = false               -- 停推进(等手动), 保留 J
-            local _, _, pct = STORE.task_progress(J.task)
-            log("INF", ("本趟完成 下一趟列组=%d 进度%d%% 请停止后掉头再开始")
-                :format(np.column + 1, pct or 0))
-        else
-            send_node(np.row, J.cur_col)      -- 同趟下一排: QT :469 自动
-            -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
-            -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
-            -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
-            -- mark_dispatched(state=1)打穿该保护, 乱序排帧也会推进落库
-            -- 一路到100%. 2026-09-11 对齐 QT 删预置(用户联调暴露)
-        end
+        J.cur_col = np.column                 -- 跨趟随节点切列组(QT :474沿用旧列系其缺陷, 密度查询须新列)
+        send_node(np.row, J.cur_col)          -- 同趟下一排/下一趟首排: QT :474 自动
+        -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
+        -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
+        -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
+        -- mark_dispatched(state=1)打穿该保护, 乱序排帧也会推进落库
+        -- 一路到100%. 2026-09-11 对齐 QT 删预置(用户联调暴露)
     else
         jobrun._complete()                    -- path 走完: 完成态待手动停止
     end
@@ -334,13 +324,29 @@ function jobrun.start(task_name, opts)
     end
     if start_idx > #path then
         -- 任务100%完成: 开始键照常可用(2026-10-20用户澄清, M23误读已撤回
-        -- 致歉)。QT nextPathIndex只随运行推进(:474)/停止回退(:307), 新开
-        -- 对话框恒在播种起点(:653), 从不按完成度预扫; :217短路仅拦本会话
-        -- 内指针走尽。100%任务自起点重驶: 已完成小区isSow=false->密度0驶过
-        -- (不播不产生漏种漏肥不重复计数), 图外开出图后按出图前小区参数
-        -- 继续播(钳位密度不经isSow门控, 恒非零)
-        start_idx = locate_outset()
-        log("INF", "任务已100%完成: 自起点重驶, 已完成小区不播不计, 图外继续播")
+        -- 致歉)。QT :306-307停止续作指针=tempIndex(最后作业位置+1, 越尾
+        -- 回绕:415-417)——100%后每次开始按选定路径顺序走下一趟(趟1->趟2
+        -- ->回绕趟1), 而非每次都回播种起点(用户实测QT行为); 已完成小区
+        -- isSow=false->密度0驶过(不播不漏计), 图外开出图后按出图前小区
+        -- 参数继续播。t.last无效时退回播种起点(M24兜底)
+        local lr, lc = t.last and t.last.r or -1, t.last and t.last.c or -1
+        local ti = nil
+        if lr >= 0 then
+            for i, pn in ipairs(path) do
+                if pn.row == lr and pn.column == lc then
+                    ti = i
+                    break
+                end
+            end
+        end
+        if ti then
+            start_idx = ti % #path + 1
+            log("INF", ("任务已100%%完成: 自第%d节点(下一趟)续驶, "
+                .. "已完成小区不播不计"):format(start_idx))
+        else
+            start_idx = locate_outset()
+            log("INF", "任务已100%完成: 无作业位置, 自播种起点重驶")
+        end
     end
 
     -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
@@ -686,9 +692,8 @@ function jobrun._feed(f)
             if d >= tot then jobrun._complete() end
             end
         end
-        if b and st.RowNum ~= J.cur_read_row then
-            send_node(st.RowNum, J.cur_col)          -- 图外逐排推进
-        end
+        -- 非图外开出图帧不下发不推进(QT :403-409同): 趟界节点NextDensity=-1
+        -- 令机器在地头保持等待, 跨趟由停止->开始的重启指针完成(见start)
     else
         ---- 图内(QT :411-470)
         local pn = J.path[J.next_idx]

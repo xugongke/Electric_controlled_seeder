@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""屏端jobrun×模拟器 e2e: 跨列续作路径回归(2026-10-14用户报修)。
+r"""屏端jobrun×模拟器 e2e: 路径推进回归(2026-10-20跨趟自动续发)。
 
-场景(用户实测): QT+模拟器正常; 屏+模拟器"播完一列->停止->开始"后
-模拟器不按选定路径走。虚拟时间全双工联调屏端jobrun与seeder_sim
-WorkProc, 断言(QT dialogrealtimetask语义):
-  趟1(列0, 梭形左起positive): rows 0->4 完成, trip_wait挂起
-  停止 -> 开始(无resume参数, 对齐画面24开始按钮): 必须从列1续作
-  (QT指针nextPathIndex跨启停延续 :275/:306-307, 不回卷到path[1])
-  趟2(列1): rows 4->0, 全任务100%
+背景: 2026-10-20用户实测QT在100%完成后再开始, 模拟器按选定路径顺序走
+下一趟(而非每次都重走趟1); 屏端旧trip_wait挂起+起点回退致趟2永不轮到。
+对齐QT :306-307(停止续作指针=tempIndex=最后作业位置+1, 越尾回绕)后守:
+  1) 趟1列0正向(0->4) -> 停止 -> 开始自动续趟2列1反向(4->0) -> 100%
+  2) 100%后再开始: 回绕续驶下一趟(密度0驶过), 不重置不重复计数
+  3) 中途停止 -> 开始: 续作扫描落在首个未完成排(2026-10-14六修回归)
+  4) 导出结果校验(显示排号口径, QT :324)
 运行: python hmi_port/tests/test_him_sow_e2e.py
 """
 import os
@@ -82,7 +82,7 @@ JR.init {
     STORE = STR, PATHALGO = PA, LOGGER = {
         log = function(tag, msg) __LOGS[#__LOGS + 1] = tag .. " " .. msg end },
     LW = LW, w16 = w16, w32 = w32, wstr = wstr,
-    now = function() return "2026-10-14 12:00:00" end,
+    now = function() return "2026-10-20 12:00:00" end,
 }
 '''.replace('__HIM', HIM)
 
@@ -104,6 +104,15 @@ SAMPLE_MAP = '\r\n'.join([
 ]) + '\r\n'
 
 
+def seen_rows(trace):
+    out = []
+    for _, rn, _rs, _, _ in trace:
+        if rn is not None and 0 <= rn <= 4:
+            if not out or out[-1] != rn:
+                out.append(rn)
+    return out
+
+
 def main():
     lua = lupa_lua.LuaRuntime(unpack_returned_tuples=True)
     lua.execute(HARNESS)
@@ -116,8 +125,11 @@ local _m = (function(h)
     end
     return STR.map_import_text("e2e5x2", s)
 end)(__HEXM)
-STR.task_create("t1", "e2e5x2", 0, 1, 0, 0, 0, "2026-10-14")
+__MOK = (_m ~= nil)
+STR.task_create("t1", "e2e5x2", 0, 1, 0, 0, 0, "2026-10-20")
+STR.task_create("t2", "e2e5x2", 0, 1, 0, 0, 0, "2026-10-20")
 ''')
+    check(bool(lua.eval('__MOK')), '地图导入')
 
     dev = Device(state_file=None, rows=6)
     dev.bd.StartState = 1
@@ -134,7 +146,6 @@ STR.task_create("t1", "e2e5x2", 0, 1, 0, 0, 0, "2026-10-14")
             wp.cmd_stop_bz()
         elif fnc == SP.FNC_GDDD_ENABLE and data:
             dev.gddd_enable = data[0] != 0
-        # 0x27/0x25/0x29与路径无关, 忽略
 
     def drain():
         n = lua.eval('#__SENT')
@@ -158,9 +169,9 @@ JR._feed { data = s }
 ''')
 
     t = [1000]
-    trace = []          # (虚拟时刻, 模拟器当前引导RowNum, run_state)
+    trace = []          # (虚拟时刻, 模拟器当前引导RowNum, run_state, ...)
 
-    def run_until(pred, limit_ms=150000, label=''):
+    def run_until(pred, limit_ms=250000, label=''):
         n = 0
         while n * 10 < limit_ms:
             t[0] += 10
@@ -177,133 +188,125 @@ JR._feed { data = s }
                     return True
         return False
 
-    def trip_wait():
-        return bool(lua.eval(
-            'JR.snapshot() ~= nil and JR.snapshot().trip_wait == true'))
-
-    def rows_done(col):
+    def rows_done(task, col):
+        lua.globals().__TASK = task
+        lua.globals().__COL = col
         lua.execute('''
-local t = STR.tasks["t1"]
+local t = STR.tasks[__TASK]
 __ND = 0
 for r = 0, 4 do
-    if t.blocks[r][COL] and t.blocks[r][COL].state == 2 then
+    if t.blocks[r][__COL] and t.blocks[r][__COL].state == 2 then
         __ND = __ND + 1
     end
 end
-'''.replace('COL', str(col)))
+''')
         return lua.eval('__ND')
 
-    print('1) 趟1(列0)正向播种至完成')
-    lua.execute('local ok, err = JR.start("t1", {}); __OK, __E = ok, tostring(err)')
-    check(bool(lua.eval('__OK')), 'start#1成功: %s' % lua.eval('__E'))
-    drain()
-    ok1 = run_until(lambda: trip_wait() or rows_done(0) >= 5, label='趟1')
-    check(ok1 and rows_done(0) == 5,
-          '趟1列0完成5/5(实有%d)' % rows_done(0))
-    print('    trace采样:', trace[:6], '...', trace[-3:])
-    trip1_row_seq = [rn for _, rn, rs, _, _ in trace
-                     if rs == 0x81 and rn is not None and 0 <= rn <= 4]
-    seen1 = []
-    for r in trip1_row_seq:
-        if not seen1 or seen1[-1] != r:
-            seen1.append(r)
-    check(seen1[:5] == [0, 1, 2, 3, 4], '趟1行序0->4(实见%s)' % seen1[:6])
+    def progress(task):
+        lua.globals().__PT = task
+        lua.execute('__D = select(1, STR.task_progress(__PT)); '
+                    '__P = select(3, STR.task_progress(__PT))')
+        return lua.eval('__D'), lua.eval('__P')
 
-    print('2) 停止 -> 开始(画面24开始按钮, 无resume参数)')
-    lua.execute('JR.stop()')
-    drain()
-    for _ in range(50):
-        t[0] += 10
-        wp.step(t[0])
+    def start(task):
+        lua.globals().__TK = task
+        lua.execute('local ok, err = JR.start(__TK, {}); '
+                    '__OK, __E = ok, tostring(err)')
+        ok = bool(lua.eval('__OK'))
+        drain()
+        return ok, str(lua.eval('__E'))
+
+    def stop_and_settle():
+        lua.execute('JR.stop()')
+        drain()
+        for _ in range(50):
+            t[0] += 10
+            wp.step(t[0])
+
+    print('1) 趟1列0正向(0->4) -> 停止 -> 开始自动续趟2列1反向(4->0, QT :306-307)')
+    ok, err = start('t1')
+    check(ok, 'start#1成功: %s' % err)
+    ok1 = run_until(lambda: rows_done('t1', 0) == 5, label='趟1')
+    check(ok1 and rows_done('t1', 0) == 5,
+          '趟1列0完成5/5(实有%d)' % rows_done('t1', 0))
+    seq = seen_rows(trace)
+    check(seq[:5] == [0, 1, 2, 3, 4], '趟1行序0->4(实见%s)' % seq[:6])
+    stop_and_settle()
     trace.clear()
-    lua.execute('local ok, err = JR.start("t1", {}); __OK2, __E2 = ok, tostring(err)')
-    check(bool(lua.eval('__OK2')), 'start#2成功: %s' % lua.eval('__E2'))
-    drain()
-    ok2 = run_until(lambda: trip_wait() or rows_done(1) >= 5, label='趟2')
-    check(ok2 and rows_done(1) == 5,
-          '趟2列1完成5/5(实有%d)' % rows_done(1))
-    trip2_row_seq = [rn for _, rn, rs, _, _ in trace
-                     if rs == 0x81 and rn is not None and 0 <= rn <= 4]
-    seen2 = []
-    for r in trip2_row_seq:
-        if not seen2 or seen2[-1] != r:
-            seen2.append(r)
-    check(seen2[:5] == [4, 3, 2, 1, 0],
-          '趟2行序4->0(列1反向, 实见%s)' % seen2[:6])
-    lua.execute('local a,b,c = STR.task_progress("t1"); __P = c')
-    check(lua.eval('__P') == 100, '任务完成率100%%(实有%d%%)' % lua.eval('__P'))
+    ok, err = start('t1')
+    check(ok, '趟2 start成功: %s' % err)
+    ok1 = run_until(lambda: rows_done('t1', 1) == 5, label='趟2')
+    check(ok1 and rows_done('t1', 1) == 5,
+          '续作自动落在趟2列1并完成5/5(实有%d)' % rows_done('t1', 1))
+    seq = seen_rows(trace)
+    check(seq[:5] == [4, 3, 2, 1, 0], '趟2行序4->0(实见%s)' % seq[:6])
+    d, p = progress('t1')
+    check(d == 10 and p == 100, '任务完成10/10块 100%%(实有%d/%d%%)' % (d, p))
 
-    print('3) 导出结果校验(显示排号口径, QT :324)')
-    lua.execute('''
-local txt = STR.export_task_text("t1")
-__EXPH = (txt:gsub(".", function(c)
-    return string.format("%02x", string.byte(c)) end))
-''')
-    exp = bytes.fromhex(str(lua.eval('(__EXPH)'))).decode('gbk')
+    print('2) 100%后再开始: 回绕续驶下一趟(趟1), 不重置不重复计数')
+    stop_and_settle()
+    trace.clear()
+    ok, err = start('t1')
+    check(ok, '100%%后start成功: %s' % err)
+    ok2 = run_until(lambda: rows_done('t1', 0) == 5 and
+                    any(rn == 5 for _, rn, _, _, _ in trace), label='重驶趟1')
+    check(ok2, '重驶回绕到趟1并走完(已完成小区密度0驶过)')
+    seq2 = seen_rows(trace)
+    check(seq2[:5] == [0, 1, 2, 3, 4], '重驶行序0->4(实见%s)' % seq2[:6])
+    d, p = progress('t1')
+    check(d == 10 and p == 100, '任务未重置 仍10/10 100%%(实有%d/%d%%)' % (d, p))
+    lua.execute('__EXH = (STR.export_task_text("t1"):gsub(".", function(c) return string.format("%02x", string.byte(c)) end))')
+    exp = bytes.fromhex(str(lua.eval('(__EXH)'))).decode('gbk')
     CRLF = chr(13) + chr(10)
-    res_lines = [l for l in exp.split(CRLF)
+    res = [l for l in exp.split(CRLF)
+           if l and len(l.split(',')) == 17 and l.split(',')[0].isdigit()]
+    check(len(res) == 10, '重驶后结果仍10行(无重复计数, 实有%d)' % len(res))
+    check(all(int(l.split(',')[5]) in (20, 21) for l in res),
+          '重驶后计数无0值且为20/21')
+
+    print('3) 中途停止 -> 开始: 续作扫描落在首个未完成排(六修回归)')
+    stop_and_settle()
+    trace.clear()
+    ok, err = start('t2')
+    check(ok, 't2 start成功: %s' % err)
+    ok3 = run_until(lambda: rows_done('t2', 0) >= 2, label='t2前两排')
+    check(ok3, 't2播完前两排')
+    stop_and_settle()
+    trace.clear()
+    ok, err = start('t2')
+    check(ok, 't2续作start成功: %s' % err)
+    ok3 = run_until(lambda: rows_done('t2', 0) == 5, label='t2趟1余下')
+    seq3 = seen_rows(trace)
+    check(seq3[:3] == [2, 3, 4],
+          '续作自首个未完成排row2起(实见%s)' % seq3[:4])
+    check(ok3 and rows_done('t2', 0) == 5,
+          '续作走完趟1余下(实有%d)' % rows_done('t2', 0))
+    stop_and_settle()
+    trace.clear()
+    ok, err = start('t2')
+    check(ok, 't2趟2 start成功: %s' % err)
+    ok3 = run_until(lambda: rows_done('t2', 1) == 5, label='t2趟2')
+    check(ok3 and rows_done('t2', 1) == 5,
+          '续作跨组落在趟2并完成(实有%d)' % rows_done('t2', 1))
+    d, p = progress('t2')
+    check(d == 10 and p == 100, 't2完成10/10 100%%(实有%d/%d%%)' % (d, p))
+
+    print('4) 导出结果校验(t2, 显示排号口径)')
+    lua.execute('__EXH2 = (STR.export_task_text("t2"):gsub(".", function(c) return string.format("%02x", string.byte(c)) end))')
+    exp4 = bytes.fromhex(str(lua.eval('(__EXH2)'))).decode('gbk')
+    res_lines = [l for l in exp4.split(CRLF)
                  if l and len(l.split(',')) == 17
                  and l.split(',')[0].isdigit()]
     check(len(res_lines) == 10, '结果行数10(实有%d)' % len(res_lines))
-    pairs = set()
+    prs = set()
     for l in res_lines:
         f = l.split(',')
-        pairs.add((int(f[0]), int(f[1])))
-    check(pairs == {(r, c) for r in (1, 2, 3, 4, 5) for c in (1, 2)},
-          '结果覆盖显示排1-5x列1-2(显示排号口径)')
-    bad_time = [l for l in res_lines if len(l.split(',')) < 5
-                or not l.split(',')[2]]
-    check(not bad_time, '结果行含开始时间')
-    # 计数口径(2026-10-15十一修): 每行播种计数=20/21(逐拍缓存), 不得为~1
-    cnt_ok, cnt_bad = 0, []
-    for l in res_lines:
-        f = l.split(',')
-        v = int(f[5])                       # 1行播种
-        if v in (20, 21):
-            cnt_ok += 1
-        else:
-            cnt_bad.append((f[0], f[1], v))
-    check(cnt_ok == 10, '10行计数全为20/21(实有%d, 异常%s)'
-          % (cnt_ok, cnt_bad[:3]))
+        prs.add((int(f[0]), int(f[1])))
+    check(prs == {(r, c) for r in (1, 2, 3, 4, 5) for c in (1, 2)},
+          '结果覆盖显示排1-5x列1-2')
+    cnt_ok = sum(1 for l in res_lines if int(l.split(',')[5]) in (20, 21))
+    check(cnt_ok == 10, '10行计数全为20/21(实有%d)' % cnt_ok)
 
-    print('4) 100%完成后再开始: 自起点重驶, 不重置不重复计数(2026-10-20用户澄清QT行为)')
-    lua.execute('JR.stop()')
-    drain()
-    for _ in range(50):
-        t[0] += 10
-        wp.step(t[0])
-    trace.clear()
-    lua.execute('local ok, err = JR.start("t1", {}); __OK3, __E3 = ok, tostring(err)')
-    check(bool(lua.eval('__OK3')), '100%%后start成功: %s' % lua.eval('__E3'))
-    drain()
-    lua.execute('local a,b,c = STR.task_progress("t1"); __P4 = c')
-    check(lua.eval('__P4') == 100, '任务未重置, 完成率仍100%%(实有%d%%)' % lua.eval('__P4'))
-    ok3 = run_until(lambda: any(rn == 5 for _, rn, _, _, _ in trace),
-                    limit_ms=150000, label='重驶出图')
-    check(ok3, '重驶走过全部已完成小区后出图(RowNum=5, b=0出图后指针挂住同QT)')
-    seq4 = []
-    for _, rn, rs, _, _ in trace:
-        if rs == 0x81 and rn is not None and 0 <= rn <= 4:
-            if not seq4 or seq4[-1] != rn:
-                seq4.append(rn)
-    check(seq4[:5] == [0, 1, 2, 3, 4], '重驶行序0->4(实见%s)' % seq4[:6])
-    check(rows_done(0) == 5, '重驶后块状态不变(5/5仍完成)')
-    lua.execute('__EXH = (STR.export_task_text("t1"):gsub(".", function(c) return string.format("%02x", string.byte(c)) end))')
-    exp4 = bytes.fromhex(str(lua.eval('(__EXH)'))).decode('gbk')
-    CRLF = chr(13) + chr(10)
-    res4 = [l for l in exp4.split(CRLF)
-            if l and len(l.split(',')) == 17 and l.split(',')[0].isdigit()]
-    check(len(res4) == 10, '重驶后结果仍10行(无重复计数, 实有%d)' % len(res4))
-    cnt4 = sorted({int(l.split(',')[5]) for l in res4})
-    check(all(v in (20, 21) for v in cnt4),
-          '重驶后计数无0值且为20/21(实有%s)' % cnt4)
-    pairs4 = {(int(l.split(',')[0]), int(l.split(',')[1])) for l in res4}
-    check(pairs4 == pairs, '重驶后行集不变(10行对齐)')
-
-    print()
-    print('播种e2e回归: %s (%d项)' % (
-        '全部通过' if FAIL == 0 else '有失败', PASS))
-    return 1 if FAIL else 0
     print()
     print('播种e2e回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))
