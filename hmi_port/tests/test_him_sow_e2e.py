@@ -266,6 +266,44 @@ __EXPH = (txt:gsub(".", function(c)
     check(cnt_ok == 10, '10行计数全为20/21(实有%d, 异常%s)'
           % (cnt_ok, cnt_bad[:3]))
 
+    print('4) 100%完成后再开始: 自起点重驶, 不重置不重复计数(2026-10-20用户澄清QT行为)')
+    lua.execute('JR.stop()')
+    drain()
+    for _ in range(50):
+        t[0] += 10
+        wp.step(t[0])
+    trace.clear()
+    lua.execute('local ok, err = JR.start("t1", {}); __OK3, __E3 = ok, tostring(err)')
+    check(bool(lua.eval('__OK3')), '100%%后start成功: %s' % lua.eval('__E3'))
+    drain()
+    lua.execute('local a,b,c = STR.task_progress("t1"); __P4 = c')
+    check(lua.eval('__P4') == 100, '任务未重置, 完成率仍100%%(实有%d%%)' % lua.eval('__P4'))
+    ok3 = run_until(lambda: any(rn == 5 for _, rn, _, _, _ in trace),
+                    limit_ms=150000, label='重驶出图')
+    check(ok3, '重驶走过全部已完成小区后出图(RowNum=5, b=0出图后指针挂住同QT)')
+    seq4 = []
+    for _, rn, rs, _, _ in trace:
+        if rs == 0x81 and rn is not None and 0 <= rn <= 4:
+            if not seq4 or seq4[-1] != rn:
+                seq4.append(rn)
+    check(seq4[:5] == [0, 1, 2, 3, 4], '重驶行序0->4(实见%s)' % seq4[:6])
+    check(rows_done(0) == 5, '重驶后块状态不变(5/5仍完成)')
+    lua.execute('__EXH = (STR.export_task_text("t1"):gsub(".", function(c) return string.format("%02x", string.byte(c)) end))')
+    exp4 = bytes.fromhex(str(lua.eval('(__EXH)'))).decode('gbk')
+    CRLF = chr(13) + chr(10)
+    res4 = [l for l in exp4.split(CRLF)
+            if l and len(l.split(',')) == 17 and l.split(',')[0].isdigit()]
+    check(len(res4) == 10, '重驶后结果仍10行(无重复计数, 实有%d)' % len(res4))
+    cnt4 = sorted({int(l.split(',')[5]) for l in res4})
+    check(all(v in (20, 21) for v in cnt4),
+          '重驶后计数无0值且为20/21(实有%s)' % cnt4)
+    pairs4 = {(int(l.split(',')[0]), int(l.split(',')[1])) for l in res4}
+    check(pairs4 == pairs, '重驶后行集不变(10行对齐)')
+
+    print()
+    print('播种e2e回归: %s (%d项)' % (
+        '全部通过' if FAIL == 0 else '有失败', PASS))
+    return 1 if FAIL else 0
     print()
     print('播种e2e回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

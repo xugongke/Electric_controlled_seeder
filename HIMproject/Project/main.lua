@@ -3839,16 +3839,17 @@ function jobrun.start(task_name, opts)
     -- getIndex(outsetRow,outsetColumn) :653): 从任务的播种起点节点起,
     -- 向后跳过已完成节点——起点之前的小区永不下发不计数(不漏种漏肥,
     -- 用户要求); 续作时自然落在首个未完成处(等价QT指针延续)
-    local osr = (t.outset and t.outset.r) or 0
-    local osc = (t.outset and t.outset.c) or 0
-    local start_idx = nil
-    for i, pn in ipairs(path) do
-        if pn.row == osr and pn.column == osc then
-            start_idx = i
-            break
+    local function locate_outset()
+        local osr = (t.outset and t.outset.r) or 0
+        local osc = (t.outset and t.outset.c) or 0
+        for i, pn in ipairs(path) do
+            if pn.row == osr and pn.column == osc then
+                return i
+            end
         end
+        return 1                                  -- 起点不在路径内: 从头
     end
-    if not start_idx then start_idx = 1 end      -- 起点不在路径内: 从头
+    local start_idx = locate_outset()
     while start_idx <= #path do
         local pn = path[start_idx]
         local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
@@ -3858,7 +3859,14 @@ function jobrun.start(task_name, opts)
         start_idx = start_idx + 1
     end
     if start_idx > #path then
-        return nil, "任务已完成"                  -- QT :217 path走尽开始键无效
+        -- 任务100%完成: 开始键照常可用(2026-10-20用户澄清, M23误读已撤回
+        -- 致歉)。QT nextPathIndex只随运行推进(:474)/停止回退(:307), 新开
+        -- 对话框恒在播种起点(:653), 从不按完成度预扫; :217短路仅拦本会话
+        -- 内指针走尽。100%任务自起点重驶: 已完成小区isSow=false->密度0驶过
+        -- (不播不产生漏种漏肥不重复计数), 图外开出图后按出图前小区参数
+        -- 继续播(钳位密度不经isSow门控, 恒非零)
+        start_idx = locate_outset()
+        log("INF", "任务已100%完成: 自起点重驶, 已完成小区不播不计, 图外继续播")
     end
 
     -- AB 参考(QT :278-284: 无AB线时每次启动用起点更新 aRow/方向)
