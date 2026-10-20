@@ -3362,11 +3362,15 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
 
     if row >= 0 and row < rows then
         -- 当前排在图内
+        -- FinalFlag: 0=继续播下小区 1=最后一小区收尾(固件work_proc.c:952
+        -- --FinalFlag==0才DZ_ON); 协议注释(QT protocol.h): 启用图外播种恒0。
+        -- QT源码:724图内当前排(b||..)?1:0与其协议注释矛盾(b=1恒1致首小区
+        -- 即收尾停播), 不照抄; 2026-10-20修: b=1恒0(此前抄QT致图外播种无效)
         if d then
-            p.FinalFlag = (b or row >= rows - 1) and 1 or 0
+            p.FinalFlag = ((not b) and row >= rows - 1) and 1 or 0
             p.InS = m.aisle[row + 1]
         else
-            p.FinalFlag = (b or row <= 0) and 1 or 0
+            p.FinalFlag = ((not b) and row <= 0) and 1 or 0
             p.InS = m.aisle[row + 2]
         end
         p.Density = dens_vec(row)
@@ -3391,11 +3395,13 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
     local nr = p.NextRowNum
     if nr >= 0 and nr < rows then
         -- 下一排在图内
+        -- NextFinalFlag 对齐QT原式(b||..)?0:1(QT:749/753, 与协议注释一致);
+        -- 此前误写作((not b) and ..)and 0 or 1, b=1时发1(=下一小区收尾)
         if d then
-            p.NextFinalFlag = ((not b) and nr < rows - 1) and 0 or 1
+            p.NextFinalFlag = (b or nr < rows - 1) and 0 or 1
             p.NextInS = m.aisle[nr + 2]
         else
-            p.NextFinalFlag = ((not b) and nr > 0) and 0 or 1
+            p.NextFinalFlag = (b or nr > 0) and 0 or 1
             p.NextInS = m.aisle[nr + 1]
         end
         p.NextDensity = dens_vec(nr)
