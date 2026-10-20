@@ -5456,44 +5456,35 @@ function parastore.save_density(d)
     return write_lines(ls)
 end
 
----------------------------------------------------------------- 株距微调表
--- config.txt格式(与QT QSettings数组一致):
---   SeedGapFineTuning\\1\\OriginDensity=4000 (反斜杠子键路径)
--- 五档原密度固定, 用户只改 SpecifiedDensity/Enabled
--- -> { {origin,specified,enabled}, ... } 恒五元素(pathalgo.density直接用)
-function parastore.load_fine()
-    local ls = read_lines()
-    local out = {}
-    for i, org in ipairs(FINE_ORIGINS) do
-        local spec, en = org, 0
-        if ls then
-            local p = "SeedGapFineTuning" .. "\\" .. i .. "\\"
-            local v1 = tonumber(val_of(ls, "Application", p .. "SpecifiedDensity") or "")
-            local v2 = tonumber(val_of(ls, "Application", p .. "Enabled") or "")
-            if v1 and v1 > 0 and v1 <= 65535 then spec = v1 end
-            if v2 == 1 then en = 1 end
+---------------------------------------------------------------- 首启兜底
+-- 上电自检(2026-10-20): config.txt缺失或只剩骨架(Application/Device核心键
+-- 均不可读)时, 按QT默认值自动建/补全配置文件——用户/厂家参数页进页预填
+-- load_user/load_ter快照, 读不到时表单全0(首次上电实测)。
+-- 文件有效则零写入, 不覆盖用户已保存的值; 密度键随ensure_lines骨架自带。
+function parastore.bootstrap()
+    if not FILEIO or not FILEIO.read_lines or not FILEIO.write_all then
+        return false
+    end
+    local dirty = false
+    if not parastore.load_user() then
+        -- GapPoint=1(开)=QT默认"过道开"; save_user内部ensure_lines自动建骨架
+        if not parastore.save_user(parastore.defaults_user(), 1) then
+            log("ERR", "首启兜底: 写Application组失败")
+            return false
         end
-        out[i] = { origin = org, specified = spec, enabled = en }
+        dirty = true
     end
-    return out
-end
-
-function parastore.save_fine(t)
-    local ls = ensure_lines()
-    for i, org in ipairs(FINE_ORIGINS) do
-        local ft = t and t[i] or nil
-        local spec = ft and tonumber(ft.specified) or org
-        if not spec or spec < 0 or spec > 65535 then spec = org end
-        local en = (ft and ft.enabled == 1) and 1 or 0
-        local ka = "SeedGapFineTuning" .. "\\" .. i .. "\\"
-        edit_group(ls, "Application", {
-            [ka .. "OriginDensity"] = tostring(org),
-            [ka .. "SpecifiedDensity"] = tostring(spec),
-            [ka .. "Enabled"] = tostring(en),
-        }, { ka .. "OriginDensity", ka .. "SpecifiedDensity",
-            ka .. "Enabled" })
+    if not parastore.load_ter() then
+        local d = {}
+        for k, v in pairs(DEF_TER) do d[k] = v end
+        if not parastore.save_ter(d) then
+            log("ERR", "首启兜底: 写Device组失败")
+            return false
+        end
+        dirty = true
     end
-    return write_lines(ls)
+    if dirty then log("INF", "config.txt缺失, 已按QT默认值创建") end
+    return true
 end
 
 ---------------------------------------------------------------- 株距微调表
@@ -6751,6 +6742,9 @@ local function setup()
                 if PARASTORE then PARASTORE.set_logger(LOGGER) end
 
                 if PARASTORE then PARASTORE.set_fileio(FILEIO) end
+                -- 首启兜底(2026-10-20): config.txt缺失/骨架化时按QT默认值
+                -- 建/补全, 用户/厂家参数页首次上电预填不再全0
+                if PARASTORE then PARASTORE.bootstrap() end
             end
             JOBRUN   = STORE and load_mod("jobrun.lua") or nil
             if JOBRUN then

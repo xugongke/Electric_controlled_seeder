@@ -279,6 +279,55 @@ end
     check(ps['export_usb'](), 'export_usb')
     check(files['2:config.txt'] == files['3:config.txt'], '2:与3:一致')
 
+    print('9) 首启兜底bootstrap: 缺config.txt->自动建QT默认值')
+    files.clear()
+    check(ps['bootstrap'](), 'bootstrap返回true')
+    cfg = files['3:config.txt']
+    check('[Application]' in cfg and '[Device]' in cfg
+          and '[ContinuousSowMode]' in cfg, '三组齐全')
+    check('DropSeedTime=1500' in cfg and 'SeedColumnGap=60' in cfg
+          and 'Rpm=36' in cfg and 'NavigationAntenna=0' in cfg
+          and 'AntennaDistance=0' in cfg, '用户参数=QT默认(1500ms/60cm/36r)')
+    check('GapPoint=开' in cfg, 'GapPoint=开(过道打点QT默认)')
+    check('TransmissionRatio=2000' in cfg and 'TapperTime=100' in cfg
+          and 'ZeroSwitch=1' in cfg and 'ScrapeSeed=1' in cfg
+          and 'DeviceType=4行机' in cfg, '厂家参数=QT默认(4行机)')
+    check('Density=4000' in cfg, '连播密度骨架键')
+    u = ps['load_user']()
+    check(u['DZTime'] == 1500 and u['HJ'] == 60 and u['RMP'] == 36,
+          'load_user预填默认(参数页不再全0)')
+    t = ps['load_ter']()
+    check(t['A'] == 60 and t['B'] == 90 and t['EncodeNum'] == 2000
+          and t['TapperTime'] == 100 and t['ZeroPosEn'] == 1 and t['Resv1'] == 4,
+          'load_ter预填默认(厂家页不再全0)')
+    check(ps['load_gap']() == 1 and ps['load_density']() == 4000,
+          '过道打点=开 / 连播密度=4000')
+
+    print('10) bootstrap幂等: 文件有效时零写入')
+    snap = files['3:config.txt']
+    check(ps['bootstrap'](), '二次bootstrap成功')
+    check(files['3:config.txt'] == snap, '内容未变(不覆盖用户值)')
+
+    print('11) bootstrap骨架修复: 只剩组头/部分文件')
+    files['3:config.txt'] = ('[Application]\r\n\r\n[Device]\r\n\r\n'
+                             '[ContinuousSowMode]\r\nDensity=4000\r\n')
+    check(ps['bootstrap'](), '骨架文件bootstrap成功')
+    u = ps['load_user']()
+    check(u is not None and u['DZTime'] == 1500, 'Application组补默认')
+    t = ps['load_ter']()
+    check(t is not None and t['EncodeNum'] == 2000, 'Device组补默认')
+    files['3:config.txt'] = ('[Application]\r\nDropSeedTime=1800'
+                             '\r\nSeedColumnGap=66\r\nRpm=41\r\n')
+    check(ps['bootstrap'](), '部分文件bootstrap成功')
+    u = ps['load_user']()
+    check(u['DZTime'] == 1800 and u['HJ'] == 66, '有效用户键不被覆盖')
+    t = ps['load_ter']()
+    check(t is not None and t['A'] == 60, '缺失Device组补默认')
+
+    print('12) 无文件系统(B档降级): bootstrap安全false')
+    ps['set_fileio'](None)
+    check(not ps['bootstrap'](), '无fileio -> false不异常')
+    ps['set_fileio'](FIO)
     print()
     if FAIL:
         print('参数链: %d项失败' % FAIL)
