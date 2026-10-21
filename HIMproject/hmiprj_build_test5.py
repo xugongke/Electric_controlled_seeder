@@ -52,7 +52,7 @@ def main():
                     Left='8', Top=str(y), Width='20', Height='20'))
         ws.append(W('text', Text=nm, Left='34', Top=str(y + 1),
                     Width='100', Height='22', TextFontSize='14'))
-        ws.append(W('lamp', ReadAddr='$td_warning%d' % i,
+        ws.append(W('lamp', ReadAddr='$td_walamp%d' % i,
                     Left='140', Top=str(y), Width='20', Height='20'))
 
     # ---- 中栏 计数 + 漏种漏肥表 ----
@@ -90,13 +90,13 @@ def main():
         ws.append(W('text', Text=nm, Left='540', Top=str(y + 5),
                     Width='66', Height='20', TextFontSize='12'))
     col2 = [('运行指示灯', 9, None),
-            ('步进电机1', 16, '$td_warning_hi0'),
-            ('步进电机2', 17, '$td_warning_hi1'),
-            ('步进电机3', 18, '$td_warning_hi2'),
-            ('步进电机4', 19, '$td_warning_hi3'),
-            ('自动供种', 20, '$td_warning_hi4'),
-            ('步进电机5', 21, '$td_warning_hi5'),
-            ('步进电机6', 22, '$td_warning_hi6')]
+            ('步进电机1', 16, '$td_whilamp0'),
+            ('步进电机2', 17, '$td_whilamp1'),
+            ('步进电机3', 18, '$td_whilamp2'),
+            ('步进电机4', 19, '$td_whilamp3'),
+            ('自动供种', 20, '$td_whilamp4'),
+            ('步进电机5', 21, '$td_whilamp5'),
+            ('步进电机6', 22, '$td_whilamp6')]
     for r, (nm, no, ala) in enumerate(col2):
         y = 32 + r * 34
         wa = '$td_sw%d' % no if no <= 9 else '$td_m%d' % (no - 15)
@@ -140,11 +140,21 @@ def main():
                      'TIP="位灯 输入bit%d %s"/>' % (i, 0x1790 + i, i, nm))
         insert_label('td_warning%d' % i,
                      '<label NAME="td_warning%d" ADDR="LW%03X" '
-                     'TIP="位灯 报警bit%d %s"/>' % (i, 0x179F + i, i, nm))
+                     'TIP="报警使能勾选字bit%d %s(用户勾选组件用)"/>'
+                     % (i, 0x17B5 + i, i, nm))
+        insert_label('td_walamp%d' % i,
+                     '<label NAME="td_walamp%d" ADDR="LW%03X" '
+                     'TIP="位灯 报警显示bit%d %s(报警灯用)"/>'
+                     % (i, 0x179F + i, i, nm))
     for i, nm in enumerate(MO_NAMES):
         insert_label('td_warning_hi%d' % i,
                      '<label NAME="td_warning_hi%d" ADDR="LW%03X" '
-                     'TIP="位灯 报警bit%d %s"/>' % (i, 0x17AE + i, i, nm))
+                     'TIP="报警使能勾选字bit%d %s(用户勾选组件用)"/>'
+                     % (i, 0x17C4 + i, i, nm))
+        insert_label('td_whilamp%d' % i,
+                     '<label NAME="td_whilamp%d" ADDR="LW%03X" '
+                     'TIP="位灯 报警显示bit%d %s(报警灯用)"/>'
+                     % (i, 0x17AE + i, i, nm))
     for name, tip in (('td_sw4', '按钮 预留1(CtrlNo4)'),
                       ('td_sw5', '按钮 预留2(CtrlNo5)'),
                       ('td_sw6', '按钮 喇叭(CtrlNo6)'),

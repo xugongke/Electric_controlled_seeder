@@ -198,6 +198,14 @@ def main():
                  for k in (12, 13, 14))
     check(ok_bei, '北斗/零位5/零位6显示字=1(bit12/13/14)')
     check(lua.eval('REG[TD.lamp_wa0 + 12]') == 0, '报警显示字=0(无报警)')
+    check(lua.eval('REG[TD.lamp_hi0]') == 0, '电机报警显示字=0(bit16无报警)')
+    # 使能字区lua永不写(勾选可保持, 对齐QT TestWarning=本地设置)
+    lua.execute('REG[0x17B5] = 5; REG[0x17C4] = 6')
+    lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
+        'return TESTFRAME(0, 0x730F)')}
+    page['on_frame'](page, lua.globals().__F08)
+    check(lua.eval('REG[0x17B5]') == 5 and lua.eval('REG[0x17C4]') == 6,
+          '使能勾选字不被0x08覆盖(勾选可保持)')
 
     print()
     print('测试诊断页回归: %s (%d项)' % (
