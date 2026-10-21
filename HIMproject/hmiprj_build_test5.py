@@ -28,14 +28,14 @@ def main():
 
     TM = {'text': {'Text': '编码器'},
           'num': {'ReadAddr': '$td_encodercnt'},
-          'lamp': {'ReadAddr': '$td_input.0'},
+          'lamp': {'ReadAddr': '$td_input0'},
           'btn': {'WriteAddr': '$td_sw0'}}
 
     def W(kind, **ov):
         return T.clone_widget(xml, T.tmpl_loc(xml, SID, **TM[kind]), ov)
 
-    def BIT(i):
-        return str(i)          # 位号一律十进制(平台不解析A~E十六进制位后缀)
+    # 位级绑定用独立位标签(2026-10-22弃用$标签.位, 平台不支持):
+    #   td_input0~14 / td_warning0~14 / td_warning_hi0~6, 见工程标签区
 
     ws = []
 
@@ -48,11 +48,11 @@ def main():
              '零位开关5', '零位开关6']
     for i, nm in enumerate(names):
         y = 32 + i * 26
-        ws.append(W('lamp', ReadAddr='$td_input.%s' % BIT(i),
+        ws.append(W('lamp', ReadAddr='$td_input%d' % i,
                     Left='8', Top=str(y), Width='20', Height='20'))
         ws.append(W('text', Text=nm, Left='34', Top=str(y + 1),
                     Width='100', Height='22', TextFontSize='14'))
-        ws.append(W('lamp', ReadAddr='$td_warning.%s' % BIT(i),
+        ws.append(W('lamp', ReadAddr='$td_warning%d' % i,
                     Left='140', Top=str(y), Width='20', Height='20'))
 
     # ---- 中栏 计数 + 漏种漏肥表 ----
@@ -90,13 +90,13 @@ def main():
         ws.append(W('text', Text=nm, Left='540', Top=str(y + 5),
                     Width='66', Height='20', TextFontSize='12'))
     col2 = [('运行指示灯', 9, None),
-            ('步进电机1', 16, '$td_warning_hi.0'),
-            ('步进电机2', 17, '$td_warning_hi.1'),
-            ('步进电机3', 18, '$td_warning_hi.2'),
-            ('步进电机4', 19, '$td_warning_hi.3'),
-            ('自动供种', 20, '$td_warning_hi.4'),
-            ('步进电机5', 21, '$td_warning_hi.5'),
-            ('步进电机6', 22, '$td_warning_hi.6')]
+            ('步进电机1', 16, '$td_warning_hi0'),
+            ('步进电机2', 17, '$td_warning_hi1'),
+            ('步进电机3', 18, '$td_warning_hi2'),
+            ('步进电机4', 19, '$td_warning_hi3'),
+            ('自动供种', 20, '$td_warning_hi4'),
+            ('步进电机5', 21, '$td_warning_hi5'),
+            ('步进电机6', 22, '$td_warning_hi6')]
     for r, (nm, no, ala) in enumerate(col2):
         y = 32 + r * 34
         wa = '$td_sw%d' % no if no <= 9 else '$td_m%d' % (no - 15)
@@ -128,6 +128,23 @@ def main():
     insert_label('td_warning',
                  '<label NAME="td_warning_hi" ADDR="LW171F" '
                  'TIP="u32 报警位图高字(bit16~22: 步进电机1~6/自动供种步进电机)"/>')
+    IN_NAMES = ['零位开关1', '零位开关2', '零位开关3', '零位开关4',
+                '自动供种接近开关', '预留输入', '钢索1', '钢索2', '压力',
+                '风机', '脚踏板', '一键初始化按钮', '北斗',
+                '零位开关5', '零位开关6']
+    MO_NAMES = ['步进电机1', '步进电机2', '步进电机3', '步进电机4',
+                '自动供种步进电机', '步进电机5', '步进电机6']
+    for i, nm in enumerate(IN_NAMES):
+        insert_label('td_input%d' % i,
+                     '<label NAME="td_input%d" ADDR="LW171C.%d" '
+                     'TIP="位灯 输入bit%d %s"/>' % (i, i, i, nm))
+        insert_label('td_warning%d' % i,
+                     '<label NAME="td_warning%d" ADDR="LW171E.%d" '
+                     'TIP="位灯 报警bit%d %s"/>' % (i, i, i, nm))
+    for i, nm in enumerate(MO_NAMES):
+        insert_label('td_warning_hi%d' % i,
+                     '<label NAME="td_warning_hi%d" ADDR="LW171F.%d" '
+                     'TIP="位灯 报警bit%d %s"/>' % (i, i, i + 16, nm))
     for name, tip in (('td_sw4', '按钮 预留1(CtrlNo4)'),
                       ('td_sw5', '按钮 预留2(CtrlNo5)'),
                       ('td_sw6', '按钮 喇叭(CtrlNo6)'),
