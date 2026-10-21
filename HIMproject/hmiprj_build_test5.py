@@ -144,7 +144,7 @@ def main():
     for i, nm in enumerate(MO_NAMES):
         insert_label('td_warning_hi%d' % i,
                      '<label NAME="td_warning_hi%d" ADDR="LW%03X" '
-                     'TIP="位灯 报警bit%d %s"/>' % (i, 0x17AD + i, i, nm))
+                     'TIP="位灯 报警bit%d %s"/>' % (i, 0x17AE + i, i, nm))
     for name, tip in (('td_sw4', '按钮 预留1(CtrlNo4)'),
                       ('td_sw5', '按钮 预留2(CtrlNo5)'),
                       ('td_sw6', '按钮 喇叭(CtrlNo6)'),

@@ -177,6 +177,10 @@ def main():
     check(fns(lua) == [0x0F], '退出测试按钮发0x0F(实有%s)' % fns(lua))
 
     print('7) 位分解显示字: InputState按位0/1写lamp_in0~14/lamp_wa0~14')
+    check(lua.eval('TD.lamp_in0') + 15 == lua.eval('TD.lamp_wa0')
+          and lua.eval('TD.lamp_wa0') + 15 == lua.eval('TD.lamp_hi0'),
+          '位灯显示字区不重叠(in0+15=wa0, wa0+15=hi0)——杜绝td_warning14/'
+          'td_warning_hi0同址串扰(M34实测)')
     lua.execute('CLEAR()')
     lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
         'return TESTFRAME(0, 0x730F)')}
