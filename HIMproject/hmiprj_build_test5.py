@@ -34,8 +34,8 @@ def main():
     def W(kind, **ov):
         return T.clone_widget(xml, T.tmpl_loc(xml, SID, **TM[kind]), ov)
 
-    def HEX(i):
-        return '0123456789ABCDEF'[i]
+    def BIT(i):
+        return str(i)          # 位号一律十进制(平台不解析A~E十六进制位后缀)
 
     ws = []
 
@@ -48,11 +48,11 @@ def main():
              '零位开关5', '零位开关6']
     for i, nm in enumerate(names):
         y = 32 + i * 26
-        ws.append(W('lamp', ReadAddr='$td_input.%s' % HEX(i),
+        ws.append(W('lamp', ReadAddr='$td_input.%s' % BIT(i),
                     Left='8', Top=str(y), Width='20', Height='20'))
         ws.append(W('text', Text=nm, Left='34', Top=str(y + 1),
                     Width='100', Height='22', TextFontSize='14'))
-        ws.append(W('lamp', ReadAddr='$td_warning.%s' % HEX(i),
+        ws.append(W('lamp', ReadAddr='$td_warning.%s' % BIT(i),
                     Left='140', Top=str(y), Width='20', Height='20'))
 
     # ---- 中栏 计数 + 漏种漏肥表 ----
