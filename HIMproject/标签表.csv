@@ -76,6 +76,7 @@ td_louzh5,LW1718,u32 漏株计数第5路(6行机)
 td_louzh6,LW171A,u32 漏株计数第6路(6行机)
 td_input,LW171C,u32 IO输入位图(具名位灯绑位0~14， 见画面配置清单)
 td_warning,LW171E,u32 报警位图(同上， 报警红字)
+td_warning_hi,LW171F,u32 报警位图高字(bit16~22: 步进电机1~6/自动供种
 td_ctrl,LW1720,u32 输出位图(阀位0~9， 电机位16~22)
 td_sw0,LW1728,按钮 预落种阀(CtrlNo0)
 td_sw1,LW1729,按钮 倒种阀(CtrlNo1)
@@ -94,6 +95,8 @@ td_m4,LW1734,按钮 步进电机4/播种盘4(CtrlNo19)
 td_m5,LW1735,按钮 自动供种步进电机(CtrlNo20)
 td_m6,LW1736,按钮 步进电机5/播种盘5(CtrlNo21)
 td_m7,LW1737,按钮 步进电机6/播种盘6(CtrlNo22)
+td_enter,LW1740,按钮 进入测试模式 -> 0x0E(2026-10-21恢复: 与
+td_exit,LW1741,按钮 退出测试模式 -> 0x0F(自动+手动双保险)
 tw_tstate,LW1801,u16 任务状态 0=无 1=向导中 2=作业中 3=已完成
 tw_count,LW1802,u16 当前列表可选项数
 tw_selidx,LW1803,u16 列表选中项(0基)

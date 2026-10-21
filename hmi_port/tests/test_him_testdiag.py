@@ -160,6 +160,22 @@ def main():
     enc = lua.eval('REG[TD.encodercnt]')
     check(enc == 11, '0x08编码器计数写入TD(实有%s)' % enc)
 
+    print('6) 进/出测试按钮(手动兜底, 与自动并存)')
+    lua.execute('CLEAR()')
+    page['on_update'](page, lua.eval('TD.enter'))
+    check(fns(lua) == [0x27], '进入测试按钮发0x27(实有%s)' % fns(lua))
+    lua.globals().__FR = {'fnc': 0x27, 'data': lua.execute(
+        'return string.char(1)')}
+    lua.execute('PS.on_frame(__FR)')
+    check(fns(lua) == [0x27, 0x25], '按钮链0x27 ACK推进0x25')
+    lua.globals().__FR = {'fnc': 0x25, 'data': lua.execute(
+        'return string.char(1)')}
+    lua.execute('PS.on_frame(__FR)')
+    check(fns(lua) == [0x27, 0x25, 0x0E], '按钮链完成进入测试')
+    lua.execute('CLEAR()')
+    page['on_update'](page, lua.eval('TD.exit'))
+    check(fns(lua) == [0x0F], '退出测试按钮发0x0F(实有%s)' % fns(lua))
+
     print()
     print('测试诊断页回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

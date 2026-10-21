@@ -160,7 +160,13 @@ end
 --                          -> 自然走set_screen完成状态同步, 不会双触发
 --------------------------------------------------------------------
 function APP.set_screen(sid)
+    local prev = APP.cur
     APP.cur = APP.pages[sid]
+    -- 离页契约(2026-10-22补): 此前从不调用on_leave, 页面离页动作(如测试页
+    -- 自动退出测试模式0x0F)无从触发(用户实测); 仅切到不同页面时触发
+    if prev and prev ~= APP.cur and prev.on_leave then
+        safe_call("on_leave", prev.on_leave, prev)
+    end
     if APP.cur and APP.cur.on_enter then safe_call("on_enter", APP.cur.on_enter, APP.cur) end
 end
 

@@ -28,25 +28,32 @@ return function(ctx)
     local last_ctrl = 0                        -- 最近一帧0x08的CtrlState
 
     -- 输出一键翻转按钮地址 -> CtrlNo(2026-10-21补sw9运行指示灯阀,
-    -- 对齐QT formtest 17路输出)
-    local SW = {
-        [LW.TD.sw0] = 0,  [LW.TD.sw1] = 1,  [LW.TD.sw2] = 2,  [LW.TD.sw3] = 3,
-        [LW.TD.sw4] = 4,  [LW.TD.sw5] = 5,  [LW.TD.sw6] = 6,  [LW.TD.sw7] = 7,
-        [LW.TD.sw8] = 8,  [LW.TD.sw9] = 9,
-        [LW.TD.m1] = 16, [LW.TD.m2] = 17, [LW.TD.m3] = 18, [LW.TD.m4] = 19,
-        [LW.TD.m5] = 20, [LW.TD.m6] = 21, [LW.TD.m7] = 22,
-    }
+    -- 对齐QT formtest 17路输出)。防御式构建(2026-10-22): 某标签缺失
+    -- (如屏上lwmap.lua未同步到含sw9的版本)时跳过该路, 不再因nil键
+    -- 崩掉创建器致整页注册失败(自动进入随之失效, 用户实测)
+    local SW = {}
+    for _, e in ipairs({
+        { LW.TD.sw0, 0 },  { LW.TD.sw1, 1 },  { LW.TD.sw2, 2 },
+        { LW.TD.sw3, 3 },  { LW.TD.sw4, 4 },  { LW.TD.sw5, 5 },
+        { LW.TD.sw6, 6 },  { LW.TD.sw7, 7 },  { LW.TD.sw8, 8 },
+        { LW.TD.sw9, 9 },
+        { LW.TD.m1, 16 }, { LW.TD.m2, 17 }, { LW.TD.m3, 18 },
+        { LW.TD.m4, 19 }, { LW.TD.m5, 20 }, { LW.TD.m6, 21 },
+        { LW.TD.m7, 22 },
+    }) do
+        if e[1] then SW[e[1]] = e[2] end
+    end
 
     local page = {
         id = LW.SCREEN.TESTDIAG,
         poll_cmds = { FNC.GET_TEST_STATUS },   -- 0x08 仅本页可见时轮询
                                                -- (QT signalEnterTestMode启testTimer同)
-        addrs = {},
+        addrs = { LW.TD.enter, LW.TD.exit },   -- 进/出按钮(2026-10-22恢复手动兜底)
     }
     for a in pairs(SW) do page.addrs[#page.addrs + 1] = a end
 
-    function page:on_enter()
-        -- 对齐QT mainwindow:88: 切入测试页自动进测试模式(先参数链0x27->0x25)
+    -- 进测试流程(自动+手动共用): 参数链0x27->0x25->0x0E
+    local function enter_flow()
         if JOBRUN and JOBRUN.active() then
             wstr(LW.A.log, "作业进行中, 禁止进入测试模式")
             return
@@ -65,11 +72,21 @@ return function(ctx)
         end
     end
 
-    function page:on_leave()
-        -- 对齐QT mainwindow:71: 切离测试页自动退测试模式
+    -- 退测试流程(自动+手动共用): 直接0x0F
+    local function exit_flow()
         page.token = nil                        -- 链完成前离页: 回调作废
         PROTOCOL.send(FNC.CMD_STOP_TEST)        -- 0x0F 空域
         wstr(LW.A.log, "已退出测试模式")
+    end
+
+    function page:on_enter()
+        -- 对齐QT mainwindow:88: 切入测试页自动进测试模式
+        enter_flow()
+    end
+
+    function page:on_leave()
+        -- 对齐QT mainwindow:71: 切离测试页自动退测试模式
+        exit_flow()
     end
 
     function page:on_frame(f)
@@ -92,13 +109,19 @@ return function(ctx)
     end
 
     function page:on_update(addr)
-        local no = SW[addr]
-        if no then
-            -- QT语义: 取反当前位再下发
-            local state = 0
-            if (last_ctrl >> no) & 1 == 0 then state = 1 end
-            PROTOCOL.send(FNC.CMD_SVCTRL,
-                          CODEC.testcmd.pack { CtrlNo = no, State = state })
+        if addr == LW.TD.enter then
+            enter_flow()                        -- 手动进入(兜底)
+        elseif addr == LW.TD.exit then
+            exit_flow()                         -- 手动退出(兜底)
+        else
+            local no = SW[addr]
+            if no then
+                -- QT语义: 取反当前位再下发
+                local state = 0
+                if (last_ctrl >> no) & 1 == 0 then state = 1 end
+                PROTOCOL.send(FNC.CMD_SVCTRL,
+                              CODEC.testcmd.pack { CtrlNo = no, State = state })
+            end
         end
     end
 
