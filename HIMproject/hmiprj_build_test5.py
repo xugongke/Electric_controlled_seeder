@@ -136,15 +136,15 @@ def main():
                 '自动供种步进电机', '步进电机5', '步进电机6']
     for i, nm in enumerate(IN_NAMES):
         insert_label('td_input%d' % i,
-                     '<label NAME="td_input%d" ADDR="LW171C.%d" '
-                     'TIP="位灯 输入bit%d %s"/>' % (i, i, i, nm))
+                     '<label NAME="td_input%d" ADDR="LW%03X" '
+                     'TIP="位灯 输入bit%d %s"/>' % (i, 0x1790 + i, i, nm))
         insert_label('td_warning%d' % i,
-                     '<label NAME="td_warning%d" ADDR="LW171E.%d" '
-                     'TIP="位灯 报警bit%d %s"/>' % (i, i, i, nm))
+                     '<label NAME="td_warning%d" ADDR="LW%03X" '
+                     'TIP="位灯 报警bit%d %s"/>' % (i, 0x179F + i, i, nm))
     for i, nm in enumerate(MO_NAMES):
         insert_label('td_warning_hi%d' % i,
-                     '<label NAME="td_warning_hi%d" ADDR="LW171F.%d" '
-                     'TIP="位灯 报警bit%d %s"/>' % (i, i, i + 16, nm))
+                     '<label NAME="td_warning_hi%d" ADDR="LW%03X" '
+                     'TIP="位灯 报警bit%d %s"/>' % (i, 0x17AD + i, i, nm))
     for name, tip in (('td_sw4', '按钮 预留1(CtrlNo4)'),
                       ('td_sw5', '按钮 预留2(CtrlNo5)'),
                       ('td_sw6', '按钮 喇叭(CtrlNo6)'),

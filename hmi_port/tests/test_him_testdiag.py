@@ -76,10 +76,10 @@ function ACK(fnc)
     __FR = { fnc = fnc, data = string.char(1) }
     PS.on_frame(__FR)
 end
-function TESTFRAME(ctrl)
+function TESTFRAME(ctrl, inp)
     return CD.teststate.pack { EncoderCnt = 11, BdCnt = 22,
         LoufeiCnt = { 0, 0, 0, 0, 0, 0 }, LouZHCnt = { 0, 0, 0, 0, 0, 0 },
-        InputState = 0, WarningState = 0, CtrlState = ctrl }
+        InputState = inp or 0, WarningState = 0, CtrlState = ctrl }
 end
 '''.replace('__HIM', HIM)
 
@@ -175,6 +175,25 @@ def main():
     lua.execute('CLEAR()')
     page['on_update'](page, lua.eval('TD.exit'))
     check(fns(lua) == [0x0F], '退出测试按钮发0x0F(实有%s)' % fns(lua))
+
+    print('7) 位分解显示字: InputState按位0/1写lamp_in0~14/lamp_wa0~14')
+    lua.execute('CLEAR()')
+    lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
+        'return TESTFRAME(0, 0x730F)')}
+    page['on_frame'](page, lua.globals().__F08)
+    # 0x730F = bit0~3(零位1~4)+bit8(压力)+bit9(风机)+bit12(北斗)
+    ok_zero = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 1
+                  for k in (0, 1, 2, 3))
+    check(ok_zero, '零位开关1~4显示字=1')
+    check(lua.eval('REG[TD.lamp_in0 + 8]') == 1
+          and lua.eval('REG[TD.lamp_in0 + 9]') == 1, '压力/风机显示字=1')
+    ok_idle = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 0
+                  for k in (4, 5, 6, 7, 10, 11))
+    check(ok_idle, '未触发位显示字=0(4~7/10/11)')
+    ok_bei = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 1
+                 for k in (12, 13, 14))
+    check(ok_bei, '北斗/零位5/零位6显示字=1(bit12/13/14)')
+    check(lua.eval('REG[TD.lamp_wa0 + 12]') == 0, '报警显示字=0(无报警)')
 
     print()
     print('测试诊断页回归: %s (%d项)' % (

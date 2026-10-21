@@ -106,6 +106,17 @@ return function(ctx)
         w32(LW.TD.input,   st.InputState)
         w32(LW.TD.warning, st.WarningState)
         w32(LW.TD.ctrl,    st.CtrlState)
+        -- 位分解显示字(2026-10-22): 平台"字.位"地址灯实测不可靠(位灯不亮),
+        -- 每位0/1写独立字, 位灯绑字地址(与rt_positive同款已验证机制);
+        -- 输入位0~14 -> lamp_in0+N, 报警位0~14 -> lamp_wa0+N,
+        -- 电机报警bit16~22 -> lamp_hi0+N
+        for k = 0, 14 do
+            w16(LW.TD.lamp_in0 + k, (st.InputState >> k) & 1)
+            w16(LW.TD.lamp_wa0 + k, (st.WarningState >> k) & 1)
+        end
+        for k = 0, 6 do
+            w16(LW.TD.lamp_hi0 + k, (st.WarningState >> (16 + k)) & 1)
+        end
     end
 
     function page:on_update(addr)
