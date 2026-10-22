@@ -318,6 +318,121 @@ __HEXG = (__GBK:gsub(".", function(c)
           'ASCII布局解码abc')
     check(lua.eval('#__EMPTY') == 0, '空串')
 
+    print('7) 视口/跟随(M40): 缩略红框几何/平移缩放路由/作业跟随居中')
+    # 60排×2列大图(演示田太小, 视口永不裁剪)
+    rows60 = ['信息,,,', '名称,big60', '类型,播种,排长(cm),过道长(cm)',
+              '创建时间,,500,100', '修改时间,,500,100', '备注,,500,100',
+              '排,60,500,100', '列,2,500,100', '小区行数,6,,100',
+              '机器行数,6,,', '行间距(cm),60,,', ',,,',
+              'AB线,,,', 'StartN,36.4', 'StartE,117', 'EndBN,36.438',
+              'EndBE,117', 'StartDir,0', 'CalcDir,0', 'StartState,1',
+              'CalcDirFlag,1', 'OffLen,0', 'BDOffTime,100', 'A点排,59',
+              'A点列,0', '方向,FALSE', '名称,AB', ',,,', '编号,,,',
+              ',1列,2列']
+    for r in range(60, 0, -1):
+        rows60.append('%d排,,,' % r)
+    rows60 += [',,,', '密度,,,', ',1列,2列']
+    for r in range(60, 0, -1):
+        rows60.append('%d排,4000,4000' % r)
+    rows60 += [',,,', '是否播种,,,', ',1列,2列']
+    for r in range(60, 0, -1):
+        rows60.append('%d排,1,1' % r)
+    big60 = '\r\n'.join(rows60) + '\r\n'
+    lua.globals().__HEXB = big60.encode('gbk').hex()
+    lua.execute('''
+local s = ""
+local h = __HEXB
+for i = 1, #h, 2 do
+    s = s .. string.char(tonumber(h:sub(i, i + 1), 16))
+end
+STR.map_import_text("big60", s)
+STR.task_create("t3", "big60", 0, 1, 0, 0, 0, "2026-10-13")
+-- 绘图指令收集器(mapdraw.render全局draw_*)
+__D = { rects = {} }
+function set_pen_color(c) __D.pen = c end
+function draw_rect(x0, y0, x1, y1, f)
+    __D.rects[#__D.rects + 1] = { x0 = x0, y0 = y0, x1 = x1, y1 = y1,
+                                  f = f, c = __D.pen }
+end
+function draw_rect_alpha() end
+function draw_line() end
+function draw_text() end
+__RED = MD.rgb565(255, 0, 0)
+function __redframe()
+    for i = 1, #__D.rects do
+        local r = __D.rects[i]
+        if r.f == 0 and r.c == __RED then return r end
+    end
+    return nil
+end
+APPX.preset_sowrt_task = "t3"
+P24:on_enter()
+__D.rects = {}
+P24:on_drawctrl(1)
+__RF = __redframe()
+__H_FIT = __RF and (__RF.y1 - __RF.y0) or -1
+''')
+    check(320 <= float(lua.eval('__H_FIT')) <= 344,
+          '适配时视口红框≈全缩略条高(实有%s)' % lua.eval('__H_FIT'))
+    lua.execute('''
+P24:on_update(LW.MV.zin, 1)
+__D.rects = {}
+P24:on_drawctrl(1)
+__RF2 = __redframe()
+__H_Z1 = __RF2 and (__RF2.y1 - __RF2.y0) or -1
+''')
+    check(175 <= float(lua.eval('__H_Z1')) <= 205,
+          '放大一档红框高≈190(scale8): 实有%s' % lua.eval('__H_Z1'))
+    lua.execute('''
+P24:on_update(LW.MV.down, 1)
+__D.rects = {}
+P24:on_drawctrl(1)
+__RF3 = __redframe()
+''')
+    check(float(lua.eval('__RF3.y0')) > float(lua.eval('__RF2.y0')),
+          '下移半屏: 红框下移(%s->%s)'
+          % (lua.eval('__RF2.y0'), lua.eval('__RF3.y0')))
+    lua.execute('''
+JR.snap = { cur_row = 30, cur_col = 1 }
+JR.draw_ver = JR.draw_ver + 1
+P24:on_tick()
+__D.rects = {}
+P24:on_drawctrl(1)
+__RF4 = __redframe()
+''')
+    check(float(lua.eval('__RF4.y0')) == float(lua.eval('__RF3.y0')),
+          '跟随关(手动平移已退出): 作业推进不居中')
+    lua.execute('''
+P24:on_update(LW.MV.follow, 1)
+__D.rects = {}
+P24:on_drawctrl(1)
+__RF5 = __redframe()
+''')
+    check(float(lua.eval('__RF5.y0')) < 150
+          and float(lua.eval('__RF5.y0')) < float(lua.eval('__RF3.y0')),
+          '跟随开: 居中第30排(红框上移到%s)' % lua.eval('__RF5.y0'))
+    lua.execute('''
+-- 缩略行带=排数(60条概览色带)
+__BANDS = 0
+for i = 1, #__D.rects do
+    local r = __D.rects[i]
+    -- render带画布原点偏移(252,32): 缩略条屏幕x=698起, 主视区最右687
+    if r.f == 1 and r.x0 >= 690 and r.c == MD.rgb565(192,192,192) then
+        __BANDS = __BANDS + 1
+    end
+end
+''')
+    check(lua.eval('__BANDS') == 60,
+          '缩略图60条行带(完整看全图, 实有%s)' % lua.eval('__BANDS'))
+    lua.execute('''
+P9:on_enter()
+P9:on_update(LW.MV.zin, 1)
+__D.rects = {}
+P9:on_drawctrl(1)
+__RF9 = __redframe()
+''')
+    check(lua.eval('__RF9') is not None, '任务管理页视口缩放路由+缩略红框')
+
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

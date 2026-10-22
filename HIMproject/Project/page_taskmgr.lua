@@ -110,6 +110,7 @@ return function(ctx)
         local opts = {
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
+            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         if ctx.PATHALGO and t.outset then
@@ -175,6 +176,32 @@ return function(ctx)
     end
 
     ---------------------------------------------------------------- 画面9页表
+    ---------------------------------------------------------------- 视口按钮(M40)
+    local function view_hit(addr)
+        local n, t = cur_task()
+        local m = n and STORE.maps[t and t.map]
+        if not m then return false end
+        if addr == LW.MV.up then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+        elseif addr == LW.MV.down then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+        elseif addr == LW.MV.left then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+        elseif addr == LW.MV.right then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+        elseif addr == LW.MV.zin then
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+        elseif addr == LW.MV.zout then
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+        elseif addr == LW.MV.fit then
+            W.mv = nil
+        else
+            return false
+        end
+        mark_dirty()
+        return true
+    end
+
     local page = {
         id = LW.SCREEN.TASKMGR,
         poll_cmds = {},
@@ -182,11 +209,14 @@ return function(ctx)
             LW.TM.btn_new,
             LW.TM.btn_del, LW.TM.btn_imp, LW.TM.btn_exp, LW.TM.btn_reset,
             LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_sel, LW.TM.btn_start,
+            LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
+            LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
     }
 
     function page:on_enter()
         W.sel, W.top = 0, 0
+        W.mv = nil                          -- 视图复位适配(M40)
         refresh()
         render_detail()
         mark_dirty()
@@ -215,6 +245,7 @@ return function(ctx)
 
     function page:on_update(addr, val)
         if val ~= 1 then return end
+        if view_hit(addr) then return end
         if addr == LW.TM.btn_up and W.sel > 0 then
             W.sel = W.sel - 1
             if W.sel < W.top then W.top = W.sel end

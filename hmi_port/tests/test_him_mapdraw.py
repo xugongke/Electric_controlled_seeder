@@ -258,6 +258,66 @@ end
 ''')
     check(not bool(lua.eval('__ANYRUN')), '无任务: 无已下发蓝色块')
 
+    print('9) 视口渲染(M40): 大排列数指令量封顶/可见裁剪/缩略图/视图控制器')
+    lua.execute('''
+__BIG = mkmap(200, 16)                    -- 200排×16列: 整图模式必溢出
+__N_FULL = #MD.cmds(__BIG, nil, { w = 530, h = 380 })
+__N_VP = #MD.cmds(__BIG, nil, { w = 530, h = 380,
+                                viewp = { cx = 8, cy = 122, scale = 8 },
+                                minimap = true })
+''')
+    check(bool(lua.eval('__N_VP < __N_FULL and __N_VP < 3000')),
+          '视口指令量%d < 整图%d 且 <3000封顶'
+          % (lua.eval('__N_VP'), lua.eval('__N_FULL')))
+    lua.execute('''
+__CV = MD.cmds(__BIG, nil, { w = 530, h = 380, minimap = true,
+                             viewp = { cx = 8, cy = 122, scale = 48 } })
+__CELLS = 0
+for i = 1, #__CV do
+    local c = __CV[i]
+    -- 只统计主视区(x1<缩略条起点444)的待播灰色块, 排除缩略行带
+    if c.op == "rect" and c.fill == 1 and c.x1 < 430
+       and c.color == MD.rgb565(192,192,192) then
+        __CELLS = __CELLS + 1
+    end
+end
+''')
+    check(bool(lua.eval('__CELLS')) and lua.eval('__CELLS') <= 100,
+          'scale=48主视区色块%d≤100(整图为3200)——只画视口相交区间'
+          % lua.eval('__CELLS'))
+    lua.execute('''
+__HASMINI = false
+for i = 1, #__CV do
+    local c = __CV[i]
+    if c.op == "rect" and c.fill == 0 and c.color == MD.rgb565(255,0,0) then
+        __HASMINI = true
+    end
+end
+''')
+    check(bool(lua.eval('__HASMINI')), '缩略图视口红框存在')
+    check(lua.eval('MD.zoom_step(10, nil, 1)') == 12,
+          'fit=10放大跳到12(跳过<fit的8档)')
+    check(lua.eval('MD.zoom_step(32, nil, 1)') == 36,
+          'fit=32(上限)放大进36档(缩放独立于fit上限)')
+    check(lua.eval('MD.zoom_step(10, 12, -1)') is None,
+          '12缩小穿越fit=10回落适配(nil)')
+    lua.execute('''
+__P1 = MD.pan({ cx = 8, cy = 122, scale = 8 }, __BIG, 530, 380, true,
+              0, 100)                       -- 疯狂下移100屏
+__WH = select(2, MD.world_size(__BIG))
+''')
+    check(bool(lua.eval('__P1.cy <= __WH + 1')),
+          '平移夹取: cy=%s 不越出世界底%s+余量'
+          % (lua.eval('__P1.cy'), lua.eval('__WH')))
+    lua.execute('''
+__C = MD.center_on({ cx = 8, cy = 122, scale = 48 }, __BIG, 530, 380,
+                   true, 150, 3)
+''')
+    check(abs(float(lua.eval('__C.cy')) - (150 * 1.22 + 1.72)) < 1.5,
+          'center_on(150排,3列)@scale48居中该格: cy=%s' % lua.eval('__C.cy'))
+    check(abs(float(lua.eval('__C.cx')) - 3.5) < 0.1,
+          'center_on列中心: cx=%s' % lua.eval('__C.cx'))
+
     print()
     print('地图绘制回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

@@ -182,7 +182,35 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density")
                    or "arrange",
+            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
         }), 412, 30)                  -- 画布原点(画面坐标系, 2026-10-14重布局)
+    end
+
+    ---------------------------------------------------------------- 视口按钮(M40)
+    -- LW.MV导航: 半屏平移/缩放档位/适配; 大排列数地图视口浏览
+    local function view_hit(addr)
+        local n = selected_name()
+        local m = n and STORE and STORE.map_get(n)
+        if not m then return false end
+        if addr == LW.MV.up then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+        elseif addr == LW.MV.down then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+        elseif addr == LW.MV.left then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+        elseif addr == LW.MV.right then
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+        elseif addr == LW.MV.zin then
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+        elseif addr == LW.MV.zout then
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+        elseif addr == LW.MV.fit then
+            W.mv = nil
+        else
+            return false
+        end
+        canvas_dirty = true
+        return true
     end
 
     local page = {
@@ -191,11 +219,14 @@ return function(ctx)
         addrs = {
             LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
             LW.MAP.btn_usb, LW.MAP.ab_import, LW.MAP.ab_clear,
+            LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
+            LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
     }
 
     function page:on_enter()
         refresh()
+        W.mv = nil                          -- 视图复位适配(M40)
         canvas_dirty = true
     end
 
@@ -208,6 +239,7 @@ return function(ctx)
     end
 
     function page:on_update(addr, val)           -- 冒号定义(app.lua 冒号调用)
+        if view_hit(addr) then return end
         on_btn(addr, val)
     end
 

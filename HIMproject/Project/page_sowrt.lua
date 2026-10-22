@@ -27,7 +27,8 @@ return function(ctx)
     local NOW = ctx.now or function() return "1970-01-01 00:00:00" end
 
     local W = { task = nil, ver = -1, qzdd = -1,
-                last_pt = -1, last_pos = -1 }
+                last_pt = -1, last_pos = -1,
+                mv = nil, follow = true }   -- M40视口状态/作业跟随
 
     local function fname_stamp(s)
         -- "2026-10-15 12:00:00" -> "2026_10_15_12_00_00"(屏端无gsub手写)
@@ -121,6 +122,7 @@ return function(ctx)
         local opts = {
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
+            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         -- 起点V方向: 起点列的行进方向(路径首到达该列的节点positive)
@@ -183,12 +185,59 @@ return function(ctx)
             t.outset and (t.outset.c + 1) or 0))
     end
 
+    ---------------------------------------------------------------- 视口按钮(M40)
+    -- 跟随: 视口居中当前作业块(jobrun.snapshot.cur_row/cur_col)
+    local function follow_now(m)
+        local s = JOBRUN and JOBRUN.snapshot and JOBRUN.snapshot()
+        if s and s.cur_row and s.cur_col then
+            W.mv = MAPDRAW.center_on(W.mv, m, CANVAS_W, CANVAS_H, true,
+                                     s.cur_row, s.cur_col)
+        end
+    end
+
+    -- 平移/适配/缩小退出跟随(地图App惯例), 放大保持跟随(就地缩放)
+    local function view_hit(addr)
+        local t = W.task and STORE.tasks[W.task] or nil
+        local m = t and task_map(t)
+        if not m then return false end
+        if addr == LW.MV.up then
+            W.follow = false
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+        elseif addr == LW.MV.down then
+            W.follow = false
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+        elseif addr == LW.MV.left then
+            W.follow = false
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+        elseif addr == LW.MV.right then
+            W.follow = false
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+        elseif addr == LW.MV.zin then
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+        elseif addr == LW.MV.zout then
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+        elseif addr == LW.MV.fit then
+            W.follow = false
+            W.mv = nil
+        elseif addr == LW.MV.follow then
+            W.follow = not W.follow
+            log('INF', W.follow and '作业跟随: 开' or '作业跟随: 关')
+            if W.follow then follow_now(m) end
+        else
+            return false
+        end
+        if redraw then redraw() end
+        return true
+    end
+
     local page = {
         id = LW.SCREEN.SOWRT,
         poll_cmds = { PROTOCOL and PROTOCOL.FNC.GET_BZ_STATUS or nil },
         addrs = {
             LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
             LW.RT.btn_exp, LW.RT.btn_abclr, LW.RT.btn_spply,
+            LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
+            LW.MV.zin, LW.MV.zout, LW.MV.fit, LW.MV.follow,
         },
     }
 
@@ -204,6 +253,8 @@ return function(ctx)
         end
         W.last_pt = r16(LW.RT.path_type) or 0
         W.last_pos = (r16(LW.RT.positive) == 1) and 1 or 0
+        W.mv = nil                          -- 视图复位适配(M40)
+        W.follow = true                     -- 进页默认跟随作业
         W.ver = -1
     end
 
@@ -231,6 +282,11 @@ return function(ctx)
         local ver = JOBRUN and JOBRUN.draw_ver or 0
         if ver ~= W.ver then
             W.ver = ver
+            if W.follow then
+                local t = W.task and STORE.tasks[W.task] or nil
+                local m = t and task_map(t)
+                if m then follow_now(m) end
+            end
             if redraw then redraw() end
         end
     end
@@ -261,6 +317,7 @@ return function(ctx)
 
     function page:on_update(addr, val)
         if val ~= 1 then return end
+        if view_hit(addr) then return end
         if addr == LW.RT.btn_start then
             on_start()
         elseif addr == LW.RT.btn_stop then

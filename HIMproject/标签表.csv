@@ -213,3 +213,11 @@ rt_btn_result,LW1F62,按钮 任务结果(跳画面7并预选)
 rt_btn_exp,LW1F63,按钮 导出结果到U盘
 rt_btn_abclr,LW1F64,按钮 清除AB线(当前任务地图)
 rt_btn_spply,LW1F65,按钮 应用新起点(重建任务路径)
+mv_up,LW1F80,按钮 视口上移半屏(地图导入/任务管理/实时播种页)
+mv_down,LW1F81,按钮 视口下移半屏
+mv_left,LW1F82,按钮 视口左移半屏
+mv_right,LW1F83,按钮 视口右移半屏
+mv_zin,LW1F84,按钮 放大一档
+mv_zout,LW1F85,按钮 缩小一档(最小档再缩回落适配)
+mv_fit,LW1F86,按钮 适配整图(回到fit)
+mv_follow,LW1F87,按钮 跟随开关(仅实时播种页放置: 自动居中当前作业块，
