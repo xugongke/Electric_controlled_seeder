@@ -3,8 +3,8 @@ page_testdiag.lua -- 测试诊断页(画面5, 2026-10-21重设计对齐QT formtest)
 ================================================================================
 布局对齐QT formtest.ui双栏(hmiprj_build_test5.py重建):
   左栏 输入状态: 15项具名输入(零位开关1~6/自动供种接近开关/预留输入/钢索1~2/
-        压力/风机/脚踏板/一键初始化按钮/北斗, bit0~14)状态灯(td_input0~14
-        =LW1790+E显示字)+报警灯(td_walamp0~14=LW179F+)+编码器/北斗计数 +
+        压力/风机/脚踏板/一键初始化按钮/北斗, bit0~14)三态灯(td_input0~14
+        =LW1790+E显示字, 0=禁行/1=触发/2=报警) + 编码器/北斗计数 +
         漏种/漏肥各6路表;
   右栏 输出控制: 17路位状态开关(阀CtrlNo0~9: 预落种/倒种/清种/刮种/
         预留1~2/喇叭/打点器/报警灯/运行指示灯 + 电机CtrlNo16~22:
@@ -111,13 +111,15 @@ return function(ctx)
         w32(LW.TD.input,   st.InputState)
         w32(LW.TD.warning, st.WarningState)
         w32(LW.TD.ctrl,    st.CtrlState)
-        -- 位分解显示字(2026-10-22): 平台"字.位"地址灯实测不可靠(位灯不亮),
-        -- 每位0/1写独立字, 位灯绑字地址(与rt_positive同款已验证机制);
-        -- 输入位0~14 -> lamp_in0+N, 报警位0~14 -> lamp_wa0+N,
-        -- 电机报警bit16~22 -> lamp_hi0+N
+        -- 输入三态灯(2026-10-22 M38): 报警位优先于触发位, 2=报警(红警号)
+        -- 1=触发(绿) 0=未触发(禁行)——对齐QT formtest三态指示灯语义;
+        -- 图=project.xico/5三帧disabled/enabled/alarm(用户导入), 控件
+        -- StatusCount=3按值选帧(画面24路径方式灯同款已验证机制);
+        -- 独立walamp报警灯列随M38删除(lamp_wa0显示字退役)
         for k = 0, 14 do
-            w16(LW.TD.lamp_in0 + k, (st.InputState >> k) & 1)
-            w16(LW.TD.lamp_wa0 + k, (st.WarningState >> k) & 1)
+            local v = (st.InputState >> k) & 1
+            if (st.WarningState >> k) & 1 == 1 then v = 2 end
+            w16(LW.TD.lamp_in0 + k, v)
         end
         for k = 0, 6 do
             w16(LW.TD.lamp_hi0 + k, (st.WarningState >> (16 + k)) & 1)

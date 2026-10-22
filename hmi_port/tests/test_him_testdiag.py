@@ -78,10 +78,10 @@ function ACK(fnc)
     __FR = { fnc = fnc, data = string.char(1) }
     PS.on_frame(__FR)
 end
-function TESTFRAME(ctrl, inp)
+function TESTFRAME(ctrl, inp, wrn)
     return CD.teststate.pack { EncoderCnt = 11, BdCnt = 22,
         LoufeiCnt = { 0, 0, 0, 0, 0, 0 }, LouZHCnt = { 0, 0, 0, 0, 0, 0 },
-        InputState = inp or 0, WarningState = 0, CtrlState = ctrl }
+        InputState = inp or 0, WarningState = wrn or 0, CtrlState = ctrl }
 end
 '''.replace('__HIM', HIM)
 
@@ -180,28 +180,31 @@ def main():
     check(fns(lua) == [0x0F], '进入测试开关(v=0)=退出测试发0x0F(实有%s)'
           % fns(lua))
 
-    print('7) 位分解显示字: InputState按位0/1写lamp_in0~14/lamp_wa0~14')
-    check(lua.eval('TD.lamp_in0') + 15 == lua.eval('TD.lamp_wa0')
-          and lua.eval('TD.lamp_wa0') + 15 == lua.eval('TD.lamp_hi0'),
-          '位灯显示字区不重叠(in0+15=wa0, wa0+15=hi0)——杜绝td_warning14/'
-          'td_warning_hi0同址串扰(M34实测)')
+    print('7) 输入三态灯(M38): 报警位并入显示字, 2=报警/1=触发/0=未触发')
+    check(lua.eval('TD.lamp_wa0') is None,
+          'lamp_wa0已退役(M38, 独立walamp报警灯列删除)')
+    check(lua.eval('TD.lamp_in0') + 15 <= lua.eval('TD.lamp_hi0'),
+          '显示字区不重叠(in0+15<=hi0)')
     lua.execute('CLEAR()')
     lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
         'return TESTFRAME(0, 0x730F)')}
     page['on_frame'](page, lua.globals().__F08)
-    # 0x730F = bit0~3(零位1~4)+bit8(压力)+bit9(风机)+bit12(北斗)
-    ok_zero = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 1
-                  for k in (0, 1, 2, 3))
-    check(ok_zero, '零位开关1~4显示字=1')
-    check(lua.eval('REG[TD.lamp_in0 + 8]') == 1
-          and lua.eval('REG[TD.lamp_in0 + 9]') == 1, '压力/风机显示字=1')
+    # 0x730F = bit0~3(零位1~4)+bit8(压力)+bit9(风机)+bit12~14(北斗/零位5/6)
+    ok_green = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 1
+                   for k in (0, 1, 2, 3, 8, 9, 12, 13, 14))
+    check(ok_green, '无报警时触发位显示字=1(绿): 0~3/8/9/12~14')
     ok_idle = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 0
                   for k in (4, 5, 6, 7, 10, 11))
-    check(ok_idle, '未触发位显示字=0(4~7/10/11)')
-    ok_bei = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 1
-                 for k in (12, 13, 14))
-    check(ok_bei, '北斗/零位5/零位6显示字=1(bit12/13/14)')
-    check(lua.eval('REG[TD.lamp_wa0 + 12]') == 0, '报警显示字=0(无报警)')
+    check(ok_idle, '未触发位显示字=0: 4~7/10/11')
+    # 报警注入(bit0~3, zerofail场景): 报警优先于触发
+    lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
+        'return TESTFRAME(0, 0x730F, 0xF)')}
+    page['on_frame'](page, lua.globals().__F08)
+    ok_alarm = all(lua.eval('REG[TD.lamp_in0 + %d]' % k) == 2
+                   for k in (0, 1, 2, 3))
+    check(ok_alarm, '报警位0~3显示字=2(报警优先于触发, 红)')
+    check(lua.eval('REG[TD.lamp_in0 + 8]') == 1,
+          '非报警触发位(bit8压力)仍=1(绿)')
     check(lua.eval('REG[TD.lamp_hi0]') == 0, '电机报警显示字=0(bit16无报警)')
     # 使能字区lua永不写(勾选可保持, 对齐QT TestWarning=本地设置)
     lua.execute('REG[0x17B5] = 5; REG[0x17C4] = 6')
