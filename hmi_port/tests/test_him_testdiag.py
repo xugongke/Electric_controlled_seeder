@@ -7,7 +7,9 @@ r"""测试诊断页(画面5)回归: 2026-10-21重设计对齐QT formtest + 自�
   2) 自动退出: on_leave -> 0x0F(QT mainwindow:71)
   3) 链完成前离页: 会话令牌作废回调, 不再补发0x0E
   4) 作业进行中: 禁止进入(不发0x27)
-  5) 输出17路: sw9(CtrlNo9运行指示灯)一键翻转0x09(新增第17路, 对齐QT)
+  5) 输出17路: 位状态开关v即目标态直发0x09(1=动作/0=停止); v=0需
+     main.lua对no_reset页放行(2026-10-22 M37, 此前只能开不能关),
+     页面sw_seen闸滤屏切初始化伪0; main.lua接线透传有专项验证
 运行: python hmi_port/tests/test_him_testdiag.py
 """
 import os
@@ -135,35 +137,36 @@ def main():
     check(fns(lua) == [], '作业中on_enter不发0x27(实有%s)' % fns(lua))
     lua.execute('__JOB.active = function() return false end')
 
-    print('5) 输出17路: sw9(CtrlNo9)一键翻转0x09')
+    print('5) 输出开关直发: sw9(CtrlNo9) 开关值即目标态(M30, 2026-10-22重写)'
+          '\n   [位状态开关写v=新值, 非旧按钮"读位取反"; harness补传v]')
     lua.execute('CLEAR()')
     lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
         'return TESTFRAME(0)')}
     page['on_frame'](page, lua.globals().__F08)
-    page['on_update'](page, lua.eval('TD.sw9'))
+    page['on_update'](page, lua.eval('TD.sw9'), 1)
     n = lua.eval('#__SENT')
     fr = lua.eval('__SENT[%d]' % n)
     check(fr['fnc'] == 0x09 and fr['hex'] == '0900' + '0100',
-          'CtrlState bit9=0 -> 翻转为1下发(实有%s %s)' % (fr['fnc'], fr['hex']))
+          '开关开(v=1) -> 0x09 State=1(实有%s %s)' % (fr['fnc'], fr['hex']))
     lua.execute('CLEAR()')
     lua.globals().__F08 = {'fnc': 0x08, 'data': lua.execute(
         'return TESTFRAME(512)')}
     page['on_frame'](page, lua.globals().__F08)
-    page['on_update'](page, lua.eval('TD.sw9'))
+    page['on_update'](page, lua.eval('TD.sw9'), 0)
     n = lua.eval('#__SENT')
     fr = lua.eval('__SENT[%d]' % n)
     check(fr['fnc'] == 0x09 and fr['hex'] == '0900' + '0000',
-          'CtrlState bit9=1 -> 翻转为0下发(实有%s %s)' % (fr['fnc'], fr['hex']))
+          '开关关(v=0, 见过1) -> 0x09 State=0(实有%s %s)' % (fr['fnc'], fr['hex']))
     # 0x08应答落TD寄存器(计数/位图)
     lua.execute('__F08.data = TESTFRAME(0)')
     page['on_frame'](page, lua.globals().__F08)
     enc = lua.eval('REG[TD.encodercnt]')
     check(enc == 11, '0x08编码器计数写入TD(实有%s)' % enc)
 
-    print('6) 进/出测试按钮(手动兜底, 与自动并存)')
+    print('6) 进/出测试开关(手动兜底, 与自动并存; 1=进入 0=退出)')
     lua.execute('CLEAR()')
-    page['on_update'](page, lua.eval('TD.enter'))
-    check(fns(lua) == [0x27], '进入测试按钮发0x27(实有%s)' % fns(lua))
+    page['on_update'](page, lua.eval('TD.enter'), 1)
+    check(fns(lua) == [0x27], '进入测试开关(v=1)发0x27(实有%s)' % fns(lua))
     lua.globals().__FR = {'fnc': 0x27, 'data': lua.execute(
         'return string.char(1)')}
     lua.execute('PS.on_frame(__FR)')
@@ -173,8 +176,9 @@ def main():
     lua.execute('PS.on_frame(__FR)')
     check(fns(lua) == [0x27, 0x25, 0x0E], '按钮链完成进入测试')
     lua.execute('CLEAR()')
-    page['on_update'](page, lua.eval('TD.exit'))
-    check(fns(lua) == [0x0F], '退出测试按钮发0x0F(实有%s)' % fns(lua))
+    page['on_update'](page, lua.eval('TD.enter'), 0)
+    check(fns(lua) == [0x0F], '进入测试开关(v=0)=退出测试发0x0F(实有%s)'
+          % fns(lua))
 
     print('7) 位分解显示字: InputState按位0/1写lamp_in0~14/lamp_wa0~14')
     check(lua.eval('TD.lamp_in0') + 15 == lua.eval('TD.lamp_wa0')
@@ -206,6 +210,55 @@ def main():
     page['on_frame'](page, lua.globals().__F08)
     check(lua.eval('REG[0x17B5]') == 5 and lua.eval('REG[0x17C4]') == 6,
           '使能勾选字不被0x08覆盖(勾选可保持)')
+
+    print('8) 开关伪0闸: 没开过就收v=0不误发(屏切初始化/回声防护, M37)')
+    lua.execute('CLEAR()')
+    page2 = lua.execute('return PAGE_NEW()')      # 全新实例, sw_seen为空
+    page2['on_update'](page2, lua.eval('TD.m1'), 0)
+    check(fns(lua) == [], '未开过收v=0 -> 不发0x09(实有%s)' % fns(lua))
+    page2['on_update'](page2, lua.eval('TD.m1'), 1)
+    n = lua.eval('#__SENT')
+    fr = lua.eval('__SENT[%d]' % n)
+    check(fr['fnc'] == 0x09 and fr['hex'] == '1000' + '0100',
+          '步进电机1(CtrlNo16) v=1 -> State=1(实有%s %s)'
+          % (fr['fnc'], fr['hex']))
+    lua.execute('CLEAR()')
+    page2['on_update'](page2, lua.eval('TD.m1'), 0)
+    n = lua.eval('#__SENT')
+    fr = lua.eval('__SENT[%d]' % n)
+    check(fns(lua) == [0x09] and fr['hex'] == '1000' + '0000',
+          '开过再收v=0 -> 关断放行State=0(实有%s %s)'
+          % (fns(lua), fr['hex']))
+
+    print('9) main.lua平台接线: no_reset页v=0透传, 普通按钮页v=0仍滤(M37)')
+    msrc = open(os.path.join(HIM, 'main.lua'), encoding='gb18030').read()
+    i = msrc.find('function on_update(slave')
+    assert i > 0, 'main.lua缺on_update'
+    j = msrc.find('function on_screen_change', i)
+    lua.execute('''
+    __BTN = {}
+    VT_LW = 1
+    __REG2 = {}
+    __REG2[100] = 1
+    __REG2[101] = 0
+    function r16(a) return __REG2[a] end
+    APP = { cur = nil,
+            on_button = function(a, v) __BTN[#__BTN + 1] = { a, v } end }
+    ''')
+    lua.execute(msrc[i:j])
+    lua.execute('APP.cur = { no_reset = true }')
+    lua.execute('on_update(nil, VT_LW, 100)')
+    t = lua.eval('__BTN[1] and __BTN[1][2]')
+    check(t == 1, '开关页v=1照常路由(实有%s)' % t)
+    lua.execute('on_update(nil, VT_LW, 101)')
+    n = lua.eval('#__BTN')
+    t = lua.eval('__BTN[%d] and __BTN[%d][2]' % (n, n))
+    check(n == 2 and t == 0, '开关页v=0透传(用户关断, 实有%s)' % t)
+    lua.execute('APP.cur = { no_reset = false }')
+    lua.execute('__BTN = {}')
+    lua.execute('on_update(nil, VT_LW, 101)')     # r16(101)=0
+    check(lua.eval('#__BTN') == 0,
+          '普通按钮页v=0(app复位回声)仍被滤(实有%s)' % lua.eval('#__BTN'))
 
     print()
     print('测试诊断页回归: %s (%d项)' % (

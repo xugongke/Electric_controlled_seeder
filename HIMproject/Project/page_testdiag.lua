@@ -3,13 +3,14 @@ page_testdiag.lua -- 测试诊断页(画面5, 2026-10-21重设计对齐QT formtest)
 ================================================================================
 布局对齐QT formtest.ui双栏(hmiprj_build_test5.py重建):
   左栏 输入状态: 15项具名输入(零位开关1~6/自动供种接近开关/预留输入/钢索1~2/
-        压力/风机/脚踏板/一键初始化按钮/北斗, bit0~14)状态灯(LW171C.x)+
-        报警灯(LW171E.x) + 编码器/北斗计数 + 漏种/漏肥各6路表;
-  右栏 输出控制: 17个一键翻转按钮(阀CtrlNo0~9: 预落种/倒种/清种/刮种/
+        压力/风机/脚踏板/一键初始化按钮/北斗, bit0~14)状态灯(td_input0~14
+        =LW1790+E显示字)+报警灯(td_walamp0~14=LW179F+)+编码器/北斗计数 +
+        漏种/漏肥各6路表;
+  右栏 输出控制: 17路位状态开关(阀CtrlNo0~9: 预落种/倒种/清种/刮种/
         预留1~2/喇叭/打点器/报警灯/运行指示灯 + 电机CtrlNo16~22:
-        步进电机1~4/自动供种步进电机/步进电机5~6), 点按=读当前CtrlState位
-        取反后0x09下发(QT setValveState(ch,!bit)同款), 各配报警灯
-        (阀LW171E.0~9/电机LW171F.0~6)。
+        步进电机1~4/自动供种步进电机/步进电机5~6), WriteAddr=td_sw0~9/
+        td_m1~7, 点按翻转写值on_update直发0x09(0=停止/1=动作, QT
+        setValveState同款), 自保持显示(电机报警灯7路已按用户选择删除)。
 进出测试模式自动化(2026-10-21对齐QT mainwindow :71/:88切页自动
 enter/exitTestMode; 原进/出测试按钮已删):
   进页面: 参数链0x27成功->0x25->成功->0x0E(作业进行中禁止进入);
@@ -26,6 +27,8 @@ return function(ctx)
     local JOBRUN = ctx.JOBRUN
 
     local last_ctrl = 0                        -- 最近一帧0x08的CtrlState
+    local sw_seen = {}                         -- 开关最后事件值: 只认"见过1后
+                                               --   的0"(滤屏切初始化伪0事件)
 
     -- 输出一键翻转按钮地址 -> CtrlNo(2026-10-21补sw9运行指示灯阀,
     -- 对齐QT formtest 17路输出)。防御式构建(2026-10-22): 某标签缺失
@@ -46,6 +49,8 @@ return function(ctx)
 
     local page = {
         id = LW.SCREEN.TESTDIAG,
+        no_reset = true,    -- 位状态开关页: 按钮不复位(APP.on_button跳过清零,
+                            --   开关单元自保持0/1状态显示)
         poll_cmds = { FNC.GET_TEST_STATUS },   -- 0x08 仅本页可见时轮询
                                                -- (QT signalEnterTestMode启testTimer同)
         addrs = { LW.TD.enter, LW.TD.exit },   -- 进/出按钮(2026-10-22恢复手动兜底)
@@ -117,21 +122,32 @@ return function(ctx)
         for k = 0, 6 do
             w16(LW.TD.lamp_hi0 + k, (st.WarningState >> (16 + k)) & 1)
         end
+        -- 注意: 17路输出开关td_sw0~9/td_m1~7字不做CtrlState回显分解——
+        -- 平台on_update对lua写地址是否触发无文档, 若触发则每帧0x08会
+        -- 回环成0x09风暴; 开关为自保持显示(点击即生效, 模拟器/下位机
+        -- 立即应用, 显示与实态一致)
     end
 
-    function page:on_update(addr)
+    function page:on_update(addr, v)
         if addr == LW.TD.enter then
-            enter_flow()                        -- 手动进入(兜底)
+            -- 位状态开关: 1=进入测试 0=退出测试(2026-10-22用户定义)
+            if v == 1 then enter_flow() else exit_flow() end
         elseif addr == LW.TD.exit then
-            exit_flow()                         -- 手动退出(兜底)
+            exit_flow()                         -- 兼容保留(无控件)
         else
             local no = SW[addr]
             if no then
-                -- QT语义: 取反当前位再下发
-                local state = 0
-                if (last_ctrl >> no) & 1 == 0 then state = 1 end
+                -- 位状态开关: 开关单元值即目标态(0=停止 1=动作), 直发。
+                -- v=0须main.lua对no_reset页放行才到得了这里(M37前被
+                -- "0=复位态"守卫丢弃, 输出只能开不能关); 此处再滤一次
+                -- 伪0(没开过就收到0=初始化/回声, 非用户关断)
+                if v == 0 and sw_seen[addr] ~= 1 then return end
+                sw_seen[addr] = v
+                -- !! Lua 0为真值: 不可写 `v and 1 or 0`(v=0会得1, 关变开,
+                -- 2026-10-22测试8抓现形); 必须显式判1
                 PROTOCOL.send(FNC.CMD_SVCTRL,
-                              CODEC.testcmd.pack { CtrlNo = no, State = state })
+                              CODEC.testcmd.pack { CtrlNo = no,
+                                                   State = (v == 1) and 1 or 0 })
             end
         end
     end
