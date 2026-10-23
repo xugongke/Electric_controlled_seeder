@@ -128,7 +128,7 @@ tw_btn_stop,LW188D,按钮 停止作业(收尾断点+无AB线时弹保存对话框)
 map_count,LW1C00,u16 地图数
 map_selidx,LW1C01,u16 列表选中项(0基)
 map_list,LW1C04,字符串 列表多行文本(占0x1C04~0x1C43， 64字)
-map_detail,LW1C44,字符串 选中地图详情(占0x1C44~0x1C63， 32字)
+map_detail,LW1C80,字符串 选中地图详情QT风格(0x1C80~0x1CFF，
 map_btn_up,LW1C70,按钮 选项上移
 map_btn_down,LW1C71,按钮 选项下移
 map_btn_sel,LW1C72,按钮 查看详情
@@ -166,12 +166,7 @@ logv_btn_exp,LW1AB4,按钮 导出日志到U盘
 tm_list,LW2D00,字符串 任务列表多行(2026-10-19二十修: 移
 tm_count,LW1E30,u16 任务数
 tm_selidx,LW1E31,u16 列表选中项(0基)
-tm_tname,LW1E32,字符串 详情:任务名(占0x1E32~0x1E41， 16字)
-tm_tmap,LW1E42,字符串 详情:地图名(16字)
-tm_tcreate,LW1E52,字符串 详情:创建时间(16字)
-tm_tlast,LW1E62,字符串 详情:上次工作时间(16字)
-tm_tpct,LW1E72,u16 详情:完成率%
-tm_tremark,LW1E74,字符串 详情:备注(占0x1E74~0x1E93， 32字)
+tm_tdetail,LW1E32,字符串 任务详情QT风格合并文本(0x1E32~0x1E93，
 tm_canvas,LW1E95,画布重绘脏标(M41): 写值变化触发画面9画布重绘
 tm_view,LW1E94,u16 地图画布视图 0排列/1编号/2密度(下拉)
 tm_btn_new,LW1E96,按钮 新建任务(开画面25)
@@ -181,7 +176,6 @@ tm_btn_exp,LW1E99,按钮 导出任务到U盘
 tm_btn_reset,LW1E9A,按钮 重置任务(块状态清0)
 tm_btn_up,LW1E9B,按钮 列表上移
 tm_btn_down,LW1E9C,按钮 列表下移
-tm_btn_sel,LW1E9D,按钮 选中查看
 tm_btn_start,LW1E9E,按钮 开始任务(进画面24)
 nt_name,LW1EB0,字符串 任务名输入(占0x1EB0~0x1EBF， 16字)
 nt_mapsel,LW1EC0,字符串 当前候选地图名(16字)

@@ -162,7 +162,10 @@ function csv.parse_map_grid(text)
                         -- 地图显示名(hmi_export; 空串归nil)
                     elseif a1 == "排" then m.rows = num(f[2])
                     elseif a1 == "列" then m.cols = num(f[2])
-                    elseif a1 == "小区行数" then m.block_col = num(f[2]) or 1
+                    elseif a1 == "创建时间" then m.ctime = f[2] or ""
+elseif a1 == "修改时间" then m.mtime = f[2] or ""
+elseif a1 == "备注" then m.mark = f[2] or ""
+elseif a1 == "小区行数" then m.block_col = num(f[2]) or 1
                     elseif a1 == "机器行数" then m.machine_cols = num(f[2])
                     elseif a1 == "行间距(cm)" then m.col_gap = num(f[2])
                     end
@@ -453,7 +456,11 @@ function csv.render_map(m)
         elseif lab == "列" then b = m.cols or 0
         elseif lab == "小区行数" then b = m.block_col or 1
         elseif lab == "机器行数" then b = m.machine_cols or 6
-        elseif lab == "行间距(cm)" then b = fmt_num(m.col_gap or 60) end
+        elseif lab == "行间距(cm)" then b = fmt_num(m.col_gap or 60)
+        elseif lab == "创建时间" then b = m.ctime or ""
+        elseif lab == "修改时间" then b = m.mtime or ""
+        elseif lab == "备注" then b = m.mark or ""
+        end
         local c = ""
         if i <= (m.rows or 0) then c = fmt_num(m.rowlen[i] or 0) end
         -- D列仅rows+1行(2026-10-13, 对齐hmi_export): 此前行行写值,

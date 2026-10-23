@@ -143,8 +143,19 @@ wstr(LW.NT.name, "t1")
     check(bool(lua.eval('STR.tasks["t1"] ~= nil')), '确定创建任务t1')
     lua.execute('P9:on_enter()')
     check(lua.eval('REG[LW.TM.count]') == 1, '列表count=1')
-    check(lua.eval('REG[LW.TM.tname]') == 't1', '详情任务名')
-    check(lua.eval('REG[LW.TM.tpct]') == 0, '完成率0')
+    lua.execute('''
+__TDH = (REG[LW.TM.tdetail]:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+''')
+    td = bytes.fromhex(str(lua.eval('__TDH'))).decode('gbk')
+    check('t1' in td and '地图:demo5' in td and '完成率:0%' in td
+          and '最近作业:' in td,
+          '详情QT风格合并文本(M42, 实有%r)' % td[:60])
+    check('TM.tpct' not in open(os.path.join(HIM, 'page_taskmgr.lua'),
+                                encoding='gb18030').read()
+          and 'TM.btn_sel' not in open(os.path.join(HIM, 'page_taskmgr.lua'),
+                                       encoding='gb18030').read(),
+          '旧六字段/刷新按钮引用已清(M42)')
     # 开始任务 -> 预选+跳24
     lua.execute('P9:on_update(LW.TM.btn_start, 1)')
     check(lua.eval('APPX.goto_sid') == lua.eval('LW.SCREEN.SOWRT'),

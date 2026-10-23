@@ -61,9 +61,25 @@ return function(ctx)
         local m = STORE.map_get(n)
         if not m then return end
         JOBRUN.ab_hint_map = n                  -- AB对话框的默认目标地图
-        local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
-                       or "无AB线"
-        wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))
+        -- QT风格地图详情单文本(M42): 名称/大小/行列数/一趟块数/行间距列宽/
+        -- AB线/创建/修改/备注(时戳备注有则显示; 列宽=小区行数x行间距,QT同款)
+        local cw = (m.block_col or 1) * (m.col_gap or 0)
+        local g = m.col_gap or 0
+        local L = {
+            tostring(n),
+            string.format("%d排x%d列", m.rows or 0, m.cols or 0),
+            string.format("小区行数:%d 机器行数:%d", m.block_col or 1,
+                          m.machine_cols or 0),
+            string.format("一趟%d块", STORE.block_each_trip
+                                       and STORE.block_each_trip(m) or 1),
+            string.format("行间距:%d.%02dm 列宽:%d.%02dm",
+                          g // 100, g % 100, cw // 100, cw % 100),
+            m.ab and ("AB线:" .. (m.ab.name or "?")) or "AB线:无",
+        }
+        if m.ctime and m.ctime ~= "" then L[#L + 1] = "创建:" .. m.ctime end
+        if m.mtime and m.mtime ~= "" then L[#L + 1] = "修改:" .. m.mtime end
+        if m.mark and m.mark ~= "" then L[#L + 1] = "备注:" .. m.mark end
+        wstr(LW.MAP.detail, table.concat(L, "\r\n"))
     end
 
     ------------------------------------------------------------------ U盘导入

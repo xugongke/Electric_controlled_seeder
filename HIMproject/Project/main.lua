@@ -428,7 +428,8 @@ LW.MAP = {
     count      = 0x1C00, -- u16 地图数
     selidx     = 0x1C01, -- u16 列表选中项(0基)
     list       = 0x1C04, -- 字符串 列表多行文本(占0x1C04~0x1C43, 64字)
-    detail     = 0x1C44, -- 字符串 选中地图详情(占0x1C44~0x1C63, 32字)
+    detail     = 0x1C80, -- 字符串 选中地图详情QT风格(0x1C80~0x1CFF,
+                         --   128字=256字节; M42迁址扩容, 多行\r\n分隔)
     btn_up     = 0x1C70, -- 按钮 选项上移
     btn_down   = 0x1C71, -- 按钮 选项下移
     btn_sel    = 0x1C72, -- 按钮 查看详情
@@ -498,12 +499,8 @@ LW.TM = {
                        --   释放给详情字段)
     count     = 0x1E30, -- u16 任务数
     selidx    = 0x1E31, -- u16 列表选中项(0基)
-    tname     = 0x1E32, -- 字符串 详情:任务名(占0x1E32~0x1E41, 16字)
-    tmap      = 0x1E42, -- 字符串 详情:地图名(16字)
-    tcreate   = 0x1E52, -- 字符串 详情:创建时间(16字)
-    tlast     = 0x1E62, -- 字符串 详情:上次工作时间(16字)
-    tpct      = 0x1E72, -- u16 详情:完成率%
-    tremark   = 0x1E74, -- 字符串 详情:备注(占0x1E74~0x1E93, 32字)
+    tdetail   = 0x1E32, -- 字符串 任务详情QT风格合并文本(0x1E32~0x1E93,
+                        --   98字=196字节; M42六控件合一, 多行\r\n分隔)
     canvas    = 0x1E95, -- 画布重绘脏标(M41): 写值变化触发画面9画布重绘
     view      = 0x1E94, -- u16 地图画布视图 0排列/1编号/2密度(下拉)
     btn_new   = 0x1E96, -- 按钮 新建任务(开画面25)
@@ -513,7 +510,6 @@ LW.TM = {
     btn_reset = 0x1E9A, -- 按钮 重置任务(块状态清0)
     btn_up    = 0x1E9B, -- 按钮 列表上移
     btn_down  = 0x1E9C, -- 按钮 列表下移
-    btn_sel   = 0x1E9D, -- 按钮 选中查看
     btn_start = 0x1E9E, -- 按钮 开始任务(进画面24)
 }
 
@@ -2098,7 +2094,10 @@ function csv.parse_map_grid(text)
                         -- 地图显示名(hmi_export; 空串归nil)
                     elseif a1 == "排" then m.rows = num(f[2])
                     elseif a1 == "列" then m.cols = num(f[2])
-                    elseif a1 == "小区行数" then m.block_col = num(f[2]) or 1
+                    elseif a1 == "创建时间" then m.ctime = f[2] or ""
+elseif a1 == "修改时间" then m.mtime = f[2] or ""
+elseif a1 == "备注" then m.mark = f[2] or ""
+elseif a1 == "小区行数" then m.block_col = num(f[2]) or 1
                     elseif a1 == "机器行数" then m.machine_cols = num(f[2])
                     elseif a1 == "行间距(cm)" then m.col_gap = num(f[2])
                     end
@@ -2389,7 +2388,10 @@ function csv.render_map(m)
         elseif lab == "列" then b = m.cols or 0
         elseif lab == "小区行数" then b = m.block_col or 1
         elseif lab == "机器行数" then b = m.machine_cols or 6
-        elseif lab == "行间距(cm)" then b = fmt_num(m.col_gap or 60) end
+        elseif lab == "行间距(cm)" then b = fmt_num(m.col_gap or 60)
+        elseif lab == "创建时间" then b = m.ctime or ""
+        elseif lab == "修改时间" then b = m.mtime or ""
+        elseif lab == "备注" then b = m.mark or ""
         local c = ""
         if i <= (m.rows or 0) then c = fmt_num(m.rowlen[i] or 0) end
         -- D列仅rows+1行(2026-10-13, 对齐hmi_export): 此前行行写值,
@@ -4811,9 +4813,25 @@ return function(ctx)
         local m = STORE.map_get(n)
         if not m then return end
         JOBRUN.ab_hint_map = n                  -- AB对话框的默认目标地图
-        local ab = m.ab and ("已绑AB " .. (m.ab.name or "?"))
-                       or "无AB线"
-        wstr(LW.MAP.detail, ("%s %d排x%d列 %s"):format(n, m.rows, m.cols, ab))
+        -- QT风格地图详情单文本(M42): 名称/大小/行列数/一趟块数/行间距列宽/
+        -- AB线/创建/修改/备注(时戳备注有则显示; 列宽=小区行数x行间距,QT同款)
+        local cw = (m.block_col or 1) * (m.col_gap or 0)
+        local g = m.col_gap or 0
+        local L = {
+            tostring(n),
+            string.format("%d排x%d列", m.rows or 0, m.cols or 0),
+            string.format("小区行数:%d 机器行数:%d", m.block_col or 1,
+                          m.machine_cols or 0),
+            string.format("一趟%d块", STORE.block_each_trip
+                                       and STORE.block_each_trip(m) or 1),
+            string.format("行间距:%d.%02dm 列宽:%d.%02dm",
+                          g // 100, g % 100, cw // 100, cw % 100),
+            m.ab and ("AB线:" .. (m.ab.name or "?")) or "AB线:无",
+        }
+        if m.ctime and m.ctime ~= "" then L[#L + 1] = "创建:" .. m.ctime end
+        if m.mtime and m.mtime ~= "" then L[#L + 1] = "修改:" .. m.mtime end
+        if m.mark and m.mark ~= "" then L[#L + 1] = "备注:" .. m.mark end
+        wstr(LW.MAP.detail, table.concat(L, "\r\n"))
     end
 
     ------------------------------------------------------------------ U盘导入
@@ -6519,26 +6537,25 @@ return function(ctx)
     end
 
     local function render_detail()
+        -- QT风格任务详情单文本(M42): 任务名/地图/创建/最近作业/完成率/几何
         local n, t = cur_task()
         if not t then
-            wstr(LW.TM.tname, "(无任务)")
-            wstr(LW.TM.tmap, "")
-            wstr(LW.TM.tcreate, "")
-            wstr(LW.TM.tlast, "")
-            w16(LW.TM.tpct, 0)
-            wstr(LW.TM.tremark, "")
+            wstr(LW.TM.tdetail, "(无任务)")
             return
         end
         local m = STORE.maps[t.map]
-        wstr(LW.TM.tname, trim16(n))
-        wstr(LW.TM.tmap, trim16(t.map))
-        wstr(LW.TM.tcreate, trim16(t.create_time))
-        wstr(LW.TM.tlast, trim16(t.last_work_time))
         local _, _, pct = STORE.task_progress(n)
-        w16(LW.TM.tpct, pct or 0)
-        local ab = m and m.ab and m.ab.has
-        wstr(LW.TM.tremark, m and (string.format("%d排x%d列 AB:%s",
-            m.rows or 0, m.cols or 0, ab and "有" or "无")) or "地图缺失")
+        local ab = m and m.ab and m.ab.has and "有" or "无"
+        local geo = m and (string.format("%d排x%d列 AB:%s", m.rows or 0,
+                              m.cols or 0, ab)) or "地图缺失"
+        wstr(LW.TM.tdetail, table.concat({
+            tostring(n),
+            "地图:" .. tostring(t.map or ""),
+            "创建:" .. tostring(t.create_time or ""),
+            "最近作业:" .. tostring(t.last_work_time or ""),
+            string.format("完成率:%d%%", pct or 0),
+            geo,
+        }, "\r\n"))
     end
 
     ---------------------------------------------------------------- 画布
@@ -6654,7 +6671,7 @@ return function(ctx)
         addrs = {
             LW.TM.btn_new,
             LW.TM.btn_del, LW.TM.btn_imp, LW.TM.btn_exp, LW.TM.btn_reset,
-            LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_sel, LW.TM.btn_start,
+            LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_start,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
             LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
@@ -6669,11 +6686,6 @@ return function(ctx)
     end
 
     function page:on_tick()
-        local n = W.items[W.sel + 1]
-        if n then
-            local _, _, pct = STORE.task_progress(n)
-            w16(LW.TM.tpct, pct or 0)
-        end
         if canvas_dirty_from_dlg then
             canvas_dirty_from_dlg = false
             W.ver = -1
@@ -6701,8 +6713,6 @@ return function(ctx)
         elseif addr == LW.TM.btn_down and W.sel < #W.items - 1 then
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
-            refresh(); render_detail(); mark_dirty()
-        elseif addr == LW.TM.btn_sel then
             refresh(); render_detail(); mark_dirty()
         elseif addr == LW.TM.btn_new then
             dlg_init()                    -- 弹窗即将打开: 预填地图/默认名
@@ -6837,12 +6847,12 @@ return function(ctx)
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
                 wstr(LW.NT.mapsel, "失败:" .. tostring(err))
-                wstr(LW.TM.tremark, "创建失败: " .. tostring(err))
+                wstr(LW.TM.tdetail, "创建失败: " .. tostring(err))
                 return
             end
             log("INF", "任务已创建 " .. name .. " 地图=" .. mapn)
             wstr(LW.NT.mapsel, "已创建 " .. name)
-            wstr(LW.TM.tremark, "已创建 " .. name)
+            wstr(LW.TM.tdetail, "已创建 " .. name)
             -- 弹窗关闭不触发画面9 on_enter(同打开), 就地刷新列表/详情
             W.sel = math.max(0, #STORE.task_list() - 1)
             refresh()

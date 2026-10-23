@@ -75,26 +75,25 @@ return function(ctx)
     end
 
     local function render_detail()
+        -- QT风格任务详情单文本(M42): 任务名/地图/创建/最近作业/完成率/几何
         local n, t = cur_task()
         if not t then
-            wstr(LW.TM.tname, "(无任务)")
-            wstr(LW.TM.tmap, "")
-            wstr(LW.TM.tcreate, "")
-            wstr(LW.TM.tlast, "")
-            w16(LW.TM.tpct, 0)
-            wstr(LW.TM.tremark, "")
+            wstr(LW.TM.tdetail, "(无任务)")
             return
         end
         local m = STORE.maps[t.map]
-        wstr(LW.TM.tname, trim16(n))
-        wstr(LW.TM.tmap, trim16(t.map))
-        wstr(LW.TM.tcreate, trim16(t.create_time))
-        wstr(LW.TM.tlast, trim16(t.last_work_time))
         local _, _, pct = STORE.task_progress(n)
-        w16(LW.TM.tpct, pct or 0)
-        local ab = m and m.ab and m.ab.has
-        wstr(LW.TM.tremark, m and (string.format("%d排x%d列 AB:%s",
-            m.rows or 0, m.cols or 0, ab and "有" or "无")) or "地图缺失")
+        local ab = m and m.ab and m.ab.has and "有" or "无"
+        local geo = m and (string.format("%d排x%d列 AB:%s", m.rows or 0,
+                              m.cols or 0, ab)) or "地图缺失"
+        wstr(LW.TM.tdetail, table.concat({
+            tostring(n),
+            "地图:" .. tostring(t.map or ""),
+            "创建:" .. tostring(t.create_time or ""),
+            "最近作业:" .. tostring(t.last_work_time or ""),
+            string.format("完成率:%d%%", pct or 0),
+            geo,
+        }, "\r\n"))
     end
 
     ---------------------------------------------------------------- 画布
@@ -210,7 +209,7 @@ return function(ctx)
         addrs = {
             LW.TM.btn_new,
             LW.TM.btn_del, LW.TM.btn_imp, LW.TM.btn_exp, LW.TM.btn_reset,
-            LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_sel, LW.TM.btn_start,
+            LW.TM.btn_up, LW.TM.btn_down, LW.TM.btn_start,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
             LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
@@ -225,11 +224,6 @@ return function(ctx)
     end
 
     function page:on_tick()
-        local n = W.items[W.sel + 1]
-        if n then
-            local _, _, pct = STORE.task_progress(n)
-            w16(LW.TM.tpct, pct or 0)
-        end
         if canvas_dirty_from_dlg then
             canvas_dirty_from_dlg = false
             W.ver = -1
@@ -257,8 +251,6 @@ return function(ctx)
         elseif addr == LW.TM.btn_down and W.sel < #W.items - 1 then
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
-            refresh(); render_detail(); mark_dirty()
-        elseif addr == LW.TM.btn_sel then
             refresh(); render_detail(); mark_dirty()
         elseif addr == LW.TM.btn_new then
             dlg_init()                    -- 弹窗即将打开: 预填地图/默认名
@@ -393,12 +385,12 @@ return function(ctx)
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
                 wstr(LW.NT.mapsel, "失败:" .. tostring(err))
-                wstr(LW.TM.tremark, "创建失败: " .. tostring(err))
+                wstr(LW.TM.tdetail, "创建失败: " .. tostring(err))
                 return
             end
             log("INF", "任务已创建 " .. name .. " 地图=" .. mapn)
             wstr(LW.NT.mapsel, "已创建 " .. name)
-            wstr(LW.TM.tremark, "已创建 " .. name)
+            wstr(LW.TM.tdetail, "已创建 " .. name)
             -- 弹窗关闭不触发画面9 on_enter(同打开), 就地刷新列表/详情
             W.sel = math.max(0, #STORE.task_list() - 1)
             refresh()
