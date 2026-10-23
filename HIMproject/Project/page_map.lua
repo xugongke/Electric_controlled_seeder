@@ -45,7 +45,7 @@ return function(ctx)
         W.items = {}
         if STORE then
             for _, n in ipairs(STORE.map_list()) do
-                W.items[#W.items + 1] = n .. " " .. STORE.map_spec(n)
+                W.items[#W.items + 1] = n
             end
         end
         if #W.items == 0 then W.items[1] = "(无地图, 请扫描U盘导入)" end
@@ -142,11 +142,11 @@ return function(ctx)
             W.sel = W.sel - 1
             if W.sel < W.top then W.top = W.sel end
             render_list()
+            show_detail()
         elseif addr == LW.MAP.btn_down and W.sel < #W.items - 1 then
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
             render_list()
-        elseif addr == LW.MAP.btn_sel then
             show_detail()
         elseif addr == LW.MAP.btn_usb then
             usb_import()
@@ -235,7 +235,7 @@ return function(ctx)
         id = LW.SCREEN.MAP,
         poll_cmds = {},
         addrs = {
-            LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
+            LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_del,
             LW.MAP.btn_usb, LW.MAP.ab_import, LW.MAP.ab_clear,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
             LW.MV.zin, LW.MV.zout, LW.MV.fit,
@@ -244,6 +244,8 @@ return function(ctx)
 
     function page:on_enter()
         refresh()
+        show_detail()                       -- 自动显示选中详情(M44: 原
+                                            --   选中查看按钮职责并入上下键)
         W.mv = nil                          -- 视图复位适配(M40)
         canvas_dirty = true
     end

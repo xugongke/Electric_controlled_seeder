@@ -406,6 +406,26 @@ __MV9F = P9.mv_get()
           '任务管理页: 放大路由scale=%s(小图fit顶32x1.5)/适配复位=%s'
           % (lua.eval('__MV9 and __MV9.scale'), lua.eval('__MV9F')))
 
+    print('8) 地图导入页(M44): 列表只显名字+详情自动显示+上下键联动')
+    lua.execute('''
+P1 = (assert(loadfile("__HIM/page_map.lua"))())(CTX)
+P1:on_enter()
+__LH = (REG[LW.MAP.list]:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+__DH1 = (REG[LW.MAP.detail]:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+P1:on_update(LW.MAP.btn_down, 1)
+__DH2 = (REG[LW.MAP.detail]:gsub(".", function(c)
+    return string.format("%02x", string.byte(c)) end))
+'''.replace('__HIM', HIM))
+    l1 = bytes.fromhex(str(lua.eval('__LH'))).decode('gbk')
+    d1 = bytes.fromhex(str(lua.eval('__DH1'))).decode('gbk')
+    d2 = bytes.fromhex(str(lua.eval('__DH2'))).decode('gbk')
+    check('demo5' in l1 and '排x' not in l1, '列表只显地图名(无排列信息)')
+    check('big60' in d1 and '60排x2列' in d1 and '行间距:' in d1,
+          '进页自动显示首张详情(map_list序=big60, 实有%r)' % d1[:40])
+    check('demo5' in d2 and '5排x2列' in d2, '下键切换选中: 详情联动demo5')
+
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

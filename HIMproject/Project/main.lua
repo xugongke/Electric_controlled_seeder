@@ -427,12 +427,12 @@ LW.TW = {
 LW.MAP = {
     count      = 0x1C00, -- u16 地图数
     selidx     = 0x1C01, -- u16 列表选中项(0基)
+    listtop    = 0x1C02, -- u16 列表滚动顶项(0基; page_map写, M44补登: 原缺键)
     list       = 0x1C04, -- 字符串 列表多行文本(占0x1C04~0x1C43, 64字)
     detail     = 0x1C80, -- 字符串 选中地图详情QT风格(0x1C80~0x1CFF,
                          --   128字=256字节; M42迁址扩容, 多行\r\n分隔)
     btn_up     = 0x1C70, -- 按钮 选项上移
     btn_down   = 0x1C71, -- 按钮 选项下移
-    btn_sel    = 0x1C72, -- 按钮 查看详情
     btn_del    = 0x1C73, -- 按钮 删除地图
     btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
     canvas     = 0x1C79, -- 画布重绘脏标(M41): 写值变化触发画面1画布重绘
@@ -4798,7 +4798,7 @@ return function(ctx)
         W.items = {}
         if STORE then
             for _, n in ipairs(STORE.map_list()) do
-                W.items[#W.items + 1] = n .. " " .. STORE.map_spec(n)
+                W.items[#W.items + 1] = n
             end
         end
         if #W.items == 0 then W.items[1] = "(无地图, 请扫描U盘导入)" end
@@ -4895,11 +4895,11 @@ return function(ctx)
             W.sel = W.sel - 1
             if W.sel < W.top then W.top = W.sel end
             render_list()
+            show_detail()
         elseif addr == LW.MAP.btn_down and W.sel < #W.items - 1 then
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
             render_list()
-        elseif addr == LW.MAP.btn_sel then
             show_detail()
         elseif addr == LW.MAP.btn_usb then
             usb_import()
@@ -4988,7 +4988,7 @@ return function(ctx)
         id = LW.SCREEN.MAP,
         poll_cmds = {},
         addrs = {
-            LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_sel, LW.MAP.btn_del,
+            LW.MAP.btn_up, LW.MAP.btn_down, LW.MAP.btn_del,
             LW.MAP.btn_usb, LW.MAP.ab_import, LW.MAP.ab_clear,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
             LW.MV.zin, LW.MV.zout, LW.MV.fit,
@@ -4997,6 +4997,8 @@ return function(ctx)
 
     function page:on_enter()
         refresh()
+        show_detail()                       -- 自动显示选中详情(M44: 原
+                                            --   选中查看按钮职责并入上下键)
         W.mv = nil                          -- 视图复位适配(M40)
         canvas_dirty = true
     end
