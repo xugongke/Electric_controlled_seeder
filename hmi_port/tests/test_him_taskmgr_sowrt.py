@@ -318,7 +318,7 @@ __HEXG = (__GBK:gsub(".", function(c)
           'ASCII布局解码abc')
     check(lua.eval('#__EMPTY') == 0, '空串')
 
-    print('7) 视口/跟随(M40): 缩略红框几何/平移缩放路由/作业跟随居中')
+    print('7) 视口/跟随(M41): mv_get钩子断言+脏标重绘+缩底无异常')
     # 60排×2列大图(演示田太小, 视口永不裁剪)
     rows60 = ['信息,,,', '名称,big60', '类型,播种,排长(cm),过道长(cm)',
               '创建时间,,500,100', '修改时间,,500,100', '备注,,500,100',
@@ -347,91 +347,53 @@ for i = 1, #h, 2 do
 end
 STR.map_import_text("big60", s)
 STR.task_create("t3", "big60", 0, 1, 0, 0, 0, "2026-10-13")
--- 绘图指令收集器(mapdraw.render全局draw_*)
-__D = { rects = {} }
-function set_pen_color(c) __D.pen = c end
-function draw_rect(x0, y0, x1, y1, f)
-    __D.rects[#__D.rects + 1] = { x0 = x0, y0 = y0, x1 = x1, y1 = y1,
-                                  f = f, c = __D.pen }
-end
-function draw_rect_alpha() end
-function draw_line() end
-function draw_text() end
-__RED = MD.rgb565(255, 0, 0)
-function __redframe()
-    for i = 1, #__D.rects do
-        local r = __D.rects[i]
-        if r.f == 0 and r.c == __RED then return r end
-    end
-    return nil
-end
 APPX.preset_sowrt_task = "t3"
 P24:on_enter()
-__D.rects = {}
-P24:on_drawctrl(1)
-__RF = __redframe()
-__H_FIT = __RF and (__RF.y1 - __RF.y0) or -1
+__MV0, __FL0 = P24.mv_get()
 ''')
-    check(320 <= float(lua.eval('__H_FIT')) <= 344,
-          '适配时视口红框≈全缩略条高(实有%s)' % lua.eval('__H_FIT'))
+    check(lua.eval('__MV0 == nil and __FL0 == true'),
+          '进页: 适配视图+跟随默认开')
+    lua.execute('P24:on_update(LW.MV.zin, 1)')
+    lua.execute('__MV1, __FL1 = P24.mv_get()')
+    check(6.5 < float(lua.eval('__MV1.scale')) < 7.2,
+          '放大一档: scale=fit4.55x1.5=%s' % lua.eval('__MV1.scale'))
+    check(lua.eval('__FL1') is True, '放大保持跟随')
+    check(lua.eval('REG[LW.RT.canvas]') == 1, '画布脏标已写(重绘触发,M41)')
+    lua.execute('P24:on_update(LW.MV.down, 1)')
+    lua.execute('__MV2, __FL2 = P24.mv_get()')
+    check(lua.eval('__FL2') is False
+          and float(lua.eval('__MV2.cy')) > float(lua.eval('__MV1.cy')),
+          '下移半屏: cy增大+跟随退出')
     lua.execute('''
-P24:on_update(LW.MV.zin, 1)
-__D.rects = {}
-P24:on_drawctrl(1)
-__RF2 = __redframe()
-__H_Z1 = __RF2 and (__RF2.y1 - __RF2.y0) or -1
+local ok = pcall(function()
+    for i = 1, 10 do P24:on_update(LW.MV.zout, 1) end
+end)
+__OK, __MVF = ok, P24.mv_get()
 ''')
-    check(175 <= float(lua.eval('__H_Z1')) <= 205,
-          '放大一档红框高≈190(scale8): 实有%s' % lua.eval('__H_Z1'))
-    lua.execute('''
-P24:on_update(LW.MV.down, 1)
-__D.rects = {}
-P24:on_drawctrl(1)
-__RF3 = __redframe()
-''')
-    check(float(lua.eval('__RF3.y0')) > float(lua.eval('__RF2.y0')),
-          '下移半屏: 红框下移(%s->%s)'
-          % (lua.eval('__RF2.y0'), lua.eval('__RF3.y0')))
+    check(bool(lua.eval('__OK')) and lua.eval('__MVF') is None,
+          '连续缩小至底: 无on_update异常且回落适配(M41修nil比较崩溃)')
     lua.execute('''
 JR.snap = { cur_row = 30, cur_col = 1 }
-JR.draw_ver = JR.draw_ver + 1
-P24:on_tick()
-__D.rects = {}
-P24:on_drawctrl(1)
-__RF4 = __redframe()
-''')
-    check(float(lua.eval('__RF4.y0')) == float(lua.eval('__RF3.y0')),
-          '跟随关(手动平移已退出): 作业推进不居中')
-    lua.execute('''
 P24:on_update(LW.MV.follow, 1)
-__D.rects = {}
-P24:on_drawctrl(1)
-__RF5 = __redframe()
+__MVF2, __FLF = P24.mv_get()
 ''')
-    check(float(lua.eval('__RF5.y0')) < 150
-          and float(lua.eval('__RF5.y0')) < float(lua.eval('__RF3.y0')),
-          '跟随开: 居中第30排(红框上移到%s)' % lua.eval('__RF5.y0'))
-    lua.execute('''
--- 缩略行带=排数(60条概览色带)
-__BANDS = 0
-for i = 1, #__D.rects do
-    local r = __D.rects[i]
-    -- render带画布原点偏移(252,32): 缩略条屏幕x=698起, 主视区最右687
-    if r.f == 1 and r.x0 >= 690 and r.c == MD.rgb565(192,192,192) then
-        __BANDS = __BANDS + 1
-    end
-end
-''')
-    check(lua.eval('__BANDS') == 60,
-          '缩略图60条行带(完整看全图, 实有%s)' % lua.eval('__BANDS'))
+    check(lua.eval('__FLF') is True
+          and abs(float(lua.eval('__MVF2.cy')) - 37.32) < 20,
+          '跟随开: 居中第30排(cy=%s)' % lua.eval('__MVF2.cy'))
+    lua.execute('P24:on_update(LW.MV.fit, 1)')
+    lua.execute('__MV3, __FL3 = P24.mv_get()')
+    check(lua.eval('__MV3 == nil and __FL3 == false'), '适配: 视图清+跟随退出')
     lua.execute('''
 P9:on_enter()
 P9:on_update(LW.MV.zin, 1)
-__D.rects = {}
-P9:on_drawctrl(1)
-__RF9 = __redframe()
+__MV9 = P9.mv_get()
+P9:on_update(LW.MV.fit, 1)
+__MV9F = P9.mv_get()
 ''')
-    check(lua.eval('__RF9') is not None, '任务管理页视口缩放路由+缩略红框')
+    check(abs(float(lua.eval('__MV9.scale')) - 48) < 0.01
+          and lua.eval('__MV9F') is None,
+          '任务管理页: 放大路由scale=%s(小图fit顶32x1.5)/适配复位=%s'
+          % (lua.eval('__MV9 and __MV9.scale'), lua.eval('__MV9F')))
 
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (

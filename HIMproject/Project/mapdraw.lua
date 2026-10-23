@@ -271,7 +271,6 @@ end
 -- 成正比、与世界尺寸无关。opts.viewp=nil回落整图适配(旧路径不变)。
 -- 视图控制器 pan/zoom/center_on 供三页 on_update(LW.MV按钮)调用。
 
-local ZOOMS = { 8, 12, 18, 26, 36, 48 }   -- 缩放档位(每格像素)
 local MINI_W = 96                          -- 缩略条宽(画布右侧)
 local VP_MARGIN = 0.75                     -- 视口越界余量(格)
 
@@ -291,20 +290,19 @@ end
 
 -- 缩放步进: dir=1放大/-1缩小; 返回nil=适配(缩过适配档即回落适配)
 function mapdraw.zoom_step(fit, cur, dir)
+    -- 固定x1.5倍率(M41): 档位表在fit被32上限截住时步进仅+12%肉眼不可辨
+    -- (真机"按大不放大"观感根因); fit态缩小直接回落适配
     if dir > 0 then
-        local base = cur or fit                 -- 从fit放大: 跳到首个>fit的档
-        for i = 1, #ZOOMS do
-            if ZOOMS[i] > base then return ZOOMS[i] end
-        end
-        return cur or fit                       -- 已到最大档
+        local base = cur or fit
+        local z = base * 1.5
+        if z > 64 then return cur or fit end    -- 64px/格封顶
+        return z
     end
-    for i = #ZOOMS, 1, -1 do
-        if ZOOMS[i] < cur then
-            if ZOOMS[i] <= fit then return nil end
-            return ZOOMS[i]
-        end
-    end
-    return nil
+    if not cur then return nil end              -- 适配已最小(M41: 原nil比较
+                                                --   崩溃, 真机报on_update异常)
+    local z = cur / 1.5
+    if z <= fit then return nil end             -- 缩过fit回落适配
+    return z
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)

@@ -182,7 +182,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density")
                    or "arrange",
-            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
+            viewp = W.mv,                   -- M40视口(大排列数; 缩略图M41撤)
         }), 412, 30)                  -- 画布原点(画面坐标系, 2026-10-14重布局)
     end
 
@@ -193,23 +193,25 @@ return function(ctx)
         local m = n and STORE and STORE.map_get(n)
         if not m then return false end
         if addr == LW.MV.up then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, -0.5)
         elseif addr == LW.MV.down then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, 0.5)
         elseif addr == LW.MV.left then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, -0.5, 0)
         elseif addr == LW.MV.right then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0.5, 0)
         elseif addr == LW.MV.zin then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, 1)
         elseif addr == LW.MV.zout then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
             W.mv = nil
         else
             return false
         end
         canvas_dirty = true
+        w16(LW.MAP.canvas, (r16(LW.MAP.canvas) or 0) == 1 and 0 or 1)
+        log('INF', '视口 scale=' .. tostring(W.mv and W.mv.scale or '适'))
         return true
     end
 
@@ -242,6 +244,9 @@ return function(ctx)
         if view_hit(addr) then return end
         on_btn(addr, val)
     end
+
+    page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
+
 
     page.on_tick = function()
         tick_n = tick_n + 1

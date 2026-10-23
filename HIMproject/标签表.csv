@@ -134,6 +134,7 @@ map_btn_down,LW1C71,按钮 选项下移
 map_btn_sel,LW1C72,按钮 查看详情
 map_btn_del,LW1C73,按钮 删除地图
 map_btn_usb,LW1C74,按钮 扫描U盘导入
+map_canvas,LW1C79,画布重绘脏标(M41): 写值变化触发画面1画布重绘
 map_view,LW1C78,u16 地图预览视图 0排列/1编号/2密度(下拉，
 map_ab_import,LW1C76,按钮 AB线导入(RW缓存绑定本图)
 map_ab_clear,LW1C77,按钮 AB线清除(解绑本图)
@@ -171,6 +172,7 @@ tm_tcreate,LW1E52,字符串 详情:创建时间(16字)
 tm_tlast,LW1E62,字符串 详情:上次工作时间(16字)
 tm_tpct,LW1E72,u16 详情:完成率%
 tm_tremark,LW1E74,字符串 详情:备注(占0x1E74~0x1E93， 32字)
+tm_canvas,LW1E95,画布重绘脏标(M41): 写值变化触发画面9画布重绘
 tm_view,LW1E94,u16 地图画布视图 0排列/1编号/2密度(下拉)
 tm_btn_new,LW1E96,按钮 新建任务(开画面25)
 tm_btn_del,LW1E97,按钮 删除任务
@@ -205,6 +207,7 @@ rt_last_fe,LW1F22,u16[6] 最近完成排漏肥(快照)
 rt_tname,LW1F38,字符串 当前任务名显示(占0x1F38~0x1F47， 16字)
 rt_pct,LW1F58,u16 完成率%(页面on_tick刷新)
 rt_done,LW1F59,u16 已完成块数
+rt_canvas,LW1F5B,画布重绘脏标(M41): 写值变化触发画面24画布重绘
 rt_tot,LW1F5A,u16 总块数
 rt_running,LW1F5C,u16 作业进行中0/1(jobrun启停写; 合并开始/
 rt_btn_start,LW1F60,按钮 开始(下发作业链)

@@ -434,6 +434,7 @@ LW.MAP = {
     btn_sel    = 0x1C72, -- 按钮 查看详情
     btn_del    = 0x1C73, -- 按钮 删除地图
     btn_usb    = 0x1C74, -- 按钮 扫描U盘导入
+    canvas     = 0x1C79, -- 画布重绘脏标(M41): 写值变化触发画面1画布重绘
     view       = 0x1C78, -- u16 地图预览视图 0排列/1编号/2密度(下拉,
                        --   2026-10-13画布预览用)
     ab_import  = 0x1C76, -- 按钮 AB线导入(RW缓存绑定本图)
@@ -503,6 +504,7 @@ LW.TM = {
     tlast     = 0x1E62, -- 字符串 详情:上次工作时间(16字)
     tpct      = 0x1E72, -- u16 详情:完成率%
     tremark   = 0x1E74, -- 字符串 详情:备注(占0x1E74~0x1E93, 32字)
+    canvas    = 0x1E95, -- 画布重绘脏标(M41): 写值变化触发画面9画布重绘
     view      = 0x1E94, -- u16 地图画布视图 0排列/1编号/2密度(下拉)
     btn_new   = 0x1E96, -- 按钮 新建任务(开画面25)
     btn_del   = 0x1E97, -- 按钮 删除任务
@@ -547,6 +549,7 @@ LW.RT = {
     tname     = 0x1F38, -- 字符串 当前任务名显示(占0x1F38~0x1F47, 16字)
     pct       = 0x1F58, -- u16 完成率%(页面on_tick刷新)
     done      = 0x1F59, -- u16 已完成块数
+    canvas    = 0x1F5B, -- 画布重绘脏标(M41): 写值变化触发画面24画布重绘
     tot       = 0x1F5A, -- u16 总块数
     running   = 0x1F5C, -- u16 作业进行中0/1(jobrun启停写; 合并开始/
                        --   停止按钮显示+返回等控件权限条件地址)
@@ -4929,7 +4932,7 @@ return function(ctx)
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density")
                    or "arrange",
-            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
+            viewp = W.mv,                   -- M40视口(大排列数; 缩略图M41撤)
         }), 412, 30)                  -- 画布原点(画面坐标系, 2026-10-14重布局)
     end
 
@@ -4940,23 +4943,25 @@ return function(ctx)
         local m = n and STORE and STORE.map_get(n)
         if not m then return false end
         if addr == LW.MV.up then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, -0.5)
         elseif addr == LW.MV.down then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, 0.5)
         elseif addr == LW.MV.left then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, -0.5, 0)
         elseif addr == LW.MV.right then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0.5, 0)
         elseif addr == LW.MV.zin then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, 1)
         elseif addr == LW.MV.zout then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
             W.mv = nil
         else
             return false
         end
         canvas_dirty = true
+        w16(LW.MAP.canvas, (r16(LW.MAP.canvas) or 0) == 1 and 0 or 1)
+        log('INF', '视口 scale=' .. tostring(W.mv and W.mv.scale or '适'))
         return true
     end
 
@@ -4989,6 +4994,9 @@ return function(ctx)
         if view_hit(addr) then return end
         on_btn(addr, val)
     end
+
+    page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
+
 
     page.on_tick = function()
         tick_n = tick_n + 1
@@ -6100,7 +6108,6 @@ end
 -- 成正比、与世界尺寸无关。opts.viewp=nil回落整图适配(旧路径不变)。
 -- 视图控制器 pan/zoom/center_on 供三页 on_update(LW.MV按钮)调用。
 
-local ZOOMS = { 8, 12, 18, 26, 36, 48 }   -- 缩放档位(每格像素)
 local MINI_W = 96                          -- 缩略条宽(画布右侧)
 local VP_MARGIN = 0.75                     -- 视口越界余量(格)
 
@@ -6120,20 +6127,19 @@ end
 
 -- 缩放步进: dir=1放大/-1缩小; 返回nil=适配(缩过适配档即回落适配)
 function mapdraw.zoom_step(fit, cur, dir)
+    -- 固定x1.5倍率(M41): 档位表在fit被32上限截住时步进仅+12%肉眼不可辨
+    -- (真机"按大不放大"观感根因); fit态缩小直接回落适配
     if dir > 0 then
-        local base = cur or fit                 -- 从fit放大: 跳到首个>fit的档
-        for i = 1, #ZOOMS do
-            if ZOOMS[i] > base then return ZOOMS[i] end
-        end
-        return cur or fit                       -- 已到最大档
+        local base = cur or fit
+        local z = base * 1.5
+        if z > 64 then return cur or fit end    -- 64px/格封顶
+        return z
     end
-    for i = #ZOOMS, 1, -1 do
-        if ZOOMS[i] < cur then
-            if ZOOMS[i] <= fit then return nil end
-            return ZOOMS[i]
-        end
-    end
-    return nil
+    if not cur then return nil end              -- 适配已最小(M41: 原nil比较
+                                                --   崩溃, 真机报on_update异常)
+    local z = cur / 1.5
+    if z <= fit then return nil end             -- 缩过fit回落适配
+    return z
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)
@@ -6548,7 +6554,7 @@ return function(ctx)
         local opts = {
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
-            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
+            viewp = W.mv,                   -- M40视口(大排列数; 缩略图M41撤)
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         if ctx.PATHALGO and t.outset then
@@ -6620,23 +6626,25 @@ return function(ctx)
         local m = n and STORE.maps[t and t.map]
         if not m then return false end
         if addr == LW.MV.up then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, -0.5)
         elseif addr == LW.MV.down then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, 0.5)
         elseif addr == LW.MV.left then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, -0.5, 0)
         elseif addr == LW.MV.right then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0.5, 0)
         elseif addr == LW.MV.zin then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, 1)
         elseif addr == LW.MV.zout then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
             W.mv = nil
         else
             return false
         end
         mark_dirty()
+        w16(LW.TM.canvas, (r16(LW.TM.canvas) or 0) == 1 and 0 or 1)
+        log('INF', '视口 scale=' .. tostring(W.mv and W.mv.scale or '适'))
         return true
     end
 
@@ -6680,6 +6688,8 @@ return function(ctx)
     function page:on_drawctrl(cid)
         if cid == 1 then paint() end
     end
+
+    page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
 
     function page:on_update(addr, val)
         if val ~= 1 then return end
@@ -6975,7 +6985,7 @@ return function(ctx)
         local opts = {
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
-            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
+            viewp = W.mv,                   -- M40视口(大排列数; 缩略图M41撤)
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         -- 起点V方向: 起点列的行进方向(路径首到达该列的节点positive)
@@ -7043,7 +7053,7 @@ return function(ctx)
     local function follow_now(m)
         local s = JOBRUN and JOBRUN.snapshot and JOBRUN.snapshot()
         if s and s.cur_row and s.cur_col then
-            W.mv = MAPDRAW.center_on(W.mv, m, CANVAS_W, CANVAS_H, true,
+            W.mv = MAPDRAW.center_on(W.mv, m, CANVAS_W, CANVAS_H, false,
                                      s.cur_row, s.cur_col)
         end
     end
@@ -7055,20 +7065,20 @@ return function(ctx)
         if not m then return false end
         if addr == LW.MV.up then
             W.follow = false
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, -0.5)
         elseif addr == LW.MV.down then
             W.follow = false
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, 0.5)
         elseif addr == LW.MV.left then
             W.follow = false
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, -0.5, 0)
         elseif addr == LW.MV.right then
             W.follow = false
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0.5, 0)
         elseif addr == LW.MV.zin then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, 1)
         elseif addr == LW.MV.zout then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
             W.follow = false
             W.mv = nil
@@ -7079,7 +7089,10 @@ return function(ctx)
         else
             return false
         end
+        -- M41: 写画布脏标触发重绘(redraw内建不可依赖)
+        w16(LW.RT.canvas, (r16(LW.RT.canvas) or 0) == 1 and 0 or 1)
         if redraw then redraw() end
+        log('INF', '视口 scale=' .. tostring(W.mv and W.mv.scale or '适'))
         return true
     end
 
@@ -7140,6 +7153,7 @@ return function(ctx)
                 local m = t and task_map(t)
                 if m then follow_now(m) end
             end
+            w16(LW.RT.canvas, (r16(LW.RT.canvas) or 0) == 1 and 0 or 1)
             if redraw then redraw() end
         end
     end
@@ -7167,6 +7181,8 @@ return function(ctx)
             ok and ("作业启动 " .. W.task)
                or ("启动失败: " .. tostring(err)))
     end
+
+    page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
 
     function page:on_update(addr, val)
         if val ~= 1 then return end

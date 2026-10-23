@@ -110,7 +110,7 @@ return function(ctx)
         local opts = {
             w = CANVAS_W, h = CANVAS_H,
             view = (v == 1 and "num") or (v == 2 and "density") or "arrange",
-            viewp = W.mv, minimap = true,   -- M40视口+缩略图(大排列数)
+            viewp = W.mv,                   -- M40视口(大排列数; 缩略图M41撤)
         }
         -- 农机标记已删除(2026-10-15用户要求, 不再传machine)
         if ctx.PATHALGO and t.outset then
@@ -182,23 +182,25 @@ return function(ctx)
         local m = n and STORE.maps[t and t.map]
         if not m then return false end
         if addr == LW.MV.up then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, -0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, -0.5)
         elseif addr == LW.MV.down then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0, 0.5)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, 0.5)
         elseif addr == LW.MV.left then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, -0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, -0.5, 0)
         elseif addr == LW.MV.right then
-            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, true, 0.5, 0)
+            W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0.5, 0)
         elseif addr == LW.MV.zin then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, 1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, 1)
         elseif addr == LW.MV.zout then
-            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, true, -1)
+            W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
             W.mv = nil
         else
             return false
         end
         mark_dirty()
+        w16(LW.TM.canvas, (r16(LW.TM.canvas) or 0) == 1 and 0 or 1)
+        log('INF', '视口 scale=' .. tostring(W.mv and W.mv.scale or '适'))
         return true
     end
 
@@ -242,6 +244,8 @@ return function(ctx)
     function page:on_drawctrl(cid)
         if cid == 1 then paint() end
     end
+
+    page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
 
     function page:on_update(addr, val)
         if val ~= 1 then return end
