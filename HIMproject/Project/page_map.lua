@@ -63,8 +63,8 @@ return function(ctx)
         JOBRUN.ab_hint_map = n                  -- AB对话框的默认目标地图
         -- QT风格地图详情单文本(M42): 名称/大小/行列数/一趟块数/行间距列宽/
         -- AB线/创建/修改/备注(时戳备注有则显示; 列宽=小区行数x行间距,QT同款)
-        local cw = (m.block_col or 1) * (m.col_gap or 0)
-        local g = m.col_gap or 0
+        local cw = math.floor((m.block_col or 1) * (m.col_gap or 0))
+        local g = math.floor(m.col_gap or 0)
         local L = {
             tostring(n),
             string.format("%d排x%d列", m.rows or 0, m.cols or 0),

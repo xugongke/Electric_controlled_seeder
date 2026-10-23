@@ -2392,6 +2392,7 @@ function csv.render_map(m)
         elseif lab == "创建时间" then b = m.ctime or ""
         elseif lab == "修改时间" then b = m.mtime or ""
         elseif lab == "备注" then b = m.mark or ""
+        end
         local c = ""
         if i <= (m.rows or 0) then c = fmt_num(m.rowlen[i] or 0) end
         -- D列仅rows+1行(2026-10-13, 对齐hmi_export): 此前行行写值,
@@ -4815,8 +4816,8 @@ return function(ctx)
         JOBRUN.ab_hint_map = n                  -- AB对话框的默认目标地图
         -- QT风格地图详情单文本(M42): 名称/大小/行列数/一趟块数/行间距列宽/
         -- AB线/创建/修改/备注(时戳备注有则显示; 列宽=小区行数x行间距,QT同款)
-        local cw = (m.block_col or 1) * (m.col_gap or 0)
-        local g = m.col_gap or 0
+        local cw = math.floor((m.block_col or 1) * (m.col_gap or 0))
+        local g = math.floor(m.col_gap or 0)
         local L = {
             tostring(n),
             string.format("%d排x%d列", m.rows or 0, m.cols or 0),
@@ -7385,6 +7386,9 @@ local function setup()
         if not okb then
             CSV, STORE, PATHALGO, LOGGER, JOBRUN = nil, nil, nil, nil, nil
             wstr(LWMAP.A.log, "B档装配异常已降级(详情见print)")
+            -- M43: 真实错误上屏(原仅print, 真机无从排查STORE降级根因)
+            wstr(LWMAP.A.log, "B档异常: "
+                .. string.sub(tostring(berr), 1, 60))
             print("[HMI] B-tier setup FAILED(降级A档): " .. tostring(berr))
         end
     else
