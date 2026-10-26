@@ -333,6 +333,24 @@ __C = MD.center_on({ cx = 8, cy = 122, scale = 48 }, __BIG, 530, 380,
     check(abs(float(lua.eval('__C.cx')) - 3.5) < 0.1,
           'center_on列中心: cx=%s' % lua.eval('__C.cx'))
 
+    print('11) M48视区裁剪: 高倍下所有绘制指令都在画布内')
+    lua.execute('''
+__CV2 = MD.cmds(__BIG, nil, { w = 530, h = 380,
+    viewp = { cx = 14, cy = 240, scale = 64 } })
+__OOB = 0
+for i = 1, #__CV2 do
+    local c = __CV2[i]
+    if c.op == "rect" or c.op == "line" then
+        if c.x0 < 0 or c.y0 < 0 or c.x1 > 529 or c.y1 > 379 then
+            __OOB = __OOB + 1
+        end
+    end
+end
+''')
+    check(lua.eval('__OOB') == 0,
+          '高倍视区: 全部绘制指令都在画布内(M48视区裁剪, 实有越界%s)'
+          % lua.eval('__OOB'))
+
     print()
     print('地图绘制回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

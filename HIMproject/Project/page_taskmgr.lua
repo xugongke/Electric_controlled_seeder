@@ -25,7 +25,7 @@ return function(ctx)
     local LIST_ROWS = 6
     local W = { sel = 0, top = 0, items = {}, ver = -1 }
     -- 前置声明: 画面25小节函数被画面9按钮处理器先行引用(定义在后)
-    local dlg_init, dlg_refresh
+    local dlg_init, dlg_refresh, refit
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -59,14 +59,13 @@ return function(ctx)
         if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
         local lines = {}
         for i = W.top + 1, math.min(#W.items, W.top + LIST_ROWS) do
-            local _, _, pct = STORE.task_progress(W.items[i])
-            local ln = (i == W.sel + 1 and ">" or " ")
-                .. W.items[i] .. " " .. tostring(pct or 0) .. "%"
-            lines[#lines + 1] = string.sub(ln, 1, 15)
+            -- M48: 只显任务名(原带完成率%, 完成率看详情)
+            lines[#lines + 1] = (i == W.sel + 1 and ">" or " ") .. W.items[i]
         end
         wstr(LW.TM.list, table.concat(lines, "\r\n"))
         w16(LW.TM.count, #W.items)
         w16(LW.TM.selidx, W.sel)
+        if refit then refit() end               -- M48: 切换即回"适"
     end
 
     local function cur_task()
@@ -98,6 +97,15 @@ return function(ctx)
 
     ---------------------------------------------------------------- 画布
     local CANVAS_W, CANVAS_H = 465, 400   -- 2026-10-26用户重排(M46, 与画面1同)
+
+    ---------------------------------------------------------------- 视图回适(M48)
+    -- 切换任务即回"适"(fit底档整图居中), 与"适"按钮同一目标视图
+    refit = function()
+        local n = W.items and W.items[W.sel + 1]
+        local t = n and STORE.tasks[n]
+        local m = t and STORE.maps[t.map]
+        W.mv = m and MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false) or nil
+    end
 
     local function paint()
         if not MAPDRAW then return end
@@ -217,9 +225,6 @@ return function(ctx)
 
     function page:on_enter()
         W.sel, W.top = 0, 0
-        local n0, t0 = cur_task()
-        local m0 = n0 and STORE.maps[t0 and t0.map]
-        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
         refresh()
         render_detail()
         mark_dirty()

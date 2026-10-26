@@ -434,6 +434,17 @@ function mapdraw.cmds_vp(m, t, opts)
                       fill = 1, color = mapdraw.rgb565(255, 255, 255) }
     local function sx(wx) return p.vx0 + (wx - p.x0) * p.scale end
     local function sy(wy) return p.vy0 + (wy - p.y0) * p.scale end
+    local vx1, vy1 = p.vx0 + p.vw - 1, p.vy0 + p.vh - 1
+    local function vclip(x0, y0, x1, y1)
+        -- 视区裁剪(M48): 平台对draw_*不裁剪, 大倍率下视区边缘的整格/
+        -- 过道带绘制会越出画布压到别的控件; 越界截断, 全越界剔除
+        if x0 < p.vx0 then x0 = p.vx0 end
+        if y0 < p.vy0 then y0 = p.vy0 end
+        if x1 > vx1 then x1 = vx1 end
+        if y1 > vy1 then y1 = vy1 end
+        if x0 > x1 or y0 > y1 then return nil end
+        return x0, y0, x1, y1
+    end
     -- 可见区间(世界坐标反解)
     local wy1 = p.y0 + p.uh
     local wx1 = p.x0 + p.uw
@@ -458,9 +469,12 @@ function mapdraw.cmds_vp(m, t, opts)
         if i1 > rows then i1 = rows end
         for i = i0, i1 do
             local yy = sy(i * (1 + g))
-            out[#out + 1] = { op = 'rect', x0 = bx0, y0 = yy,
-                              x1 = bx1, y1 = yy + g * p.scale - 1,
-                              fill = 1, color = ac }
+            local ax0, ay0, ax1, ay1 = vclip(bx0, yy, bx1,
+                                             yy + g * p.scale - 1)
+            if ax0 then
+                out[#out + 1] = { op = 'rect', x0 = ax0, y0 = ay0,
+                                  x1 = ax1, y1 = ay1, fill = 1, color = ac }
+            end
         end
     end
     -- 小区色块(可见区间; 指令量=可见格数, 与世界尺寸无关)
@@ -469,10 +483,14 @@ function mapdraw.cmds_vp(m, t, opts)
         local yy1 = yy0 + p.scale - 1
         for c = c0, c1 do
             local col = state_color(m, t, r, c)
-            local xx0 = sx(c)
-            out[#out + 1] = { op = 'rect', x0 = xx0, y0 = yy0,
-                              x1 = xx0 + p.scale - 1, y1 = yy1, fill = 1,
-                              color = mapdraw.rgb565(col[1], col[2], col[3]) }
+            local cx0, cy0, cx1, cy1 = vclip(sx(c), yy0,
+                                             sx(c) + p.scale - 1, yy1)
+            if cx0 then
+                out[#out + 1] = { op = 'rect', x0 = cx0, y0 = cy0,
+                                  x1 = cx1, y1 = cy1, fill = 1,
+                                  color = mapdraw.rgb565(col[1], col[2],
+                                                         col[3]) }
+            end
         end
     end
     -- 格边框(可见格<=200才画, 沿用整图模式规则)
@@ -481,10 +499,12 @@ function mapdraw.cmds_vp(m, t, opts)
     if (r1 - r0 + 1) * (c1 - c0 + 1) <= 200 and p.scale >= 8 then
         for r = r0, r1 do
             for c = c0, c1 do
-                local xx0, yy0 = sx(c), sy(r * (1 + g) + g)
-                out[#out + 1] = { op = 'rect', x0 = xx0, y0 = yy0,
-                                  x1 = xx0 + p.scale - 1,
-                                  y1 = yy0 + p.scale - 1, fill = 0, color = kc }
+                local bx0, by0, bx1, by1 = vclip(sx(c), sy(r * (1 + g) + g),
+                    sx(c) + p.scale - 1, sy(r * (1 + g) + g) + p.scale - 1)
+                if bx0 then
+                    out[#out + 1] = { op = 'rect', x0 = bx0, y0 = by0,
+                                      x1 = bx1, y1 = by1, fill = 0, color = kc }
+                end
             end
         end
     end
@@ -493,17 +513,23 @@ function mapdraw.cmds_vp(m, t, opts)
                               mapdraw.COLORS.label[2], mapdraw.COLORS.label[3])
     if p.scale >= 14 then
         for r = r0, r1 do
-            out[#out + 1] = { op = 'text', s = tostring(rows - r),
-                              x = 0, y = sy(r * (1 + g) + g), w = LABEL_W - 2,
-                              h = p.scale, size = math.min(16, p.scale),
-                              color = lc, align = 1 }
+            local ly = sy(r * (1 + g) + g)
+            if ly >= p.vy0 - 1 and ly + p.scale <= p.vy0 + p.vh + 1 then
+                out[#out + 1] = { op = 'text', s = tostring(rows - r),
+                                  x = 0, y = ly, w = LABEL_W - 2,
+                                  h = p.scale, size = math.min(16, p.scale),
+                                  color = lc, align = 1 }
+            end
         end
     end
     if p.scale >= 18 then
         for c = c0, c1 do
-            out[#out + 1] = { op = 'text', s = tostring(c + 1),
-                              x = sx(c), y = 0, w = p.scale, h = LABEL_H - 2,
-                              size = 14, color = lc, align = 1 }
+            local lx = sx(c)
+            if lx >= p.vx0 - 1 and lx + p.scale <= p.vx0 + p.vw + 1 then
+                out[#out + 1] = { op = 'text', s = tostring(c + 1),
+                                  x = lx, y = 0, w = p.scale, h = LABEL_H - 2,
+                                  size = 14, color = lc, align = 1 }
+            end
         end
     end
     -- 格内视图文字(格子足够大)
@@ -521,11 +547,16 @@ function mapdraw.cmds_vp(m, t, opts)
                     else
                         s = tostring(rows - r) .. "-" .. tostring(c + 1)
                     end
-                    out[#out + 1] = { op = 'text', s = s, x = sx(c),
-                                      y = sy(r * (1 + g) + g), w = p.scale,
-                                      h = p.scale, size = 16,
-                                      color = mapdraw.rgb565(255, 255, 255),
-                                      align = 1 }
+                    local tx0, ty0 = sx(c), sy(r * (1 + g) + g)
+                    if tx0 >= p.vx0 and ty0 >= p.vy0
+                       and tx0 + p.scale - 1 <= vx1
+                       and ty0 + p.scale - 1 <= vy1 then
+                        out[#out + 1] = { op = 'text', s = s, x = tx0,
+                                          y = ty0, w = p.scale,
+                                          h = p.scale, size = 16,
+                                          color = mapdraw.rgb565(255, 255, 255),
+                                          align = 1 }
+                    end
                 end
             end
         end
@@ -539,6 +570,9 @@ function mapdraw.cmds_vp(m, t, opts)
         local y0 = sy(os_.r * (1 + g) + g)
         local x1 = x0 + p.scale - 1
         local y1 = y0 + p.scale - 1
+        if x0 < p.vx0 or y0 < p.vy0 or x1 > vx1 or y1 > vy1 then
+            return out, p                            -- 起点格不全在视区: 不画
+        end
         local oc = mapdraw.rgb565(mapdraw.COLORS.outset[1],
                                   mapdraw.COLORS.outset[2],
                                   mapdraw.COLORS.outset[3])

@@ -4804,6 +4804,7 @@ return function(ctx)
         return names[W.sel + 1]
     end
 
+    local refit                             -- 前置声明(M48): 切换地图即回适
     local function refresh()
         W.items = {}
         if STORE then
@@ -4815,6 +4816,7 @@ return function(ctx)
         W.sel, W.top = 0, 0
         render_list()
         wstr(LW.MAP.detail, "")
+        if refit then refit() end               -- M48: 列表内容变化即回"适"
     end
 
     local function show_detail()
@@ -4844,6 +4846,7 @@ return function(ctx)
         if m.mark and m.mark ~= "" then L[#L + 1] = "备注:" .. m.mark end
         wstr(LW.MAP.detail, table.concat(L, "\r\n"))
     end
+
 
     ------------------------------------------------------------------ U盘导入
     -- list_dir 固件双时序: 异步经 on_list_dir 路由 / 同步返回 table(见 fileio.lua)
@@ -4906,11 +4909,13 @@ return function(ctx)
             if W.sel < W.top then W.top = W.sel end
             render_list()
             show_detail()
+            refit()
         elseif addr == LW.MAP.btn_down and W.sel < #W.items - 1 then
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
             render_list()
             show_detail()
+            refit()
         elseif addr == LW.MAP.btn_usb then
             usb_import()
         elseif addr == LW.MAP.btn_del then
@@ -4949,6 +4954,14 @@ return function(ctx)
     -- (2026-10-13, 用户提议: 动态绘图验证可行后地图页同样上画布,
     --  对齐QT FormMap选中即出图; 视图下拉 map_view 排列/编号/密度)
     local CANVAS_W, CANVAS_H = 465, 400         -- 2026-10-26用户重排统一画布(M46)
+
+    -- 切换地图即回"适"(M48): 与"适"按钮同一目标视图
+    -- (须在CANVAS_W/H声明之后赋值, 否则函数体引用到全局nil)
+    refit = function()
+        local n0 = selected_name()
+        local m0 = n0 and STORE and STORE.map_get(n0)
+        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
+    end
 
     local function paint_canvas()
         if not MAPDRAW then return end
@@ -5006,12 +5019,9 @@ return function(ctx)
     }
 
     function page:on_enter()
-        refresh()
+        refresh()                           -- (M48: refresh内已回"适")
         show_detail()                       -- 自动显示选中详情(M44: 原
                                             --   选中查看按钮职责并入上下键)
-        local n0 = selected_name()          -- 进页复位适配视图(M47统一梯)
-        local m0 = n0 and STORE and STORE.map_get(n0)
-        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
         canvas_dirty = true
     end
 
@@ -6304,6 +6314,17 @@ function mapdraw.cmds_vp(m, t, opts)
                       fill = 1, color = mapdraw.rgb565(255, 255, 255) }
     local function sx(wx) return p.vx0 + (wx - p.x0) * p.scale end
     local function sy(wy) return p.vy0 + (wy - p.y0) * p.scale end
+    local vx1, vy1 = p.vx0 + p.vw - 1, p.vy0 + p.vh - 1
+    local function vclip(x0, y0, x1, y1)
+        -- 视区裁剪(M48): 平台对draw_*不裁剪, 大倍率下视区边缘的整格/
+        -- 过道带绘制会越出画布压到别的控件; 越界截断, 全越界剔除
+        if x0 < p.vx0 then x0 = p.vx0 end
+        if y0 < p.vy0 then y0 = p.vy0 end
+        if x1 > vx1 then x1 = vx1 end
+        if y1 > vy1 then y1 = vy1 end
+        if x0 > x1 or y0 > y1 then return nil end
+        return x0, y0, x1, y1
+    end
     -- 可见区间(世界坐标反解)
     local wy1 = p.y0 + p.uh
     local wx1 = p.x0 + p.uw
@@ -6328,9 +6349,12 @@ function mapdraw.cmds_vp(m, t, opts)
         if i1 > rows then i1 = rows end
         for i = i0, i1 do
             local yy = sy(i * (1 + g))
-            out[#out + 1] = { op = 'rect', x0 = bx0, y0 = yy,
-                              x1 = bx1, y1 = yy + g * p.scale - 1,
-                              fill = 1, color = ac }
+            local ax0, ay0, ax1, ay1 = vclip(bx0, yy, bx1,
+                                             yy + g * p.scale - 1)
+            if ax0 then
+                out[#out + 1] = { op = 'rect', x0 = ax0, y0 = ay0,
+                                  x1 = ax1, y1 = ay1, fill = 1, color = ac }
+            end
         end
     end
     -- 小区色块(可见区间; 指令量=可见格数, 与世界尺寸无关)
@@ -6339,10 +6363,14 @@ function mapdraw.cmds_vp(m, t, opts)
         local yy1 = yy0 + p.scale - 1
         for c = c0, c1 do
             local col = state_color(m, t, r, c)
-            local xx0 = sx(c)
-            out[#out + 1] = { op = 'rect', x0 = xx0, y0 = yy0,
-                              x1 = xx0 + p.scale - 1, y1 = yy1, fill = 1,
-                              color = mapdraw.rgb565(col[1], col[2], col[3]) }
+            local cx0, cy0, cx1, cy1 = vclip(sx(c), yy0,
+                                             sx(c) + p.scale - 1, yy1)
+            if cx0 then
+                out[#out + 1] = { op = 'rect', x0 = cx0, y0 = cy0,
+                                  x1 = cx1, y1 = cy1, fill = 1,
+                                  color = mapdraw.rgb565(col[1], col[2],
+                                                         col[3]) }
+            end
         end
     end
     -- 格边框(可见格<=200才画, 沿用整图模式规则)
@@ -6351,10 +6379,12 @@ function mapdraw.cmds_vp(m, t, opts)
     if (r1 - r0 + 1) * (c1 - c0 + 1) <= 200 and p.scale >= 8 then
         for r = r0, r1 do
             for c = c0, c1 do
-                local xx0, yy0 = sx(c), sy(r * (1 + g) + g)
-                out[#out + 1] = { op = 'rect', x0 = xx0, y0 = yy0,
-                                  x1 = xx0 + p.scale - 1,
-                                  y1 = yy0 + p.scale - 1, fill = 0, color = kc }
+                local bx0, by0, bx1, by1 = vclip(sx(c), sy(r * (1 + g) + g),
+                    sx(c) + p.scale - 1, sy(r * (1 + g) + g) + p.scale - 1)
+                if bx0 then
+                    out[#out + 1] = { op = 'rect', x0 = bx0, y0 = by0,
+                                      x1 = bx1, y1 = by1, fill = 0, color = kc }
+                end
             end
         end
     end
@@ -6363,17 +6393,23 @@ function mapdraw.cmds_vp(m, t, opts)
                               mapdraw.COLORS.label[2], mapdraw.COLORS.label[3])
     if p.scale >= 14 then
         for r = r0, r1 do
-            out[#out + 1] = { op = 'text', s = tostring(rows - r),
-                              x = 0, y = sy(r * (1 + g) + g), w = LABEL_W - 2,
-                              h = p.scale, size = math.min(16, p.scale),
-                              color = lc, align = 1 }
+            local ly = sy(r * (1 + g) + g)
+            if ly >= p.vy0 - 1 and ly + p.scale <= p.vy0 + p.vh + 1 then
+                out[#out + 1] = { op = 'text', s = tostring(rows - r),
+                                  x = 0, y = ly, w = LABEL_W - 2,
+                                  h = p.scale, size = math.min(16, p.scale),
+                                  color = lc, align = 1 }
+            end
         end
     end
     if p.scale >= 18 then
         for c = c0, c1 do
-            out[#out + 1] = { op = 'text', s = tostring(c + 1),
-                              x = sx(c), y = 0, w = p.scale, h = LABEL_H - 2,
-                              size = 14, color = lc, align = 1 }
+            local lx = sx(c)
+            if lx >= p.vx0 - 1 and lx + p.scale <= p.vx0 + p.vw + 1 then
+                out[#out + 1] = { op = 'text', s = tostring(c + 1),
+                                  x = lx, y = 0, w = p.scale, h = LABEL_H - 2,
+                                  size = 14, color = lc, align = 1 }
+            end
         end
     end
     -- 格内视图文字(格子足够大)
@@ -6391,11 +6427,16 @@ function mapdraw.cmds_vp(m, t, opts)
                     else
                         s = tostring(rows - r) .. "-" .. tostring(c + 1)
                     end
-                    out[#out + 1] = { op = 'text', s = s, x = sx(c),
-                                      y = sy(r * (1 + g) + g), w = p.scale,
-                                      h = p.scale, size = 16,
-                                      color = mapdraw.rgb565(255, 255, 255),
-                                      align = 1 }
+                    local tx0, ty0 = sx(c), sy(r * (1 + g) + g)
+                    if tx0 >= p.vx0 and ty0 >= p.vy0
+                       and tx0 + p.scale - 1 <= vx1
+                       and ty0 + p.scale - 1 <= vy1 then
+                        out[#out + 1] = { op = 'text', s = s, x = tx0,
+                                          y = ty0, w = p.scale,
+                                          h = p.scale, size = 16,
+                                          color = mapdraw.rgb565(255, 255, 255),
+                                          align = 1 }
+                    end
                 end
             end
         end
@@ -6409,6 +6450,9 @@ function mapdraw.cmds_vp(m, t, opts)
         local y0 = sy(os_.r * (1 + g) + g)
         local x1 = x0 + p.scale - 1
         local y1 = y0 + p.scale - 1
+        if x0 < p.vx0 or y0 < p.vy0 or x1 > vx1 or y1 > vy1 then
+            return out, p                            -- 起点格不全在视区: 不画
+        end
         local oc = mapdraw.rgb565(mapdraw.COLORS.outset[1],
                                   mapdraw.COLORS.outset[2],
                                   mapdraw.COLORS.outset[3])
@@ -6522,7 +6566,7 @@ return function(ctx)
     local LIST_ROWS = 6
     local W = { sel = 0, top = 0, items = {}, ver = -1 }
     -- 前置声明: 画面25小节函数被画面9按钮处理器先行引用(定义在后)
-    local dlg_init, dlg_refresh
+    local dlg_init, dlg_refresh, refit
 
     local function log(tag, msg)
         if LOGGER then LOGGER.log(tag, msg) end
@@ -6556,14 +6600,13 @@ return function(ctx)
         if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
         local lines = {}
         for i = W.top + 1, math.min(#W.items, W.top + LIST_ROWS) do
-            local _, _, pct = STORE.task_progress(W.items[i])
-            local ln = (i == W.sel + 1 and ">" or " ")
-                .. W.items[i] .. " " .. tostring(pct or 0) .. "%"
-            lines[#lines + 1] = string.sub(ln, 1, 15)
+            -- M48: 只显任务名(原带完成率%, 完成率看详情)
+            lines[#lines + 1] = (i == W.sel + 1 and ">" or " ") .. W.items[i]
         end
         wstr(LW.TM.list, table.concat(lines, "\r\n"))
         w16(LW.TM.count, #W.items)
         w16(LW.TM.selidx, W.sel)
+        if refit then refit() end               -- M48: 切换即回"适"
     end
 
     local function cur_task()
@@ -6595,6 +6638,15 @@ return function(ctx)
 
     ---------------------------------------------------------------- 画布
     local CANVAS_W, CANVAS_H = 465, 400   -- 2026-10-26用户重排(M46, 与画面1同)
+
+    ---------------------------------------------------------------- 视图回适(M48)
+    -- 切换任务即回"适"(fit底档整图居中), 与"适"按钮同一目标视图
+    refit = function()
+        local n = W.items and W.items[W.sel + 1]
+        local t = n and STORE.tasks[n]
+        local m = t and STORE.maps[t.map]
+        W.mv = m and MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false) or nil
+    end
 
     local function paint()
         if not MAPDRAW then return end
@@ -6714,9 +6766,6 @@ return function(ctx)
 
     function page:on_enter()
         W.sel, W.top = 0, 0
-        local n0, t0 = cur_task()
-        local m0 = n0 and STORE.maps[t0 and t0.map]
-        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
         refresh()
         render_detail()
         mark_dirty()

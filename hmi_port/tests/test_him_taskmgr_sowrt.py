@@ -429,6 +429,26 @@ __DH2 = (REG[LW.MAP.detail]:gsub(".", function(c)
           '进页自动显示首张详情(map_list序=big60, 实有%r)' % d1[:40])
     check('demo5' in d2 and '5排x2列' in d2, '下键切换选中: 详情联动demo5')
 
+    print('10) M48: 任务列表只显名+切换回适')
+    lua.execute('P9:on_enter()')
+    lua.execute("""
+__LH2 = (REG[LW.TM.list]:gsub('.', function(c)
+    return string.format('%02x', string.byte(c)) end))
+__MVREF = select(1, P9.mv_get())""")
+    l2 = bytes.fromhex(str(lua.eval('__LH2'))).decode('gbk')
+    check('%' not in l2 and ('t2' in l2 or 't3' in l2),
+          '任务列表只显任务名(无完成率, 实有%r)' % l2[:40])
+    check(lua.eval('__MVREF ~= nil')
+          and (5.0 < float(lua.eval('__MVREF.scale')) < 5.2
+               or 31.0 < float(lua.eval('__MVREF.scale')) < 33.0),
+          '进页/切换任务自动回适(首任务t2小图fit顶32=%s)'
+          % lua.eval('__MVREF and __MVREF.scale'))
+    lua.execute('P9:on_update(LW.TM.btn_down, 1)')
+    lua.execute('__MVREF2 = select(1, P9.mv_get())')
+    check(lua.eval('__MVREF2 ~= nil')
+          and 5.0 < float(lua.eval('__MVREF2.scale')) < 5.2,
+          '下键切换任务: 自动回新任务fit')
+
     print('9) app路由(M45): 共用MV地址按当前页派发——修后注册页独占路由')
     lua.execute('''
 __APPM = (assert(loadfile("__HIM/app.lua"))())

@@ -41,6 +41,7 @@ return function(ctx)
         return names[W.sel + 1]
     end
 
+    local refit                             -- 前置声明(M48): 切换地图即回适
     local function refresh()
         W.items = {}
         if STORE then
@@ -52,6 +53,7 @@ return function(ctx)
         W.sel, W.top = 0, 0
         render_list()
         wstr(LW.MAP.detail, "")
+        if refit then refit() end               -- M48: 列表内容变化即回"适"
     end
 
     local function show_detail()
@@ -81,6 +83,7 @@ return function(ctx)
         if m.mark and m.mark ~= "" then L[#L + 1] = "备注:" .. m.mark end
         wstr(LW.MAP.detail, table.concat(L, "\r\n"))
     end
+
 
     ------------------------------------------------------------------ U盘导入
     -- list_dir 固件双时序: 异步经 on_list_dir 路由 / 同步返回 table(见 fileio.lua)
@@ -143,11 +146,13 @@ return function(ctx)
             if W.sel < W.top then W.top = W.sel end
             render_list()
             show_detail()
+            refit()
         elseif addr == LW.MAP.btn_down and W.sel < #W.items - 1 then
             W.sel = W.sel + 1
             if W.sel >= W.top + LIST_ROWS then W.top = W.sel - LIST_ROWS + 1 end
             render_list()
             show_detail()
+            refit()
         elseif addr == LW.MAP.btn_usb then
             usb_import()
         elseif addr == LW.MAP.btn_del then
@@ -186,6 +191,14 @@ return function(ctx)
     -- (2026-10-13, 用户提议: 动态绘图验证可行后地图页同样上画布,
     --  对齐QT FormMap选中即出图; 视图下拉 map_view 排列/编号/密度)
     local CANVAS_W, CANVAS_H = 465, 400         -- 2026-10-26用户重排统一画布(M46)
+
+    -- 切换地图即回"适"(M48): 与"适"按钮同一目标视图
+    -- (须在CANVAS_W/H声明之后赋值, 否则函数体引用到全局nil)
+    refit = function()
+        local n0 = selected_name()
+        local m0 = n0 and STORE and STORE.map_get(n0)
+        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
+    end
 
     local function paint_canvas()
         if not MAPDRAW then return end
@@ -243,12 +256,9 @@ return function(ctx)
     }
 
     function page:on_enter()
-        refresh()
+        refresh()                           -- (M48: refresh内已回"适")
         show_detail()                       -- 自动显示选中详情(M44: 原
                                             --   选中查看按钮职责并入上下键)
-        local n0 = selected_name()          -- 进页复位适配视图(M47统一梯)
-        local m0 = n0 and STORE and STORE.map_get(n0)
-        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
         canvas_dirty = true
     end
 
