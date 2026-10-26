@@ -289,20 +289,28 @@ function mapdraw.fit_scale(m, vw, vh)
 end
 
 -- 缩放步进: dir=1放大/-1缩小; 返回nil=适配(缩过适配档即回落适配)
+local ZOOMS = { 8, 12, 18, 26, 36, 48, 64 }   -- 固定档位表(用户偏好M45)
+
 function mapdraw.zoom_step(fit, cur, dir)
-    -- 固定x1.5倍率(M41): 档位表在fit被32上限截住时步进仅+12%肉眼不可辨
-    -- (真机"按大不放大"观感根因); fit态缩小直接回落适配
+    -- 档位表+最小观感步进1.2x: 跳过与当前档过近的档(M41教训: fit被32
+    -- 上限截住时36-32仅+12%肉眼不可辨, 真机"按大不放大"观感根因);
+    -- fit态缩小直接回落适配(nil)
     if dir > 0 then
         local base = cur or fit
-        local z = base * 1.5
-        if z > 64 then return cur or fit end    -- 64px/格封顶
-        return z
+        for i = 1, #ZOOMS do
+            if ZOOMS[i] >= base * 1.2 then return ZOOMS[i] end
+        end
+        return cur or fit                       -- 已到最大档
     end
     if not cur then return nil end              -- 适配已最小(M41: 原nil比较
                                                 --   崩溃, 真机报on_update异常)
-    local z = cur / 1.5
-    if z <= fit then return nil end             -- 缩过fit回落适配
-    return z
+    for i = #ZOOMS, 1, -1 do
+        if ZOOMS[i] < cur / 1.2 then
+            if ZOOMS[i] <= fit then return nil end
+            return ZOOMS[i]
+        end
+    end
+    return nil
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)

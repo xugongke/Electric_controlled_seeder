@@ -366,8 +366,8 @@ __MV0, __FL0 = P24.mv_get()
           '进页: 适配视图+跟随默认开')
     lua.execute('P24:on_update(LW.MV.zin, 1)')
     lua.execute('__MV1, __FL1 = P24.mv_get()')
-    check(6.5 < float(lua.eval('__MV1.scale')) < 7.2,
-          '放大一档: scale=fit4.55x1.5=%s' % lua.eval('__MV1.scale'))
+    check(float(lua.eval('__MV1.scale')) == 8.0,
+          '放大一档: scale=8(fit4.55进首档, M45档位表)')
     check(lua.eval('__FL1') is True, '放大保持跟随')
     check(lua.eval('REG[LW.RT.canvas]') == 1, '画布脏标已写(重绘触发,M41)')
     lua.execute('P24:on_update(LW.MV.down, 1)')
@@ -425,6 +425,39 @@ __DH2 = (REG[LW.MAP.detail]:gsub(".", function(c)
     check('big60' in d1 and '60排x2列' in d1 and '行间距:' in d1,
           '进页自动显示首张详情(map_list序=big60, 实有%r)' % d1[:40])
     check('demo5' in d2 and '5排x2列' in d2, '下键切换选中: 详情联动demo5')
+
+    print('9) app路由(M45): 共用MV地址按当前页派发——修后注册页独占路由')
+    lua.execute('''
+__APPM = (assert(loadfile("__HIM/app.lua"))())
+__REG3 = {}
+__APPM.wire { PROTOCOL = { io = {},
+                           FNC = { RD_DEBUG_INFO = 0x22, GET_SOFT_VER = 0xA3 },
+                           sub_always = function() end },
+              CODEC = {}, LW = LW }
+__APPM.init { w16 = function(a, v) __REG3[a] = v end,
+              w32 = function() end, wstr = function() end,
+              r16 = function() return 0 end,
+              tx = function() end, poll_ms = 200 }
+__HITS = {}
+local function mkpage(id)
+    return { id = id, addrs = { LW.MV.zin },
+             on_enter = function() end,
+             on_update = function(pg, a, v)
+                 __HITS[#__HITS + 1] = id end }
+end
+__APPM.register(mkpage(LW.SCREEN.MAP))
+__APPM.register(mkpage(LW.SCREEN.TASKMGR))
+__APPM.register(mkpage(LW.SCREEN.SOWRT))
+__APPM.set_screen(LW.SCREEN.TASKMGR)
+__APPM.on_button(LW.MV.zin, 1)
+__APPM.set_screen(LW.SCREEN.SOWRT)
+__APPM.on_button(LW.MV.zin, 1)
+__H1, __H2 = __HITS[1], __HITS[2]
+'''.replace('__HIM', HIM))
+    check(lua.eval('__H1') == lua.eval('LW.SCREEN.TASKMGR'),
+          '任务管理页按下: 路由到当前页(实有%s)' % lua.eval('__H1'))
+    check(lua.eval('__H2') == lua.eval('LW.SCREEN.SOWRT'),
+          '实时播种页按下: 路由到当前页(实有%s)' % lua.eval('__H2'))
 
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (

@@ -135,9 +135,13 @@ function APP.register(page)
     if page.addrs then
         -- (2026-10-08防再犯: ipairs遇nil截断会漏注册其后全部地址
         --  -- page_task曾因addrs首项引用已删键致按钮全无反应)
+        page.addrset = {}
         for i = 1, #page.addrs do
             local a = page.addrs[i]
-            if type(a) == "number" then APP.by_addr[a] = page end
+            if type(a) == "number" then
+                APP.by_addr[a] = page
+                page.addrset[a] = true     -- M45: 当前页优先路由用
+            end
         end
     end
     return page
@@ -235,7 +239,13 @@ end
 --   【根因教训】复位只对按钮地址写0, 绝不波及其他 LW(2026-08-28 事故)
 --------------------------------------------------------------------
 function APP.on_button(addr, v)
-    local page = APP.by_addr[addr]
+    -- M45: 当前页优先——三地图页共用MV导航地址(0x1F80~87), by_addr
+    -- "后注册覆盖"致只有最后注册页收得到(另两页按大/小全程无反应的
+    -- 根因); cur声明了该地址就派发给cur, 未声明再回落by_addr
+    local page = APP.cur
+    if not (page and page.addrset and page.addrset[addr]) then
+        page = APP.by_addr[addr]
+    end
     if not page then return false end
     APP.diag(5)
     -- v默认1(按钮写1); ABP.req等功能通知可携带模式值(2=查看),

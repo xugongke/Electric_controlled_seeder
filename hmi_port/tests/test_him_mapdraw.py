@@ -295,14 +295,16 @@ for i = 1, #__CV do
 end
 ''')
     check(bool(lua.eval('__HASMINI')), '缩略图视口红框存在')
-    check(abs(float(lua.eval('MD.zoom_step(10, nil, 1)')) - 15) < 0.01,
-          'fit=10放大=15(x1.5倍率, M41)')
+    check(abs(float(lua.eval('MD.zoom_step(10, nil, 1)')) - 12) < 0.01,
+          'fit=10放大进12档(固定档位表, M45用户偏好)')
     check(abs(float(lua.eval('MD.zoom_step(32, nil, 1)')) - 48) < 0.01,
-          'fit=32放大=48(x1.5, 观感有感——修按大不放大)')
+          'fit=32放大进48档(跳过36近档, 最小步进1.2x)')
     check(lua.eval('MD.zoom_step(10, 12, -1)') is None,
           '12缩小=8<=fit10回落适配(nil)')
-    check(abs(float(lua.eval('MD.zoom_step(10, 24, -1)')) - 16) < 0.01,
-          '24缩小=16(>fit10正常步进)')
+    check(abs(float(lua.eval('MD.zoom_step(10, 24, -1)')) - 18) < 0.01,
+          '24缩小进18档(跳过26近档)')
+    check(abs(float(lua.eval('MD.zoom_step(32, 48, -1)')) - 36) < 0.01,
+          '48缩小进36档(36>fit32正常步进)')
     lua.execute('''
 __P1 = MD.pan({ cx = 8, cy = 122, scale = 8 }, __BIG, 530, 380, true,
               0, 100)                       -- 疯狂下移100屏

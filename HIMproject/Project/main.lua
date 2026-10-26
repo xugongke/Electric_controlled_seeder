@@ -1216,9 +1216,13 @@ function APP.register(page)
     if page.addrs then
         -- (2026-10-08防再犯: ipairs遇nil截断会漏注册其后全部地址
         --  -- page_task曾因addrs首项引用已删键致按钮全无反应)
+        page.addrset = {}
         for i = 1, #page.addrs do
             local a = page.addrs[i]
-            if type(a) == "number" then APP.by_addr[a] = page end
+            if type(a) == "number" then
+                APP.by_addr[a] = page
+                page.addrset[a] = true     -- M45: 当前页优先路由用
+            end
         end
     end
     return page
@@ -1316,7 +1320,13 @@ end
 --   【根因教训】复位只对按钮地址写0, 绝不波及其他 LW(2026-08-28 事故)
 --------------------------------------------------------------------
 function APP.on_button(addr, v)
-    local page = APP.by_addr[addr]
+    -- M45: 当前页优先——三地图页共用MV导航地址(0x1F80~87), by_addr
+    -- "后注册覆盖"致只有最后注册页收得到(另两页按大/小全程无反应的
+    -- 根因); cur声明了该地址就派发给cur, 未声明再回落by_addr
+    local page = APP.cur
+    if not (page and page.addrset and page.addrset[addr]) then
+        page = APP.by_addr[addr]
+    end
     if not page then return false end
     APP.diag(5)
     -- v默认1(按钮写1); ABP.req等功能通知可携带模式值(2=查看),
@@ -6147,20 +6157,28 @@ function mapdraw.fit_scale(m, vw, vh)
 end
 
 -- 缩放步进: dir=1放大/-1缩小; 返回nil=适配(缩过适配档即回落适配)
+local ZOOMS = { 8, 12, 18, 26, 36, 48, 64 }   -- 固定档位表(用户偏好M45)
+
 function mapdraw.zoom_step(fit, cur, dir)
-    -- 固定x1.5倍率(M41): 档位表在fit被32上限截住时步进仅+12%肉眼不可辨
-    -- (真机"按大不放大"观感根因); fit态缩小直接回落适配
+    -- 档位表+最小观感步进1.2x: 跳过与当前档过近的档(M41教训: fit被32
+    -- 上限截住时36-32仅+12%肉眼不可辨, 真机"按大不放大"观感根因);
+    -- fit态缩小直接回落适配(nil)
     if dir > 0 then
         local base = cur or fit
-        local z = base * 1.5
-        if z > 64 then return cur or fit end    -- 64px/格封顶
-        return z
+        for i = 1, #ZOOMS do
+            if ZOOMS[i] >= base * 1.2 then return ZOOMS[i] end
+        end
+        return cur or fit                       -- 已到最大档
     end
     if not cur then return nil end              -- 适配已最小(M41: 原nil比较
                                                 --   崩溃, 真机报on_update异常)
-    local z = cur / 1.5
-    if z <= fit then return nil end             -- 缩过fit回落适配
-    return z
+    for i = #ZOOMS, 1, -1 do
+        if ZOOMS[i] < cur / 1.2 then
+            if ZOOMS[i] <= fit then return nil end
+            return ZOOMS[i]
+        end
+    end
+    return nil
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)
