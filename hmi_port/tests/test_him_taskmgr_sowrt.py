@@ -362,12 +362,12 @@ APPX.preset_sowrt_task = "t3"
 P24:on_enter()
 __MV0, __FL0 = P24.mv_get()
 ''')
-    check(lua.eval('__MV0 == nil and __FL0 == true'),
-          '进页: 适配视图+跟随默认开')
+    check(lua.eval('__MV0 ~= nil and __FL0 == true'),
+          '进页: 适配视图(fit底档)+跟随默认开')
     lua.execute('P24:on_update(LW.MV.zin, 1)')
     lua.execute('__MV1, __FL1 = P24.mv_get()')
-    check(float(lua.eval('__MV1.scale')) == 8.0,
-          '放大一档: scale=8(fit4.55进首档, M45档位表)')
+    check(7.3 < float(lua.eval('__MV1.scale')) < 7.9,
+          '放大一档: scale=fit5.05x1.5=%s' % lua.eval('__MV1.scale'))
     check(lua.eval('__FL1') is True, '放大保持跟随')
     check(lua.eval('REG[LW.RT.canvas]') == 1, '画布脏标已写(重绘触发,M41)')
     lua.execute('P24:on_update(LW.MV.down, 1)')
@@ -381,8 +381,9 @@ local ok = pcall(function()
 end)
 __OK, __MVF = ok, P24.mv_get()
 ''')
-    check(bool(lua.eval('__OK')) and lua.eval('__MVF ~= nil and __MVF.scale == 8'),
-          '连续缩小至底: 无on_update异常且停在表底8档(M46不反向跳fit)')
+    check(bool(lua.eval('__OK')) and lua.eval('__MVF ~= nil')
+          and 5.0 < float(lua.eval('__MVF.scale')) < 5.2,
+          '连续缩小至底: 无on_update异常且停在底档=fit(M47不反向放大)')
     lua.execute('''
 JR.snap = { cur_row = 30, cur_col = 1 }
 P24:on_update(LW.MV.follow, 1)
@@ -393,7 +394,9 @@ __MVF2, __FLF = P24.mv_get()
           '跟随开: 居中第30排(cy=%s)' % lua.eval('__MVF2.cy'))
     lua.execute('P24:on_update(LW.MV.fit, 1)')
     lua.execute('__MV3, __FL3 = P24.mv_get()')
-    check(lua.eval('__MV3 == nil and __FL3 == false'), '适配: 视图清+跟随退出')
+    check(lua.eval('__MV3 ~= nil and __FL3 == false')
+          and 5.0 < float(lua.eval('__MV3.scale')) < 5.2,
+          '适按钮: 回底档fit视图+跟随退出')
     lua.execute('''
 P9:on_enter()
 P9:on_update(LW.MV.zin, 1)
@@ -401,10 +404,10 @@ __MV9 = P9.mv_get()
 P9:on_update(LW.MV.fit, 1)
 __MV9F = P9.mv_get()
 ''')
-    check(abs(float(lua.eval('__MV9.scale')) - 36) < 0.01
-          and lua.eval('__MV9F') is None,
-          '任务管理页: 放大路由scale=%s(小图fit顶32, 纯档位进36)/适配复位=%s'
-          % (lua.eval('__MV9 and __MV9.scale'), lua.eval('__MV9F')))
+    check(abs(float(lua.eval('__MV9.scale')) - 48) < 0.01
+          and lua.eval('__MV9F ~= nil and __MV9F.scale == 32'),
+          '任务管理页: 放大路由scale=%s(fit32顶档进48)/适回底档=%s'
+          % (lua.eval('__MV9 and __MV9.scale'), lua.eval('__MV9F and __MV9F.scale')))
 
     print('8) 地图导入页(M44): 列表只显名字+详情自动显示+上下键联动')
     lua.execute('''

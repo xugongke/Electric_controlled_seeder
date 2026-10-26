@@ -289,25 +289,40 @@ function mapdraw.fit_scale(m, vw, vh)
 end
 
 -- 缩放步进: dir=1放大/-1缩小; 返回nil=适配(缩过适配档即回落适配)
-local ZOOMS = { 8, 12, 18, 26, 36, 48, 64 }   -- 固定档位表(用户偏好M45)
+-- 统一缩放梯(M47, 用户要求"适"与大小键同逻辑): 以fit为底档,
+-- x1.5逐级向上封顶64——大/小=±1档, "适"=直接回底档(整图居中),
+-- 三者同一条梯子; 梯随图变(每张图自己的fit做底), 观感一致
+function mapdraw.zoom_rungs(fit)
+    local r = { fit }
+    while r[#r] < 64 do
+        local z = r[#r] * 1.5
+        if z >= 64 then z = 64 end
+        r[#r + 1] = z
+    end
+    return r
+end
 
 function mapdraw.zoom_step(fit, cur, dir)
-    -- 纯档位等比(M46, 用户偏好"一开始的等比例"观感):
-    --   放大=档位逐级向上到顶; 缩小=档位逐级向下, 表底8即下限——
-    --   绝不反向跳fit(原"缩过fit回落适配"在fit落在两档之间时,
-    --   8档->fit会反向放大, 真机实测); 回适配请按"适"按钮
+    local R = mapdraw.zoom_rungs(fit)
+    local base = cur or fit
     if dir > 0 then
-        local base = cur or fit
-        for i = 1, #ZOOMS do
-            if ZOOMS[i] > base then return ZOOMS[i] end
+        for i = 1, #R do
+            if R[i] > base + 0.001 then return R[i] end
         end
-        return cur or fit                       -- 已到最大档
+        return base                             -- 顶档64: 保持
     end
-    if not cur then return nil end              -- 适配态(M41: 原nil比较崩溃)
-    for i = #ZOOMS, 1, -1 do
-        if ZOOMS[i] < cur then return ZOOMS[i] end
+    for i = #R, 1, -1 do
+        if R[i] < base - 0.001 then return R[i] end
     end
-    return cur                                  -- 表底8: 停在8, 不反向放大
+    return R[1]                                 -- 底档=fit: 保持(绝不反向放大)
+end
+
+-- 适配视图(fit底档, 整图居中): "适"按钮与进页复位用, 返回具体视图
+-- (等价于nil态, 但与大小键同一表示, 逻辑统一)
+function mapdraw.fit_view(m, w, h, minimap)
+    local vx0, vy0, vw, vh = mapdraw.view_rect(w, h, minimap)
+    local ww, wh = mapdraw.world_size(m)
+    return { cx = ww / 2, cy = wh / 2, scale = mapdraw.fit_scale(m, vw, vh) }
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)

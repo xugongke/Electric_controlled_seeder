@@ -295,26 +295,27 @@ for i = 1, #__CV do
 end
 ''')
     check(bool(lua.eval('__HASMINI')), '缩略图视口红框存在')
-    check(abs(float(lua.eval('MD.zoom_step(10, nil, 1)')) - 12) < 0.01,
-          'fit=10放大进12档(纯档位等比, M46)')
-    check(abs(float(lua.eval('MD.zoom_step(32, nil, 1)')) - 36) < 0.01,
-          'fit=32放大进36档(纯档位: 32的上一档即36)')
+    # M47统一缩放梯: fit为底档x1.5逐级封顶64, 适=回底档
+    check(abs(float(lua.eval('MD.zoom_step(10, nil, 1)')) - 15) < 0.01,
+          'fit=10放大进15档(x1.5)')
+    check(abs(float(lua.eval('MD.zoom_step(32, nil, 1)')) - 48) < 0.01,
+          'fit=32放大进48档')
     check(abs(float(lua.eval('MD.zoom_step(32, 48, 1)')) - 64) < 0.01,
           '48放大进64档(到顶)')
     check(abs(float(lua.eval('MD.zoom_step(32, 64, 1)')) - 64) < 0.01,
-          '64再放大保持64(到顶保持)')
-    check(abs(float(lua.eval('MD.zoom_step(32, 48, -1)')) - 36) < 0.01,
-          '48缩小进36档(降序取下一档)')
-    check(abs(float(lua.eval('MD.zoom_step(10, 48, -1)')) - 36) < 0.01,
-          '48缩小(跨fit10)仍进36档不反向')
-    check(abs(float(lua.eval('MD.zoom_step(10, 24, -1)')) - 18) < 0.01,
-          '24缩小进18档')
-    check(abs(float(lua.eval('MD.zoom_step(10, 12, -1)')) - 8) < 0.01,
-          '12缩小进8档(低于fit也逐档, 不反向跳fit)')
-    check(abs(float(lua.eval('MD.zoom_step(32, 8, -1)')) - 8) < 0.01,
-          '表底8再缩保持8(绝不反向放大——M46真机反馈根因)')
-    check(lua.eval('MD.zoom_step(10, nil, -1)') is None,
-          '适配态再缩=适配(nil, 无从再缩)')
+          '64再放大保持64(顶档保持)')
+    check(abs(float(lua.eval('MD.zoom_step(32, 48, -1)')) - 32) < 0.01,
+          '48缩小回底档32(=fit)')
+    check(abs(float(lua.eval('MD.zoom_step(10, 24, -1)')) - 22.5) < 0.01,
+          '24缩小进22.5档(逐档, 24不在档上取其下一档)')
+    check(abs(float(lua.eval('MD.zoom_step(10, 15, -1)')) - 10) < 0.01,
+          '15缩小回底档10(=fit)')
+    check(abs(float(lua.eval('MD.zoom_step(10, 10, -1)')) - 10) < 0.01,
+          '底档再缩保持10(绝不反向放大)')
+    check(abs(float(lua.eval('MD.zoom_step(10, nil, -1)')) - 10) < 0.01,
+          '适配态再缩=底档10(具体视图, 与大小键同表示)')
+    check(abs(float(lua.eval('MD.fit_view(__M, 300, 300).cx')) - 2) < 0.01,
+          'fit_view居中: cx=世界宽一半')
     lua.execute('''
 __P1 = MD.pan({ cx = 8, cy = 122, scale = 8 }, __BIG, 530, 380, true,
               0, 100)                       -- 疯狂下移100屏

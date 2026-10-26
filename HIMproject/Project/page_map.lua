@@ -221,7 +221,7 @@ return function(ctx)
         elseif addr == LW.MV.zout then
             W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
-            W.mv = nil
+            W.mv = MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false)
         else
             return false
         end
@@ -246,7 +246,9 @@ return function(ctx)
         refresh()
         show_detail()                       -- 自动显示选中详情(M44: 原
                                             --   选中查看按钮职责并入上下键)
-        W.mv = nil                          -- 视图复位适配(M40)
+        local n0 = selected_name()          -- 进页复位适配视图(M47统一梯)
+        local m0 = n0 and STORE and STORE.map_get(n0)
+        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
         canvas_dirty = true
     end
 

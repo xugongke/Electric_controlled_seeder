@@ -193,7 +193,7 @@ return function(ctx)
         elseif addr == LW.MV.zout then
             W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
-            W.mv = nil
+            W.mv = MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false)
         else
             return false
         end
@@ -217,7 +217,9 @@ return function(ctx)
 
     function page:on_enter()
         W.sel, W.top = 0, 0
-        W.mv = nil                          --  ”Õº∏¥Œª  ≈‰(M40)
+        local n0, t0 = cur_task()
+        local m0 = n0 and STORE.maps[t0 and t0.map]
+        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
         refresh()
         render_detail()
         mark_dirty()

@@ -218,7 +218,7 @@ return function(ctx)
             W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
             W.follow = false
-            W.mv = nil
+            W.mv = MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false)
         elseif addr == LW.MV.follow then
             W.follow = not W.follow
             log('INF', W.follow and '作业跟随: 开' or '作业跟随: 关')
@@ -256,7 +256,12 @@ return function(ctx)
         end
         W.last_pt = r16(LW.RT.path_type) or 0
         W.last_pos = (r16(LW.RT.positive) == 1) and 1 or 0
-        W.mv = nil                          -- 视图复位适配(M40)
+        do                                  -- 进页复位适配视图(M47统一梯)
+            local t0 = W.task and STORE.tasks[W.task] or nil
+            local m0 = t0 and task_map(t0)
+            W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false)
+                   or nil
+        end
         W.follow = true                     -- 进页默认跟随作业
         W.ver = -1
     end
