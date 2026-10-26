@@ -39,7 +39,7 @@ function ref_iter(text)
 end
 function ref_split(line)
     local t = {}
-    for f in line:gmatch("([^,]*)") do t[#t + 1] = ref_trim(f) if #t > 32 then break end end
+    for f in line:gmatch("([^,]*)") do t[#t + 1] = ref_trim(f) if #t > 256 then break end end
     return t
 end
 function ref_fmt_num(v)

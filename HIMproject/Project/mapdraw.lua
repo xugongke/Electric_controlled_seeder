@@ -511,24 +511,34 @@ function mapdraw.cmds_vp(m, t, opts)
     -- 排标签(排显示号=rows-r, 与QT表头一致)
     local lc = mapdraw.rgb565(mapdraw.COLORS.label[1],
                               mapdraw.COLORS.label[2], mapdraw.COLORS.label[3])
-    if p.scale >= 14 then
+    -- M49: 稀疏步进(相邻标号间距>=16px), 任何倍率都有排列号
+    local rstep = math.max(1, math.ceil(16 / p.scale))
+    local rsize = math.min(16, math.max(11, p.scale))
+    if true then
         for r = r0, r1 do
-            local ly = sy(r * (1 + g) + g)
-            if ly >= p.vy0 - 1 and ly + p.scale <= p.vy0 + p.vh + 1 then
-                out[#out + 1] = { op = 'text', s = tostring(rows - r),
-                                  x = 0, y = ly, w = LABEL_W - 2,
-                                  h = p.scale, size = math.min(16, p.scale),
-                                  color = lc, align = 1 }
+            if (rows - r) % rstep == 0 then
+                local ly = sy(r * (1 + g) + g)
+                if ly >= p.vy0 - 1 and ly + rsize <= p.vy0 + p.vh + 1 then
+                    out[#out + 1] = { op = 'text', s = tostring(rows - r),
+                                      x = 0, y = ly, w = LABEL_W - 2,
+                                      h = rsize, size = rsize,
+                                      color = lc, align = 1 }
+                end
             end
         end
     end
-    if p.scale >= 18 then
+    local cstep = math.max(1, math.ceil(26 / p.scale))
+    local csize = math.min(16, math.max(11, p.scale))
+    if true then
         for c = c0, c1 do
-            local lx = sx(c)
-            if lx >= p.vx0 - 1 and lx + p.scale <= p.vx0 + p.vw + 1 then
-                out[#out + 1] = { op = 'text', s = tostring(c + 1),
-                                  x = lx, y = 0, w = p.scale, h = LABEL_H - 2,
-                                  size = 14, color = lc, align = 1 }
+            if c % cstep == 0 then
+                local lx = sx(c)
+                if lx >= p.vx0 - 1 and lx + csize * 3 <= p.vx0 + p.vw + 1 then
+                    out[#out + 1] = { op = 'text', s = tostring(c + 1),
+                                      x = lx, y = 0, w = csize * 3,
+                                      h = LABEL_H - 2, size = csize,
+                                      color = lc, align = 1 }
+                end
             end
         end
     end

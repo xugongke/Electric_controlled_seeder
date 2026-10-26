@@ -133,7 +133,66 @@ check(pm3['rows'] == 4 and str(pm3['ab']['name']) == 'a', '旧#段式兼容')
 
 
 def main():
-    pass  # 主体已模块级执行
+    pass  # 主体已模块化执行于下方M49段
+
+
+# ---- M49: 100列大图导入不截断(真机反馈: 字段护栏32把>31列矩阵截半) ----
+def test_100col_import():
+    global PASS, FAIL
+    print('M49) 100列地图导入: 字段护栏32->256, 全列解析+建任务+路径')
+    mp = os.path.join(ROOT, 'tools', 'hmi_export', 'hmi_out',
+                      'map_100_ACD4481F.csv')
+    if not os.path.exists(mp):
+        print('  [跳过] 样例文件不存在:', mp)
+        return
+    raw = open(mp, 'rb').read()
+    name = '试验田100'.encode('gbk').hex()
+    from lupa import lua53 as lupa_lua
+    lua = lupa_lua.LuaRuntime(unpack_returned_tuples=True)
+    lua.globals().__H = HIM.replace(chr(92), '/')
+    lua.globals().__HEXSTR = raw.hex()
+    lua.globals().__NAMEH = name
+    lua.execute(r'''
+CSV = assert(loadfile(__H .. "/csv.lua"))()
+STR = assert(loadfile(__H .. "/store.lua"))()
+PA  = assert(loadfile(__H .. "/pathalgo.lua"))()
+FS = {}
+FIO = { write_all=function(p,d) FS[p]=d return true end,
+        read_all=function(p) return FS[p] end,
+        append=function(p,d) FS[p]=(FS[p] or "")..d return true end,
+        remove=function(p) FS[p]=nil return true end }
+STR.init(FIO, CSV, "3:")
+local s = ""
+local h = __HEXSTR
+for i = 1, #h, 2 do s = s .. string.char(tonumber(h:sub(i, i+1), 16)) end
+local nm = ""
+local nh = __NAMEH
+for i = 1, #nh, 2 do nm = nm .. string.char(tonumber(nh:sub(i, i+1), 16)) end
+local a, b = STR.map_import_text(nm, s)
+__OK = (a ~= nil)
+__M = STR.maps[nm]
+local t = __OK and STR.task_create("t100", nm, 0, 1, 0, 0, 0, "T") or nil
+__TC = (t ~= nil)
+if __TC then
+    local m = STR.maps[nm]
+    local okp, pp = pcall(PA.create_path, m, t.path_type, t.positive == 1)
+    __PN = okp and #pp or -1
+else
+    __PN = -1
+end
+''')
+    check(bool(lua.eval('__OK')), '100列地图导入成功(不再被32字段护栏截断)')
+    check(lua.eval('__M.rows') == 100 and lua.eval('__M.cols') == 100,
+          'rows/cols=100/100')
+    check(lua.eval('__M.blocks[0][31] and __M.blocks[0][31].sow') == 1
+          and lua.eval('__M.blocks[0][32] and __M.blocks[0][32].sow') == 1
+          and lua.eval('__M.blocks[99][99] and __M.blocks[99][99].sow') == 1,
+          '第32/33/100列块全部解析(sow=1, 不再深灰)')
+    check(bool(lua.eval('__TC')), '该图可正常创建任务')
+    check(int(lua.eval('__PN')) == 10000, '路径节点=10000')
+
+
+test_100col_import()
 
 
 if __name__ == '__main__':

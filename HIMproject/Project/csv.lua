@@ -75,7 +75,9 @@ function csv.split(line)
         end
         t[#t + 1] = trim(string.sub(line, pos, c - 1))
         pos = c + 1
-        if #t > 32 then break end                 -- 字段数护栏
+        if #t > 256 then break end                -- 字段数护栏(M49: 32会把
+                                                  --   >31列地图的矩阵行截半,
+                                                  --   100列图只解析出32列)
     end
     return t
 end
