@@ -3972,6 +3972,15 @@ function jobrun.start(task_name, opts)
         return 1                                  -- 起点不在路径内: 从头
     end
     local start_idx = locate_outset()
+    -- 2026-10-26二十二修: 回退到起点节点所在趟的首节点。降序趟的
+    -- (0,0)默认起点=趟末节点, 而图外虚拟排/地头进入只与趟首相邻,
+    -- 到达帧与pn.row永不匹配->屏端停止下发->固件NEXT链自耗尽->
+    -- 播1排即'播种结束'(试验田1实测+e2e复现); 无图外同病=只播末
+    -- 排即挂趟。QT开窗nextPathIndex=0即趟首
+    while start_idx > 1
+          and path[start_idx - 1].column == path[start_idx].column do
+        start_idx = start_idx - 1
+    end
     while start_idx <= #path do
         local pn = path[start_idx]
         local blk = t.blocks[pn.row] and t.blocks[pn.row][pn.column]
