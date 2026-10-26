@@ -7198,24 +7198,27 @@ return function(ctx)
         local t = W.task and STORE.tasks[W.task] or nil
         local m = t and task_map(t)
         if not m then return false end
+        -- M52: 作业中锁定跟随——平移/适不退出跟随(作业推进即回中);
+        -- 空闲时平移/适才退出跟随(浏览模式)
+        local sowing = JOBRUN and JOBRUN.active() or false
         if addr == LW.MV.up then
-            W.follow = false
+            if not sowing then W.follow = false end
             W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, -0.5)
         elseif addr == LW.MV.down then
-            W.follow = false
+            if not sowing then W.follow = false end
             W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0, 0.5)
         elseif addr == LW.MV.left then
-            W.follow = false
+            if not sowing then W.follow = false end
             W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, -0.5, 0)
         elseif addr == LW.MV.right then
-            W.follow = false
+            if not sowing then W.follow = false end
             W.mv = MAPDRAW.pan(W.mv, m, CANVAS_W, CANVAS_H, false, 0.5, 0)
         elseif addr == LW.MV.zin then
             W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, 1)
         elseif addr == LW.MV.zout then
             W.mv = MAPDRAW.zoom(W.mv, m, CANVAS_W, CANVAS_H, false, -1)
         elseif addr == LW.MV.fit then
-            W.follow = false
+            if not sowing then W.follow = false end
             W.mv = MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false)
         else
             return false

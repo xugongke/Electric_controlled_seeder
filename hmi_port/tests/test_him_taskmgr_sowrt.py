@@ -397,6 +397,18 @@ __MVF2, __FLF = P24.mv_get()
     check(lua.eval('__FLF') is True
           and abs(float(lua.eval('__MVF2.cy')) - 37.32) < 20,
           '开始任务自动跟随: 居中第30排(cy=%s)' % lua.eval('__MVF2.cy'))
+    lua.execute('''
+JR.act = true                                  -- 播种中(M52)
+P24:on_update(LW.MV.down, 1)                   -- 作业中平移
+JR.snap = { cur_row = 30, cur_col = 1 }
+JR.draw_ver = JR.draw_ver + 1
+P24:on_tick()
+__MVF3, __FLF3 = P24.mv_get()
+''')
+    check(lua.eval('__FLF3') is True
+          and abs(float(lua.eval('__MVF3.cy')) - 37.32) < 20,
+          '作业中平移: 跟随不退出且推进即回中(M52)')
+    lua.execute('JR.act = false')
     lua.execute('P24:on_update(LW.MV.fit, 1)')
     lua.execute('__MV3, __FL3 = P24.mv_get()')
     check(lua.eval('__MV3 ~= nil and __FL3 == false')
