@@ -97,7 +97,7 @@ return function(ctx)
     end
 
     ---------------------------------------------------------------- 画布
-    local CANVAS_W, CANVAS_H = 322, 360
+    local CANVAS_W, CANVAS_H = 465, 400   -- 2026-10-26用户重排(M46, 与画面1同)
 
     local function paint()
         if not MAPDRAW then return end
@@ -120,7 +120,7 @@ return function(ctx)
                     pp, t.outset.c)
             end
         end
-        MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 474, 60)
+        MAPDRAW.render(MAPDRAW.cmds(m, t, opts), 335, 30)
     end
 
     local function mark_dirty()

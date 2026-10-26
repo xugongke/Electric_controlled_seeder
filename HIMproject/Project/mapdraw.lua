@@ -292,25 +292,22 @@ end
 local ZOOMS = { 8, 12, 18, 26, 36, 48, 64 }   -- 固定档位表(用户偏好M45)
 
 function mapdraw.zoom_step(fit, cur, dir)
-    -- 档位表+最小观感步进1.2x: 跳过与当前档过近的档(M41教训: fit被32
-    -- 上限截住时36-32仅+12%肉眼不可辨, 真机"按大不放大"观感根因);
-    -- fit态缩小直接回落适配(nil)
+    -- 纯档位等比(M46, 用户偏好"一开始的等比例"观感):
+    --   放大=档位逐级向上到顶; 缩小=档位逐级向下, 表底8即下限——
+    --   绝不反向跳fit(原"缩过fit回落适配"在fit落在两档之间时,
+    --   8档->fit会反向放大, 真机实测); 回适配请按"适"按钮
     if dir > 0 then
         local base = cur or fit
         for i = 1, #ZOOMS do
-            if ZOOMS[i] >= base * 1.2 then return ZOOMS[i] end
+            if ZOOMS[i] > base then return ZOOMS[i] end
         end
         return cur or fit                       -- 已到最大档
     end
-    if not cur then return nil end              -- 适配已最小(M41: 原nil比较
-                                                --   崩溃, 真机报on_update异常)
+    if not cur then return nil end              -- 适配态(M41: 原nil比较崩溃)
     for i = #ZOOMS, 1, -1 do
-        if ZOOMS[i] < cur / 1.2 then
-            if ZOOMS[i] <= fit then return nil end
-            return ZOOMS[i]
-        end
+        if ZOOMS[i] < cur then return ZOOMS[i] end
     end
-    return nil
+    return cur                                  -- 表底8: 停在8, 不反向放大
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)

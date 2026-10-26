@@ -296,15 +296,25 @@ end
 ''')
     check(bool(lua.eval('__HASMINI')), '缩略图视口红框存在')
     check(abs(float(lua.eval('MD.zoom_step(10, nil, 1)')) - 12) < 0.01,
-          'fit=10放大进12档(固定档位表, M45用户偏好)')
-    check(abs(float(lua.eval('MD.zoom_step(32, nil, 1)')) - 48) < 0.01,
-          'fit=32放大进48档(跳过36近档, 最小步进1.2x)')
-    check(lua.eval('MD.zoom_step(10, 12, -1)') is None,
-          '12缩小=8<=fit10回落适配(nil)')
-    check(abs(float(lua.eval('MD.zoom_step(10, 24, -1)')) - 18) < 0.01,
-          '24缩小进18档(跳过26近档)')
+          'fit=10放大进12档(纯档位等比, M46)')
+    check(abs(float(lua.eval('MD.zoom_step(32, nil, 1)')) - 36) < 0.01,
+          'fit=32放大进36档(纯档位: 32的上一档即36)')
+    check(abs(float(lua.eval('MD.zoom_step(32, 48, 1)')) - 64) < 0.01,
+          '48放大进64档(到顶)')
+    check(abs(float(lua.eval('MD.zoom_step(32, 64, 1)')) - 64) < 0.01,
+          '64再放大保持64(到顶保持)')
     check(abs(float(lua.eval('MD.zoom_step(32, 48, -1)')) - 36) < 0.01,
-          '48缩小进36档(36>fit32正常步进)')
+          '48缩小进36档(降序取下一档)')
+    check(abs(float(lua.eval('MD.zoom_step(10, 48, -1)')) - 36) < 0.01,
+          '48缩小(跨fit10)仍进36档不反向')
+    check(abs(float(lua.eval('MD.zoom_step(10, 24, -1)')) - 18) < 0.01,
+          '24缩小进18档')
+    check(abs(float(lua.eval('MD.zoom_step(10, 12, -1)')) - 8) < 0.01,
+          '12缩小进8档(低于fit也逐档, 不反向跳fit)')
+    check(abs(float(lua.eval('MD.zoom_step(32, 8, -1)')) - 8) < 0.01,
+          '表底8再缩保持8(绝不反向放大——M46真机反馈根因)')
+    check(lua.eval('MD.zoom_step(10, nil, -1)') is None,
+          '适配态再缩=适配(nil, 无从再缩)')
     lua.execute('''
 __P1 = MD.pan({ cx = 8, cy = 122, scale = 8 }, __BIG, 530, 380, true,
               0, 100)                       -- 疯狂下移100屏

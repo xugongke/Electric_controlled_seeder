@@ -381,8 +381,8 @@ local ok = pcall(function()
 end)
 __OK, __MVF = ok, P24.mv_get()
 ''')
-    check(bool(lua.eval('__OK')) and lua.eval('__MVF') is None,
-          '连续缩小至底: 无on_update异常且回落适配(M41修nil比较崩溃)')
+    check(bool(lua.eval('__OK')) and lua.eval('__MVF ~= nil and __MVF.scale == 8'),
+          '连续缩小至底: 无on_update异常且停在表底8档(M46不反向跳fit)')
     lua.execute('''
 JR.snap = { cur_row = 30, cur_col = 1 }
 P24:on_update(LW.MV.follow, 1)
@@ -401,9 +401,9 @@ __MV9 = P9.mv_get()
 P9:on_update(LW.MV.fit, 1)
 __MV9F = P9.mv_get()
 ''')
-    check(abs(float(lua.eval('__MV9.scale')) - 48) < 0.01
+    check(abs(float(lua.eval('__MV9.scale')) - 36) < 0.01
           and lua.eval('__MV9F') is None,
-          '任务管理页: 放大路由scale=%s(小图fit顶32x1.5)/适配复位=%s'
+          '任务管理页: 放大路由scale=%s(小图fit顶32, 纯档位进36)/适配复位=%s'
           % (lua.eval('__MV9 and __MV9.scale'), lua.eval('__MV9F')))
 
     print('8) 地图导入页(M44): 列表只显名字+详情自动显示+上下键联动')
