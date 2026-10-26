@@ -141,6 +141,9 @@ wstr(LW.NT.name, "t1")
 ''')
     lua.execute('APPX.pages[LW.SCREEN.NEWTASK]:on_update(LW.NT.btn_ok, 1)')
     check(bool(lua.eval('STR.tasks["t1"] ~= nil')), '确定创建任务t1')
+    check(lua.eval('STR.tasks["t1"].outset.r') == lua.eval('STR.maps["demo5"].rows - 1')
+          and lua.eval('STR.tasks["t1"].outset.c') == 0,
+          '新建任务起点黄框默认1排1列(M50: 内部末排r/列0)')
     lua.execute('P9:on_enter()')
     check(lua.eval('REG[LW.TM.count]') == 1, '列表count=1')
     lua.execute('''
@@ -185,8 +188,8 @@ end)(__EXP))
     lua.execute('P24:on_enter()')
     check(lua.eval('REG[LW.RT.tname]') == 't1', '任务名显示')
     check(lua.eval('REG[LW.RT.path_type]') == 0
-          and lua.eval('REG[LW.RT.sp_row]') == 5,
-          '参数加载(路径0/起始排默认=地图末排5)')
+          and lua.eval('REG[LW.RT.sp_row]') == 1,
+          '参数加载(路径0/起始排默认=1排, M50起点默认1排1列)')
     # 设置参数后开始
     lua.execute('''
 w16(LW.RT.path_type, 1)
@@ -446,8 +449,9 @@ __MVREF = select(1, P9.mv_get())""")
     lua.execute('P9:on_update(LW.TM.btn_down, 1)')
     lua.execute('__MVREF2 = select(1, P9.mv_get())')
     check(lua.eval('__MVREF2 ~= nil')
-          and 5.0 < float(lua.eval('__MVREF2.scale')) < 5.2,
-          '下键切换任务: 自动回新任务fit')
+          and 17.0 < float(lua.eval('__MVREF2.scale')) < 17.4,
+          '下键切换任务: 自动缩放到排列号可读档(big60=17.19, M50)')
+    check(lua.eval('REG[LW.TM.selidx]') == 2, 'selidx改1基(选中第2行=2, M50)')
 
     print('9) app路由(M45): 共用MV地址按当前页派发——修后注册页独占路由')
     lua.execute('''

@@ -64,7 +64,7 @@ return function(ctx)
         end
         wstr(LW.TM.list, table.concat(lines, "\r\n"))
         w16(LW.TM.count, #W.items)
-        w16(LW.TM.selidx, W.sel)
+        w16(LW.TM.selidx, W.sel + 1)   -- M50: 1基
         if refit then refit() end               -- M48: 切换即回"适"
     end
 
@@ -104,7 +104,7 @@ return function(ctx)
         local n = W.items and W.items[W.sel + 1]
         local t = n and STORE.tasks[n]
         local m = t and STORE.maps[t.map]
-        W.mv = m and MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false) or nil
+        W.mv = m and MAPDRAW.auto_view(m, CANVAS_W, CANVAS_H, false) or nil
     end
 
     local function paint()
@@ -388,7 +388,11 @@ return function(ctx)
                 log("ERR", "无地图可选")
                 return
             end
-            local t, err = STORE.task_create(name, mapn, 0, 0, 0, 0, 0, NOW())  -- 十七修: 默认正(QT新任务positive=false)
+            local mm0 = STORE.maps[mapn]
+            local orow = mm0 and (mm0.rows - 1) or 0
+            -- M50: 起始黄框默认1排1列(排显示号倒序: 内部末排); 正(QT新任务positive=false)
+            local t, err = STORE.task_create(name, mapn, 0, 0, 0,
+                                             orow, 0, NOW())
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
                 wstr(LW.NT.mapsel, "失败:" .. tostring(err))

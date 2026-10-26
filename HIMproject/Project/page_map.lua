@@ -32,7 +32,7 @@ return function(ctx)
         while #lines < 1 do lines[1] = " " end
         wstr(LW.MAP.list, table.concat(lines, "\r\n"))
         w16(LW.MAP.count, #W.items)
-        w16(LW.MAP.selidx, W.sel)
+        w16(LW.MAP.selidx, W.sel + 1)   -- M50: 1»ù
         w16(LW.MAP.listtop, W.top)
     end
 
@@ -197,7 +197,7 @@ return function(ctx)
     refit = function()
         local n0 = selected_name()
         local m0 = n0 and STORE and STORE.map_get(n0)
-        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
+        W.mv = m0 and MAPDRAW.auto_view(m0, CANVAS_W, CANVAS_H, false) or nil
     end
 
     local function paint_canvas()

@@ -4797,7 +4797,7 @@ return function(ctx)
         while #lines < 1 do lines[1] = " " end
         wstr(LW.MAP.list, table.concat(lines, "\r\n"))
         w16(LW.MAP.count, #W.items)
-        w16(LW.MAP.selidx, W.sel)
+        w16(LW.MAP.selidx, W.sel + 1)   -- M50: 1基
         w16(LW.MAP.listtop, W.top)
     end
 
@@ -4962,7 +4962,7 @@ return function(ctx)
     refit = function()
         local n0 = selected_name()
         local m0 = n0 and STORE and STORE.map_get(n0)
-        W.mv = m0 and MAPDRAW.fit_view(m0, CANVAS_W, CANVAS_H, false) or nil
+        W.mv = m0 and MAPDRAW.auto_view(m0, CANVAS_W, CANVAS_H, false) or nil
     end
 
     local function paint_canvas()
@@ -6199,12 +6199,35 @@ function mapdraw.zoom_step(fit, cur, dir)
     return R[1]                                 -- 底档=fit: 保持(绝不反向放大)
 end
 
--- 适配视图(fit底档, 整图居中): "适"按钮与进页复位用, 返回具体视图
--- (等价于nil态, 但与大小键同一表示, 逻辑统一)
+-- 适配视图(fit底档, 整图居中): "适"按钮用, 返回具体视图
 function mapdraw.fit_view(m, w, h, minimap)
     local vx0, vy0, vw, vh = mapdraw.view_rect(w, h, minimap)
     local ww, wh = mapdraw.world_size(m)
     return { cx = ww / 2, cy = wh / 2, scale = mapdraw.fit_scale(m, vw, vh) }
+end
+
+-- 自动视图(M50): 梯上首个>=thresh(默认12px/格)的档——排列号可读的大小;
+-- 切换地图/任务时refit用
+function mapdraw.auto_view(m, w, h, minimap, thresh)
+    local vx0, vy0, vw, vh = mapdraw.view_rect(w, h, minimap)
+    local ww, wh = mapdraw.world_size(m)
+    local fit = mapdraw.fit_scale(m, vw, vh)
+    local R = mapdraw.zoom_rungs(fit)
+    local scale = fit
+    for i = 1, #R do
+        if R[i] >= (thresh or 12) then scale = R[i] break end
+    end
+    local cx, cy = ww / 2, wh / 2
+    local uw, uh = vw / scale, vh / scale
+    if uw < ww then
+        local lo, hi = uw / 2, ww - uw / 2
+        if cx < lo then cx = lo elseif cx > hi then cx = hi end
+    end
+    if uh < wh then
+        local lo, hi = uh / 2, wh - uh / 2
+        if cy < lo then cy = lo elseif cy > hi then cy = hi end
+    end
+    return { cx = cx, cy = cy, scale = scale }
 end
 
 -- 主视区矩形(让出排/列标签边距; 缩略图开启再让出右侧竖条)
@@ -6617,7 +6640,7 @@ return function(ctx)
         end
         wstr(LW.TM.list, table.concat(lines, "\r\n"))
         w16(LW.TM.count, #W.items)
-        w16(LW.TM.selidx, W.sel)
+        w16(LW.TM.selidx, W.sel + 1)   -- M50: 1基
         if refit then refit() end               -- M48: 切换即回"适"
     end
 
@@ -6657,7 +6680,7 @@ return function(ctx)
         local n = W.items and W.items[W.sel + 1]
         local t = n and STORE.tasks[n]
         local m = t and STORE.maps[t.map]
-        W.mv = m and MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false) or nil
+        W.mv = m and MAPDRAW.auto_view(m, CANVAS_W, CANVAS_H, false) or nil
     end
 
     local function paint()
@@ -6941,7 +6964,11 @@ return function(ctx)
                 log("ERR", "无地图可选")
                 return
             end
-            local t, err = STORE.task_create(name, mapn, 0, 0, 0, 0, 0, NOW())  -- 十七修: 默认正(QT新任务positive=false)
+            local mm0 = STORE.maps[mapn]
+            local orow = mm0 and (mm0.rows - 1) or 0
+            -- M50: 起始黄框默认1排1列(排显示号倒序: 内部末排); 正(QT新任务positive=false)
+            local t, err = STORE.task_create(name, mapn, 0, 0, 0,
+                                             orow, 0, NOW())
             if not t then
                 log("ERR", "创建失败: " .. tostring(err))
                 wstr(LW.NT.mapsel, "失败:" .. tostring(err))
