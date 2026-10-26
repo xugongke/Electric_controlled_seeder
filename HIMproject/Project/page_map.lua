@@ -198,6 +198,7 @@ return function(ctx)
         local n0 = selected_name()
         local m0 = n0 and STORE and STORE.map_get(n0)
         W.mv = m0 and MAPDRAW.auto_view(m0, CANVAS_W, CANVAS_H, false) or nil
+        w16(LW.MAP.canvas, (r16(LW.MAP.canvas) or 0) == 1 and 0 or 1)
     end
 
     local function paint_canvas()

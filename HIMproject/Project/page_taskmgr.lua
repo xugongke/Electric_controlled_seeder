@@ -105,6 +105,7 @@ return function(ctx)
         local t = n and STORE.tasks[n]
         local m = t and STORE.maps[t.map]
         W.mv = m and MAPDRAW.auto_view(m, CANVAS_W, CANVAS_H, false) or nil
+        w16(LW.TM.canvas, (r16(LW.TM.canvas) or 0) == 1 and 0 or 1)
     end
 
     local function paint()

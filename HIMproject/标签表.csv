@@ -127,6 +127,7 @@ tw_btn_start,LW188C,按钮 开始作业(任务就绪后启动; 作业中=续趟裸发0x0A)
 tw_btn_stop,LW188D,按钮 停止作业(收尾断点+无AB线时弹保存对话框)
 map_count,LW1C00,u16 地图数
 map_selidx,LW1C01,u16 列表选中项(0基)
+map_listtop,LW1C02,u16 列表滚动顶项(0基; page_map写， M44补登: 原缺键)
 map_list,LW1C04,字符串 列表多行文本(占0x1C04~0x1C43， 64字)
 map_detail,LW1C80,字符串 选中地图详情QT风格(0x1C80~0x1CFF，
 map_btn_up,LW1C70,按钮 选项上移
@@ -216,4 +217,3 @@ mv_right,LW1F83,按钮 视口右移半屏
 mv_zin,LW1F84,按钮 放大一档
 mv_zout,LW1F85,按钮 缩小一档(最小档再缩回落适配)
 mv_fit,LW1F86,按钮 适配整图(回到fit)
-mv_follow,LW1F87,按钮 跟随开关(仅实时播种页放置: 自动居中当前作业块，

@@ -566,8 +566,6 @@ LW.MV = {
     zin    = 0x1F84,   -- 按钮 放大一档
     zout   = 0x1F85,   -- 按钮 缩小一档(最小档再缩回落适配)
     fit    = 0x1F86,   -- 按钮 适配整图(回到fit)
-    follow = 0x1F87,   -- 按钮 跟随开关(仅实时播种页放置: 自动居中当前作业块,
-                       --   手动平移/缩放即退出跟随)
 }
 
 --==================== RW 掉电保持区(0x0000~0x7FFF, 64KB 按扇区) ====================
@@ -4963,6 +4961,7 @@ return function(ctx)
         local n0 = selected_name()
         local m0 = n0 and STORE and STORE.map_get(n0)
         W.mv = m0 and MAPDRAW.auto_view(m0, CANVAS_W, CANVAS_H, false) or nil
+        w16(LW.MAP.canvas, (r16(LW.MAP.canvas) or 0) == 1 and 0 or 1)
     end
 
     local function paint_canvas()
@@ -6681,6 +6680,7 @@ return function(ctx)
         local t = n and STORE.tasks[n]
         local m = t and STORE.maps[t.map]
         W.mv = m and MAPDRAW.auto_view(m, CANVAS_W, CANVAS_H, false) or nil
+        w16(LW.TM.canvas, (r16(LW.TM.canvas) or 0) == 1 and 0 or 1)
     end
 
     local function paint()
@@ -7217,10 +7217,6 @@ return function(ctx)
         elseif addr == LW.MV.fit then
             W.follow = false
             W.mv = MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false)
-        elseif addr == LW.MV.follow then
-            W.follow = not W.follow
-            log('INF', W.follow and '作业跟随: 开' or '作业跟随: 关')
-            if W.follow then follow_now(m) end
         else
             return false
         end
@@ -7238,7 +7234,7 @@ return function(ctx)
             LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
             LW.RT.btn_exp, LW.RT.btn_abclr, LW.RT.btn_spply,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
-            LW.MV.zin, LW.MV.zout, LW.MV.fit, LW.MV.follow,
+            LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
     }
 
@@ -7320,6 +7316,9 @@ return function(ctx)
         log(ok and "INF" or "ERR",
             ok and ("作业启动 " .. W.task)
                or ("启动失败: " .. tostring(err)))
+        if ok then
+            W.follow = true                     -- M51: 开始任务自动跟随
+        end
     end
 
     page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
@@ -7582,7 +7581,9 @@ function on_init()
     end
     w16(0x1017, 2)                         -- 诊断码2: 模块OK进入轮询
 
-    wstr(LWMAP.A.appver, "0.5.0(2026.9.30)")  -- screen app version, QT formconfig.cpp:31-33
+    wstr(LWMAP.A.appver, "M51(2026.10.26)")   -- 屏端构建版本(M51, 每里程碑更新:
+                                         --   用户可核对下屏是否刷到当前构建)
+wstr(LWMAP.A.log, "构建 M51(2026.10.26)") -- 调试栏可见, 部署核对用
     set_run_cycle(POLL_MS)                 -- on_run 轮询周期(仅 on_init 设置)
     APP.set_screen(LWMAP.SCREEN.HOME)      -- 初始页: 触发 on_enter(版本查询=链路自检)
 

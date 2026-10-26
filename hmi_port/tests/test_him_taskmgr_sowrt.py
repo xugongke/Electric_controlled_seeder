@@ -388,13 +388,15 @@ __OK, __MVF = ok, P24.mv_get()
           and 5.0 < float(lua.eval('__MVF.scale')) < 5.2,
           '连续缩小至底: 无on_update异常且停在底档=fit(M47不反向放大)')
     lua.execute('''
+P24:on_update(LW.RT.btn_start, 1)               -- M51: 开始任务即自动跟随
 JR.snap = { cur_row = 30, cur_col = 1 }
-P24:on_update(LW.MV.follow, 1)
+JR.draw_ver = JR.draw_ver + 1
+P24:on_tick()
 __MVF2, __FLF = P24.mv_get()
 ''')
     check(lua.eval('__FLF') is True
           and abs(float(lua.eval('__MVF2.cy')) - 37.32) < 20,
-          '跟随开: 居中第30排(cy=%s)' % lua.eval('__MVF2.cy'))
+          '开始任务自动跟随: 居中第30排(cy=%s)' % lua.eval('__MVF2.cy'))
     lua.execute('P24:on_update(LW.MV.fit, 1)')
     lua.execute('__MV3, __FL3 = P24.mv_get()')
     check(lua.eval('__MV3 ~= nil and __FL3 == false')

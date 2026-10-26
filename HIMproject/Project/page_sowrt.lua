@@ -219,10 +219,6 @@ return function(ctx)
         elseif addr == LW.MV.fit then
             W.follow = false
             W.mv = MAPDRAW.fit_view(m, CANVAS_W, CANVAS_H, false)
-        elseif addr == LW.MV.follow then
-            W.follow = not W.follow
-            log('INF', W.follow and '作业跟随: 开' or '作业跟随: 关')
-            if W.follow then follow_now(m) end
         else
             return false
         end
@@ -240,7 +236,7 @@ return function(ctx)
             LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
             LW.RT.btn_exp, LW.RT.btn_abclr, LW.RT.btn_spply,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
-            LW.MV.zin, LW.MV.zout, LW.MV.fit, LW.MV.follow,
+            LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
     }
 
@@ -322,6 +318,9 @@ return function(ctx)
         log(ok and "INF" or "ERR",
             ok and ("作业启动 " .. W.task)
                or ("启动失败: " .. tostring(err)))
+        if ok then
+            W.follow = true                     -- M51: 开始任务自动跟随
+        end
     end
 
     page.mv_get = function() return W.mv, W.follow end   -- 视口状态钩子(M41)
