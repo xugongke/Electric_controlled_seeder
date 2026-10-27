@@ -409,6 +409,15 @@ __MVF3, __FLF3 = P24.mv_get()
           and abs(float(lua.eval('__MVF3.cy')) - 37.32) < 20,
           '作业中平移: 跟随不退出且推进即回中(M52)')
     lua.execute('JR.act = false')
+    # M53: AB线对话框返回(二次进页)不得重选任务——保持当前任务
+    lua.execute('''
+STR.task_create("t4", "demo6", 0, 1, 0, 0, 0, "T")   -- 制造"更新"任务
+APPX.preset_sowrt_task = nil
+P24:on_enter()                                       -- 模拟弹窗关闭二次进页
+__TN = REG[LW.RT.tname]
+''')
+    check(str(lua.eval('__TN')) == 't3',
+          '弹窗二次进页保持当前任务t3(实有%s)' % lua.eval('__TN'))
     lua.execute('P24:on_update(LW.MV.fit, 1)')
     lua.execute('__MV3, __FL3 = P24.mv_get()')
     check(lua.eval('__MV3 ~= nil and __FL3 == false')
