@@ -252,8 +252,12 @@ function APP.on_button(addr, v)
     -- 页面on_update按需读r16获取(2026-10-08: 查看AB线曾被v~=1过滤丢弃)
     v = v or 1
     if page.on_update then safe_call("on_update", page.on_update, page, addr, v) end
-    -- 复位按钮(写0): 状态开关页(no_reset)跳过——开关单元需保持0/1状态显示
-    if not page.no_reset then ENV.w16(addr, 0) end
+    -- 复位按钮(写0): 状态开关页(no_reset)跳过——开关单元需保持0/1状态显示;
+    -- 页面亦可声明 hold_addrs(自保持开关集合, 如$rt_sow_exceed), 同样跳过
+    -- (M57: 注册进addrs的开关此前被本复位打回0, 表现为"按了没反应")
+    if not page.no_reset and not (page.hold_addrs and page.hold_addrs[addr]) then
+        ENV.w16(addr, 0)
+    end
     return true
 end
 

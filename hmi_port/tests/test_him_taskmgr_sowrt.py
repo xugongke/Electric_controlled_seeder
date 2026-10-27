@@ -528,6 +528,42 @@ print('DBG preset:', APPX.preset_sowrt_task)
     check(lua.eval('REG[LW.TM.selidx]') == 2,
           '返回任务管理页: 列表选中保持1基=2(不重置到首行)')
 
+    print('13) M57: 图外播种勾选门槛——有AB可保持, 无AB拒绝弹回')
+    # 无AB线地图+任务(不含AB线区块)
+    noab_rows = ['信息,,,', '名称,noab', '类型,播种,排长(cm),过道长(cm)',
+                 '创建时间,,500,100', '修改时间,,500,100', '备注,,500,100',
+                 '排,5,500,100', '列,2,500,100', '小区行数,6,,100',
+                 '机器行数,6,,', '行间距(cm),60,,', ',,,',
+                 '编号,,,', ',1列,2列', '5排,,,', '4排,,,', '3排,,,',
+                 '2排,,,', '1排,,,', ',,,',
+                 '密度,,,', ',1列,2列', '5排,4000,4000', '4排,4000,4000',
+                 '3排,4000,4000', '2排,4000,4000', '1排,4000,4000', ',,,',
+                 '是否播种,,,', ',1列,2列', '5排,1,1', '4排,1,1',
+                 '3排,1,1', '2排,1,1', '1排,1,1']
+    noab_text = '\r\n'.join(noab_rows) + '\r\n'
+    lua.globals().__HEXN = noab_text.encode('gbk').hex()
+    lua.execute('''
+local s = ""
+local h = __HEXN
+for i = 1, #h, 2 do s = s .. string.char(tonumber(h:sub(i, i + 1), 16)) end
+STR.map_import_text("noab", s)
+STR.task_create("tnoab", "noab", 0, 1, 0, 0, 0, "T")
+APPX.preset_sowrt_task = "tnoab"
+P24:on_enter()
+REG[LW.RT.sow_exceed] = 1                        -- 模拟控件勾选写入
+P24:on_update(LW.RT.sow_exceed, 1)
+__S1 = REG[LW.RT.sow_exceed]
+''')
+    check(lua.eval('__S1') == 0, '无AB勾选: 拒绝弹回0(实有%s)' % lua.eval('__S1'))
+    lua.execute('''
+APPX.preset_sowrt_task = "t3"
+P24:on_enter()
+REG[LW.RT.sow_exceed] = 1                        -- 模拟控件勾选写入
+P24:on_update(LW.RT.sow_exceed, 1)
+__S2 = REG[LW.RT.sow_exceed]
+''')
+    check(lua.eval('__S2') == 1, '有AB勾选: 保持1(不再被app复位打回, M57)')
+
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))

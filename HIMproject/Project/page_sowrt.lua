@@ -234,6 +234,8 @@ return function(ctx)
 
     local page = {
         id = LW.SCREEN.SOWRT,
+        hold_addrs = { [LW.RT.sow_exceed] = true },   -- M57: 自保持开关
+                                                      --   (app不复位)
         poll_cmds = { PROTOCOL and PROTOCOL.FNC.GET_BZ_STATUS or nil },
         addrs = {
             LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
@@ -356,11 +358,13 @@ return function(ctx)
                        or ("清除失败: " .. tostring(err)))
             end
         elseif addr == LW.RT.sow_exceed then
-            -- M56: 图外播种门槛——仅AB线存在时允许勾选(无AB拒绝, 弹回0)
+            -- M56/M57: 图外播种门槛——仅AB线存在时允许勾选; 无AB拒绝并
+            -- 显式弹回0(本地址在hold_addrs中, app不复位, 必须自行弹回)
             local t0 = W.task and STORE.tasks[W.task] or nil
             local m0 = t0 and task_map(t0)
             if val == 1 and not (m0 and m0.ab and m0.ab.has) then
                 log('WRN', '无AB线, 图外播种不可用')
+                w16(LW.RT.sow_exceed, 0)
             end
         elseif addr == LW.RT.btn_spply then
             if harvest(true) then
