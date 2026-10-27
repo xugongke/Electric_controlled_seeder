@@ -440,7 +440,14 @@ JR._feed { data = s2 }
     lua.execute("__D = select(1, STR.task_progress('txd'))")
     check(lua.eval('__D') == 5, '趟1(反向)5排完成 5/10')
 
-    # 趟2正向: 入图首排帧(内部0, 补发首小区参数) -> 逐排 -> 出图帧5
+    # M58掉头段节点: 边界帧触发advance -> 新趟驶入虚拟节点(RowNum=-1低侧,
+    # 密度=趟2首小区=内部0=3000, Next=趟2首排)——掉头后按新趟首小区连续播
+    turn = [p for p in bz20 if p.RowNum == -1]
+    check(len(turn) >= 1 and turn[-1].Density[0] == 3000,
+          '掉头段节点: RowNum=-1 密度=趟2首小区3000 (实有%s)'
+          % (turn[-1].Density[0] if turn else '无'))
+
+    # 趟2正向: 入图首排帧(内部0, need_entry刷新参数) -> 逐排 -> 出图帧5
     for rn in (0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5):
         feed_row(rn)
     lua.execute("__D = select(1, STR.task_progress('txd'))")
@@ -452,8 +459,8 @@ JR._feed { data = s2 }
     check((0, 3000) in ns, '趟2入图首小区参数3000(内部0)')
     print('ns尾序:', ns[-4:])
     n_hi = len([r for r, _ in ns if r == 5])
-    check(len(ns) == 11 and ns[-1] == (4, 5000) and n_hi == 1,
-          '总数%d(期望11=入口1+趟1每排5+趟2每排5, 出图段0条=M56语义) '
+    check(len(ns) == 12 and ns[-1] == (4, 5000) and n_hi == 1,
+          '总数%d(期望12=入口1+趟1每排5+掉头1+趟2每排5) '
           '末=%s 高侧5节点%d个' % (len(ns), ns[-1], n_hi))
 
 

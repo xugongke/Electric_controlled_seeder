@@ -155,12 +155,15 @@ local function advance()
         J.cur_col = np.column                 -- 跨趟随节点切列组(QT :474沿用旧列系其缺陷, 密度查询须新列)
         local exceed = STORE.tasks[J.task].sow_exceed == 1
         if exceed and np.column ~= old_col then
-            -- M56(用户语义): 趟末出图后不下发新参数——机器保持出图前末小区
-            -- 参数继续播(出图段); 再入图新趟首排时由in-map入口分支
-            -- (need_entry)补发新趟首小区参数
+            -- M58(用户语义): 趟间掉头段即下发新趟驶入虚拟节点(密度=新趟
+            -- 首小区, Next=新趟首排)——掉头后立即按新趟首小区连续播,
+            -- 入图首排由need_entry刷新参数; 出图段(掉头前)保持前一节点
+            -- 的末小区参数(Final=0延续)完成"出图后继续播"
+            local erow = np.positive and -1 or J.m.rows
             J.need_entry = true
+            send_node(erow, np.column, np)
         else
-            send_node(np.row, J.cur_col)      -- 同趟下一排/非图外趟间: QT :474 自动
+            send_node(np.row, J.cur_col)      -- 同趟下一排: QT :474 自动
         end
         -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
         -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
