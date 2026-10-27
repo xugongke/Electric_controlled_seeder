@@ -193,7 +193,10 @@ end
 -- 返回 table 供 codec.pack_bzcell 打包 0x20 下发
 -- task: store 任务(含 blocks/sow_exceed); m: 地图; path: create_path 产物
 -- row/column: 当前节点 0 基; ab: AB 参考; fine_tune: 密度微调
-function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
+function pathalgo.start_node(task, m, path, row, column, ab, fine_tune,
+                              next_node)
+    -- next_node(可nil, M56): 出图虚拟节点的Next重定向——趟间出图段后转入
+    -- 新趟首排, Next*整组按next_node填(否则按方向邻排)
     local b = (task.sow_exceed == 1)          -- 出图播种开关
     local d = pathalgo.column_direction(path, column)
     local rows = m.rows
@@ -232,11 +235,12 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
     else
         -- 当前排在图外
         p.FinalFlag = b and 0 or 1
-        -- M55: 驶入图前段=按驶入图内第一小区的参数(用户语义, 2026-10-26):
-        --   d=true 正向, 图外虚拟排-1(从首排侧驶入) -> 第一小区=内部首排;
-        --   d=false 反向, 图外虚拟排rows(从末排侧驶入) -> 第一小区=内部末排。
-        -- (原实现两支取反照抄QT——QT的驶入段用对侧小区密度, 与用户预期相反)
-        if d then
+        -- M56: 图外虚拟节点参数=所在侧的边界小区(用户语义):
+        --   低侧虚拟排-1 -> 内部首排(正向驶入第一小区/负向出图前最后小区)
+        --   高侧虚拟排rows -> 内部末排(反向驶入第一小区/正向出图前最后小区)
+        -- (密度用途随驶入/出图而变, 但都是"该侧边界小区"——M55曾按d分支
+        --  取反, 致出图节点密度错成对侧)
+        if row < 0 then
             p.InS = m.aisle[1]
             p.Density = dens_vec(0)
             p.CellLen = m.rowlen[1]
@@ -248,9 +252,15 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
     end
     p.StartPOS = pathalgo.start_pos(m, p.RowNum, d, ab)
 
-    p.NextRowNum = d and (row + 1) or (row - 1)
-    p.NextDisplayRowNum = rows - p.NextRowNum
-    local nr = p.NextRowNum
+    local nr, ncol
+    if next_node then
+        nr, ncol = next_node.row, next_node.column
+    else
+        nr = d and (row + 1) or (row - 1)
+        ncol = column
+    end
+    p.NextRowNum = nr
+    p.NextDisplayRowNum = rows - nr
     if nr >= 0 and nr < rows then
         -- 下一排在图内
         -- NextFinalFlag 对齐QT原式(b||..)?0:1(QT:749/753, 与协议注释一致);

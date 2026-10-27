@@ -238,6 +238,7 @@ return function(ctx)
         addrs = {
             LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
             LW.RT.btn_exp, LW.RT.btn_abclr, LW.RT.btn_spply,
+            LW.RT.sow_exceed,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
             LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
@@ -353,6 +354,13 @@ return function(ctx)
                 log(ok and "INF" or "ERR",
                     ok and ("清除AB线 " .. m.name)
                        or ("清除失败: " .. tostring(err)))
+            end
+        elseif addr == LW.RT.sow_exceed then
+            -- M56: 图外播种门槛——仅AB线存在时允许勾选(无AB拒绝, 弹回0)
+            local t0 = W.task and STORE.tasks[W.task] or nil
+            local m0 = t0 and task_map(t0)
+            if val == 1 and not (m0 and m0.ab and m0.ab.has) then
+                log('WRN', '无AB线, 图外播种不可用')
             end
         elseif addr == LW.RT.btn_spply then
             if harvest(true) then

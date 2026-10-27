@@ -3471,7 +3471,10 @@ end
 -- 返回 table 供 codec.pack_bzcell 打包 0x20 下发
 -- task: store 任务(含 blocks/sow_exceed); m: 地图; path: create_path 产物
 -- row/column: 当前节点 0 基; ab: AB 参考; fine_tune: 密度微调
-function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
+function pathalgo.start_node(task, m, path, row, column, ab, fine_tune,
+                              next_node)
+    -- next_node(可nil, M56): 出图虚拟节点的Next重定向——趟间出图段后转入
+    -- 新趟首排, Next*整组按next_node填(否则按方向邻排)
     local b = (task.sow_exceed == 1)          -- 出图播种开关
     local d = pathalgo.column_direction(path, column)
     local rows = m.rows
@@ -3510,11 +3513,12 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
     else
         -- 当前排在图外
         p.FinalFlag = b and 0 or 1
-        -- M55: 驶入图前段=按驶入图内第一小区的参数(用户语义, 2026-10-26):
-        --   d=true 正向, 图外虚拟排-1(从首排侧驶入) -> 第一小区=内部首排;
-        --   d=false 反向, 图外虚拟排rows(从末排侧驶入) -> 第一小区=内部末排。
-        -- (原实现两支取反照抄QT——QT的驶入段用对侧小区密度, 与用户预期相反)
-        if d then
+        -- M56: 图外虚拟节点参数=所在侧的边界小区(用户语义):
+        --   低侧虚拟排-1 -> 内部首排(正向驶入第一小区/负向出图前最后小区)
+        --   高侧虚拟排rows -> 内部末排(反向驶入第一小区/正向出图前最后小区)
+        -- (密度用途随驶入/出图而变, 但都是"该侧边界小区"——M55曾按d分支
+        --  取反, 致出图节点密度错成对侧)
+        if row < 0 then
             p.InS = m.aisle[1]
             p.Density = dens_vec(0)
             p.CellLen = m.rowlen[1]
@@ -3526,9 +3530,15 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
     end
     p.StartPOS = pathalgo.start_pos(m, p.RowNum, d, ab)
 
-    p.NextRowNum = d and (row + 1) or (row - 1)
-    p.NextDisplayRowNum = rows - p.NextRowNum
-    local nr = p.NextRowNum
+    local nr, ncol
+    if next_node then
+        nr, ncol = next_node.row, next_node.column
+    else
+        nr = d and (row + 1) or (row - 1)
+        ncol = column
+    end
+    p.NextRowNum = nr
+    p.NextDisplayRowNum = rows - nr
     if nr >= 0 and nr < rows then
         -- 下一排在图内
         -- NextFinalFlag 对齐QT原式(b||..)?0:1(QT:749/753, 与协议注释一致);
@@ -3813,8 +3823,17 @@ local function advance()
     if J.next_idx < #J.path then
         J.next_idx = J.next_idx + 1
         local np = J.path[J.next_idx]
+        local old_col = J.cur_col
         J.cur_col = np.column                 -- 跨趟随节点切列组(QT :474沿用旧列系其缺陷, 密度查询须新列)
-        send_node(np.row, J.cur_col)          -- 同趟下一排/下一趟首排: QT :474 自动
+        local exceed = STORE.tasks[J.task].sow_exceed == 1
+        if exceed and np.column ~= old_col then
+            -- M56(用户语义): 趟末出图后不下发新参数——机器保持出图前末小区
+            -- 参数继续播(出图段); 再入图新趟首排时由in-map入口分支
+            -- (need_entry)补发新趟首小区参数
+            J.need_entry = true
+        else
+            send_node(np.row, J.cur_col)      -- 同趟下一排/非图外趟间: QT :474 自动
+        end
         -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
         -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
         -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
@@ -4043,6 +4062,7 @@ function jobrun.start(task_name, opts)
         task = task_name, m = m, path = path, ab = ab,
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
+        need_entry = false, boundary_advanced = false,
         temp_idx = start_idx,
         -- 株距微调从config.txt实时读(2026-10-08; 恒五档表,
         -- pathalgo.density按enabled过滤, 全不启用=恒等, 同QT)
@@ -4383,6 +4403,14 @@ function jobrun._feed(f)
             local d, tot = STORE.task_progress(J.task)
             if d >= tot then jobrun._complete() end
             end
+            -- M56(用户语义: 出图后按末小区参数继续播): 边界排完成帧(一次性)推进:
+            --   exceed=1 -> advance发出口侧虚拟节点(末小区参数), 出图段继续播;
+            --   exceed=0 -> 下趟首排(边界Final=1已停播不受影响);
+            --   boundary_advanced旗标防出图帧连发重复推进, 回图内清除
+            if not J.boundary_advanced then
+                J.boundary_advanced = true
+                advance()
+            end
         end
         -- 非图外开出图帧不下发不推进(QT :403-409同): 趟界节点NextDensity=-1
         -- 令机器在地头保持等待, 跨趟由停止->开始的重启指针完成(见start)
@@ -4390,6 +4418,7 @@ function jobrun._feed(f)
         ---- 图内(QT :411-470)
         local pn = J.path[J.next_idx]
         if not pn then jobrun._complete(); return end
+        J.boundary_advanced = false            -- M56: 回图内清出图推进旗标
 
         -- QT :413-415: 记录最新完成排, temp_idx=该节点在path中的下一个
         local ti = jobrun._index_of(st.RowNum, J.cur_col)
@@ -4409,6 +4438,9 @@ function jobrun._feed(f)
             if not J.enter_map then
                 send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
                 J.enter_map = true
+            elseif J.need_entry then
+                send_node(pn.row, J.cur_col)         -- M56: 出图段后再入图,
+                J.need_entry = false                 --   补发新趟首小区参数
             end
             if sow_flag then
                 STORE.task_mark_dispatched(J.task, pn.row, J.cur_col)
@@ -7249,6 +7281,7 @@ return function(ctx)
         addrs = {
             LW.RT.btn_start, LW.RT.btn_stop, LW.RT.btn_result,
             LW.RT.btn_exp, LW.RT.btn_abclr, LW.RT.btn_spply,
+            LW.RT.sow_exceed,
             LW.MV.up, LW.MV.down, LW.MV.left, LW.MV.right,
             LW.MV.zin, LW.MV.zout, LW.MV.fit,
         },
@@ -7364,6 +7397,13 @@ return function(ctx)
                 log(ok and "INF" or "ERR",
                     ok and ("清除AB线 " .. m.name)
                        or ("清除失败: " .. tostring(err)))
+            end
+        elseif addr == LW.RT.sow_exceed then
+            -- M56: 图外播种门槛——仅AB线存在时允许勾选(无AB拒绝, 弹回0)
+            local t0 = W.task and STORE.tasks[W.task] or nil
+            local m0 = t0 and task_map(t0)
+            if val == 1 and not (m0 and m0.ab and m0.ab.has) then
+                log('WRN', '无AB线, 图外播种不可用')
             end
         elseif addr == LW.RT.btn_spply then
             if harvest(true) then

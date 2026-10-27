@@ -151,8 +151,17 @@ local function advance()
     if J.next_idx < #J.path then
         J.next_idx = J.next_idx + 1
         local np = J.path[J.next_idx]
+        local old_col = J.cur_col
         J.cur_col = np.column                 -- 跨趟随节点切列组(QT :474沿用旧列系其缺陷, 密度查询须新列)
-        send_node(np.row, J.cur_col)          -- 同趟下一排/下一趟首排: QT :474 自动
+        local exceed = STORE.tasks[J.task].sow_exceed == 1
+        if exceed and np.column ~= old_col then
+            -- M56(用户语义): 趟末出图后不下发新参数——机器保持出图前末小区
+            -- 参数继续播(出图段); 再入图新趟首排时由in-map入口分支
+            -- (need_entry)补发新趟首小区参数
+            J.need_entry = true
+        else
+            send_node(np.row, J.cur_col)      -- 同趟下一排/非图外趟间: QT :474 自动
+        end
         -- QT 语义: startNode 只下发参数不置 state=1(state 仅由在播帧
         -- RowNum==path[next].row 建立, :456) -> 行程不符(未走到预期排)
         -- 时 :459 推进条件永不满足, 完成率挂住; 屏端此前在此预置
@@ -381,6 +390,7 @@ function jobrun.start(task_name, opts)
         task = task_name, m = m, path = path, ab = ab,
         next_idx = start_idx, cur_col = path[start_idx].column,
         cur_read_row = -1, enter_map = false, sow_state = false,
+        need_entry = false, boundary_advanced = false,
         temp_idx = start_idx,
         -- 株距微调从config.txt实时读(2026-10-08; 恒五档表,
         -- pathalgo.density按enabled过滤, 全不启用=恒等, 同QT)
@@ -721,6 +731,14 @@ function jobrun._feed(f)
             local d, tot = STORE.task_progress(J.task)
             if d >= tot then jobrun._complete() end
             end
+            -- M56(用户语义: 出图后按末小区参数继续播): 边界排完成帧(一次性)推进:
+            --   exceed=1 -> advance发出口侧虚拟节点(末小区参数), 出图段继续播;
+            --   exceed=0 -> 下趟首排(边界Final=1已停播不受影响);
+            --   boundary_advanced旗标防出图帧连发重复推进, 回图内清除
+            if not J.boundary_advanced then
+                J.boundary_advanced = true
+                advance()
+            end
         end
         -- 非图外开出图帧不下发不推进(QT :403-409同): 趟界节点NextDensity=-1
         -- 令机器在地头保持等待, 跨趟由停止->开始的重启指针完成(见start)
@@ -728,6 +746,7 @@ function jobrun._feed(f)
         ---- 图内(QT :411-470)
         local pn = J.path[J.next_idx]
         if not pn then jobrun._complete(); return end
+        J.boundary_advanced = false            -- M56: 回图内清出图推进旗标
 
         -- QT :413-415: 记录最新完成排, temp_idx=该节点在path中的下一个
         local ti = jobrun._index_of(st.RowNum, J.cur_col)
@@ -747,6 +766,9 @@ function jobrun._feed(f)
             if not J.enter_map then
                 send_node(pn.row, J.cur_col)         -- 入图首排(仅一次)
                 J.enter_map = true
+            elseif J.need_entry then
+                send_node(pn.row, J.cur_col)         -- M56: 出图段后再入图,
+                J.need_entry = false                 --   补发新趟首小区参数
             end
             if sow_flag then
                 STORE.task_mark_dispatched(J.task, pn.row, J.cur_col)

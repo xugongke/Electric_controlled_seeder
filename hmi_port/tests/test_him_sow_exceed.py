@@ -320,8 +320,48 @@ end
         lua.execute('__D = select(1, STR.task_progress("tx"))')
         d = lua.eval('__D')
         check(d == 5, '任务进度5/10块 (实际 %s)' % d)
+
+    # M56: 趟间时序(手动帧驱动趟2; seeder_sim不支持掉头后反向步行,
+    #      真机GNSS掉头为物理行驶无此限——本段验证的是作业引擎下发时序):
+    #  趟1末排(内部0)完成帧为出图帧 -> 不下发新参数(保持末小区继续播);
+    #  再入图新趟首排(内部4) -> 补发新趟首小区参数; 逐排完成至10/10
+    lua.execute("__D = select(1, STR.task_progress('tx'))")
+    check(lua.eval('__D') == 5, '趟1进度5/10')
+
+    def feed_row(rownum):
+        payload = SL.pack_bz_status(row_num=rownum, bd_state=1, speed=1000,
+            louzh=[1, 1, 1, 1, 1, 1], loufei=[1, 1, 1, 1, 1, 1],
+            vertical_off=0, off_len=0, run_state=0x81)
+        lua.globals().__STHX = payload.hex()
+        lua.execute("""
+local h = __STHX
+local s2 = ""
+for i = 1, #h, 2 do
+    s2 = s2 .. string.char(tonumber(h:sub(i, i + 1), 16))
+end
+JR._feed { data = s2 }
+""")
+        drain()
+
+    # 每排两帧: 入图帧(分发state=1) + 下一排帧(触发完成+advance补发)
+    feed_row(4)
+    n_t2 = [p for p in bz20 if p.RowNum == 4]
+    check(len(n_t2) >= 1 and n_t2[-1].Density[0] == 5000,
+          '再入图新趟首排: 补发首小区参数(密度5000)')
+    for rn in (4, 3, 3, 2, 2, 1, 1, 0, -1):
+        feed_row(rn)
+    lua.execute("__D = select(1, STR.task_progress('tx'))")
+    check(lua.eval('__D') == 10, '趟2逐排完成: 进度10/10(实际 %s)'
+          % lua.eval('__D'))
     lua.execute('JR.stop()')
     drain()
+
+    drain()
+
+def dump_sim(wp):
+    dbg = wp.debug if isinstance(wp.debug, str) else         wp.debug.encode('gbk', errors='replace').decode('gbk', errors='replace')
+    print('SIM: mode=%s pos=%.1f debug=%s'
+          % (wp.seed_mode, wp.pos_cm, dbg))
 
 
 def main():
