@@ -364,9 +364,107 @@ def dump_sim(wp):
           % (wp.seed_mode, wp.pos_cm, dbg))
 
 
+
+def e2e_desc_part():
+    """M56用户场景: 反向起始(趟1内部4->0)+图外播种, 手动帧驱动全链。
+
+    (seeder_sim不支持掉头后反向步行——位置基准在转向后全在机尾, sim会
+     倒退跑飞; 真机GNSS掉头为物理行驶无此问题。本段用帧序列直接驱动
+     jobrun, 验证作业引擎的节点下发时序。)
+    """
+    print('3) e2e: 图外开反向起始(手动帧驱动)')
+    lua = lupa_lua.LuaRuntime(unpack_returned_tuples=True)
+    lua.execute(E2E_HARNESS)
+    lua.globals().__HEXM = EX_MAP.encode('gbk').hex()
+    lua.execute('''
+local _m = (function(h)
+    local s = ""
+    for i = 1, #h, 2 do
+        s = s .. string.char(tonumber(h:sub(i, i + 1), 16))
+    end
+    return STR.map_import_text("e2eex", s)
+end)(__HEXM)
+STR.task_create("txd", "e2eex", 0, 0, 1, 4, 0, "2026-10-26")
+''')
+
+    dev = Device(state_file=None, rows=6)
+    wp = WorkProc(dev)
+    bz20 = []
+
+    def process_frame(fnc, data):
+        if fnc == SP.FNC_SET_BZ_PARA and len(data) == SL.SZ_BZ_CELL_PARA:
+            p = SL.BzCellPara.unpack(data)
+            bz20.append(p)
+            wp.set_bz_para(p)
+        elif fnc == SP.FNC_CMD_START_BZ:
+            wp.cmd_start_bz()
+        elif fnc == SP.FNC_CMD_STOP_BZ:
+            wp.cmd_stop_bz()
+
+    def drain():
+        n = lua.eval('#__SENT')
+        for i in range(1, n + 1):
+            fnc = lua.eval('__SENT[%d].fnc' % i)
+            hx = str(lua.eval('(__SENT[%d].hex)' % i))
+            process_frame(fnc, bytes.fromhex(hx))
+        lua.execute('__SENT = {}')
+
+    def feed_row(rownum):
+        payload = SL.pack_bz_status(row_num=rownum, bd_state=1, speed=1000,
+            louzh=[1, 1, 1, 1, 1, 1], loufei=[1, 1, 1, 1, 1, 1],
+            vertical_off=0, off_len=0, run_state=0x81)
+        lua.globals().__STHX = payload.hex()
+        lua.execute("""
+local h = __STHX
+local s2 = ""
+for i = 1, #h, 2 do
+    s2 = s2 .. string.char(tonumber(h:sub(i, i + 1), 16))
+end
+JR._feed { data = s2 }
+""")
+        drain()
+
+    ok = bool(lua.eval('select(1, JR.start("txd", { gap = 0 }))'))
+    check(ok, 'start成功(反向起始+图外开)')
+    drain()
+
+    # 首节点=高侧虚拟排5(反向驶入, 密度=驶入图内第一小区=内部末排5000)
+    check(len(bz20) >= 1 and bz20[0].RowNum == 5 and bz20[0].Density[0] == 5000,
+          '首节点=高侧虚拟排5, 密度=末小区5000 (实际 %s/%s)'
+          % (bz20[0].RowNum if bz20 else '?',
+             bz20[0].Density[0] if bz20 else '?'))
+
+    # 趟1反向: 内部4->0, 每排两帧(分发+完成), 末排出图帧-1(边界回适)
+    for rn in (4, 4, 3, 3, 2, 2, 1, 1, 0, 0, -1):
+        feed_row(rn)
+    lua.execute("__D = select(1, STR.task_progress('txd'))")
+    check(lua.eval('__D') == 5, '趟1(反向)5排完成 5/10')
+
+    # 趟2正向: 入图首排帧(内部0, 补发首小区参数) -> 逐排 -> 出图帧5
+    for rn in (0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5):
+        feed_row(rn)
+    lua.execute("__D = select(1, STR.task_progress('txd'))")
+    check(lua.eval('__D') == 10, '趟2(正向)5排完成 10/10')
+
+    ns = [(p.RowNum, p.Density[0]) for p in bz20]
+    # 断言: 驶入段密度=末小区5000; 出图段密度=首小区3000(M55/M56语义)
+    check(ns[0] == (5, 5000), '驶入段节点=(虚拟5, 末小区5000)')
+    check((0, 3000) in ns, '趟2入图首小区参数3000(内部0)')
+    print('ns尾序:', ns[-4:])
+    n_hi = len([r for r, _ in ns if r == 5])
+    check(len(ns) == 11 and ns[-1] == (4, 5000) and n_hi == 1,
+          '总数%d(期望11=入口1+趟1每排5+趟2每排5, 出图段0条=M56语义) '
+          '末=%s 高侧5节点%d个' % (len(ns), ns[-1], n_hi))
+
+
 def main():
     unit_part()
     e2e_part()
+    e2e_desc_part()
+def main():
+    unit_part()
+    e2e_part()
+    e2e_desc_part()
     print()
     if FAIL:
         print('地图外播种: %d项失败' % FAIL)

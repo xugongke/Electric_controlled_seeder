@@ -515,9 +515,7 @@ P9:on_enter()
 for i = 1, 6 do P9:on_update(LW.TM.btn_up, 1) end  -- 先到顶(清除历史选中位置)
 P9:on_update(LW.TM.btn_down, 1)                    -- 选中第2个任务
 __N2 = STR.task_list()[2]
-print('DBG selidx after down:', REG[LW.TM.selidx], 'N2:', __N2)
 P9:on_update(LW.TM.btn_start, 1)                   -- 开始任务(预选+跳转)
-print('DBG preset:', APPX.preset_sowrt_task)
 ''')
     check(str(lua.eval('APPX.preset_sowrt_task')) == str(lua.eval('__N2')),
           '开始任务预选=当前选中任务(%s)' % str(lua.eval('__N2')))
