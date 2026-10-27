@@ -232,14 +232,18 @@ function pathalgo.start_node(task, m, path, row, column, ab, fine_tune)
     else
         -- 当前排在图外
         p.FinalFlag = b and 0 or 1
+        -- M55: 驶入图前段=按驶入图内第一小区的参数(用户语义, 2026-10-26):
+        --   d=true 正向, 图外虚拟排-1(从首排侧驶入) -> 第一小区=内部首排;
+        --   d=false 反向, 图外虚拟排rows(从末排侧驶入) -> 第一小区=内部末排。
+        -- (原实现两支取反照抄QT——QT的驶入段用对侧小区密度, 与用户预期相反)
         if d then
-            p.InS = m.aisle[rows + 1]
-            p.Density = dens_vec(rows)        -- 图外: 末排密度(t.density row>=rows 分支)
-            p.CellLen = m.rowlen[rows]
-        else
             p.InS = m.aisle[1]
-            p.Density = dens_vec(0)           -- 图外: 首排密度(反向 row<=-1? 主段用0行)
+            p.Density = dens_vec(0)
             p.CellLen = m.rowlen[1]
+        else
+            p.InS = m.aisle[rows + 1]
+            p.Density = dens_vec(rows)
+            p.CellLen = m.rowlen[rows]
         end
     end
     p.StartPOS = pathalgo.start_pos(m, p.RowNum, d, ab)

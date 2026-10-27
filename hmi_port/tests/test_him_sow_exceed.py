@@ -12,7 +12,7 @@ QT源码 dialogrealtimetask.cpp:724 图内当前排(b||..)?1:0 与其自身协�
 场景:
   1) 单元: start_node b=0/1 x 正/反向, 图内首/中/末排+图外虚拟排极性矩阵
   2) e2e: jobrun x seeder_sim WorkProc 虚拟时间全双工, 图外开5x2地图正向
-     一趟: 首节点=图外虚拟排-1(密度钳位末排) -> 入图补发 -> 全趟5排完成
+     一趟: 首节点=图外虚拟排-1(驶入段密度=首小区, M55) -> 入图补发 -> 全趟5排完成
      (旧代码sim在首小区收尾, 完成不了 -> 本测试拦截回归)
 运行: python hmi_port/tests/test_him_sow_exceed.py
 """
@@ -131,7 +131,7 @@ JR.init {
 '''.replace('__HIM', HIM)
 
 # 密度按内部行0..4 = 3000..5000 递增(文件5排=内部0=3000 ... 文件1排=内部4=5000),
-# 使图外钳位(首排锚内部4=5000)与入图密度(内部0=3000)可区分
+# 密度按内部行0..4=3000..5000递增: 正向驶入段应取内部0=3000(M55前误取内部4)
 EX_MAP = '\r\n'.join([
     '信息,,,', '名称,e2eex', '类型,播种,排长(cm),过道长(cm)',
     '创建时间,,500,100', '修改时间,,500,100', '备注,,500,100',
@@ -181,13 +181,16 @@ def unit_part():
         check(f == ef and nf == enf,
               '%s: Final=%d Next=%d (期望 %d/%d)'
               % (label, f, nf, ef, enf))
-    # b=1 首节点(图外-1)密度钳位: 正向取末排(内部4=5000)
+    # M55: 首节点(图外虚拟排)密度=驶入图内第一小区: 正向->内部首排3000
     lua.execute('__N = SN(__T1, __PATH_P, -1)')
-    check(lua.eval('__N.Density[1]') == 5000,
-          'b1图外-1正向: 密度钳位末排5000')
+    check(lua.eval('__N.Density[1]') == 3000,
+          'b1图外-1正向: 驶入段密度=首小区3000(原钳位末排5000系反向, 已修)')
     check(lua.eval('__N.RowNum') == -1
           and lua.eval('__N.DisplayRowNum') == 6,
           'b1图外-1: RowNum=-1 DisplayRowNum=rows+1')
+    lua.execute('__N = SN(__T1, __PATH_N, 5)')
+    check(lua.eval('__N.Density[1]') == 5000,
+          'b1图外5反向: 驶入段密度=末小区5000')
     lua.execute('__N = SN(__T1, __PATH_P, 0)')
     check(lua.eval('__N.Density[1]') == 3000,
           'b1入图首排: 密度=内部0行3000(不钳位)')
@@ -292,8 +295,9 @@ end
           % (n0.RowNum, n0.NextRowNum))
     check(n0.FinalFlag == 0 and n0.NextFinalFlag == 0,
           '图外起播: Final=0 Next=0(恒0)')
-    check(n0.Density[0] == 5000,
-          '图外起播: 密度钳位末排5000 (实际 %s)' % n0.Density[0])
+    check(n0.Density[0] == 3000,
+          '图外起播: 驶入段密度=首小区3000(M55, 原误钳位末排, 实际 %s)'
+          % n0.Density[0])
     check(n0.DisplayRowNum == 6, 'DisplayRowNum=rows+1=6')
 
     def entered_map():
