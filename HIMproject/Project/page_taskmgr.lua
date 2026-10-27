@@ -225,7 +225,7 @@ return function(ctx)
     }
 
     function page:on_enter()
-        W.sel, W.top = 0, 0
+        -- M54: 保留列表选中(仅refresh按列表变化夹取), 返回本页不跳第一行
         refresh()
         render_detail()
         mark_dirty()

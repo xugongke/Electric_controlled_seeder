@@ -6809,7 +6809,7 @@ return function(ctx)
     }
 
     function page:on_enter()
-        W.sel, W.top = 0, 0
+        -- M54: 保留列表选中(仅refresh按列表变化夹取), 返回本页不跳第一行
         refresh()
         render_detail()
         mark_dirty()
@@ -7251,9 +7251,14 @@ return function(ctx)
     }
 
     function page:on_enter()
-        -- M53: 已有有效任务则保持——AB线对话框(画面22)弹出/关闭会二次
-        -- 进页, 重选会经"最近未完成/最新"兜底跳到列表最后一个任务;
-        -- 任务管理页[开始任务]的预选(preset)仍优先, 换任务走那条路
+        -- M54: 三级顺序=预选(任务管理页[开始任务]换任务) > 保持当前
+        -- (AB线对话框二次进页不重选, M53) > 兜底挑选。
+        -- (M53曾把keep放在最前, 把预选也挡住——换任务进页永远任务1)
+        if APP.preset_sowrt_task then
+            local n = APP.preset_sowrt_task
+            APP.preset_sowrt_task = nil
+            if STORE.tasks[n] then W.task = n end
+        end
         if not (W.task and STORE.tasks[W.task]) then
             W.task = pick_task()
         end

@@ -509,6 +509,25 @@ __H1, __H2 = __HITS[1], __HITS[2]
     check(lua.eval('__H2') == lua.eval('LW.SCREEN.SOWRT'),
           '实时播种页按下: 路由到当前页(实有%s)' % lua.eval('__H2'))
 
+    print('12) M54: 预选换任务生效+返回任务管理页保持列表选中')
+    lua.execute('''
+P9:on_enter()
+for i = 1, 6 do P9:on_update(LW.TM.btn_up, 1) end  -- 先到顶(清除历史选中位置)
+P9:on_update(LW.TM.btn_down, 1)                    -- 选中第2个任务
+__N2 = STR.task_list()[2]
+print('DBG selidx after down:', REG[LW.TM.selidx], 'N2:', __N2)
+P9:on_update(LW.TM.btn_start, 1)                   -- 开始任务(预选+跳转)
+print('DBG preset:', APPX.preset_sowrt_task)
+''')
+    check(str(lua.eval('APPX.preset_sowrt_task')) == str(lua.eval('__N2')),
+          '开始任务预选=当前选中任务(%s)' % str(lua.eval('__N2')))
+    lua.execute('P24:on_enter()')
+    check(str(lua.eval('REG[LW.RT.tname]')) == str(lua.eval('__N2')),
+          '实时播种页显示预选任务(修M53副作用: 不再永远任务1)')
+    lua.execute('P9:on_enter()')
+    check(lua.eval('REG[LW.TM.selidx]') == 2,
+          '返回任务管理页: 列表选中保持1基=2(不重置到首行)')
+
     print()
     print('任务管理/实时播种回归: %s (%d项)' % (
         '全部通过' if FAIL == 0 else '有失败', PASS))
